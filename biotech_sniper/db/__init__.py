@@ -204,60 +204,106 @@ def _apply_pending_alter_table_migrations(conn: sqlite3.Connection) -> None:
     """Run any ``ALTER TABLE ... ADD COLUMN`` migrations that are missing.
 
     Idempotent — checks each column with ``PRAGMA table_info`` before
-    issuing the ALTER. Safe to call inside the same transaction as
-    the ``schema.sql`` apply because none of these ALTERs commit
-    implicitly.
+    issuing the ALTER. The "duplicate column name" ``OperationalError``
+    that SQLite raises when two writers race on the same migration is
+    caught locally so it does not propagate out and roll back the
+    enclosing migration transaction. Any other ``OperationalError``
+    (e.g. malformed DDL, missing table) is re-raised so callers can
+    roll back.
     """
     for table, column, ddl in _ALTER_TABLE_ADD_COLUMNS:
         cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
         if column in cols:
             continue
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+        except sqlite3.OperationalError as exc:
+            # Only swallow the well-known "column already exists" race;
+            # everything else must propagate so the outer transaction
+            # rolls back.
+            if "duplicate column name" not in str(exc).lower():
+                raise
 
 
 def run_migrations(conn: sqlite3.Connection, target_version: int = CURRENT_VERSION) -> int:
     """Apply ``schema.sql`` and ALTER-TABLE migrations atomically.
 
-    Behaviour (post-f-m2-13):
+    Behaviour (post-f-m2-14):
 
     1. Read ``schema.sql`` and split it into individual statements
        (see :func:`split_sql_statements`).
-    2. Inside a single explicit transaction, execute every statement
-       (each ``CREATE TABLE``/``CREATE INDEX`` uses ``IF NOT EXISTS``,
-       so re-running is a no-op) and then run any pending
-       ``ALTER TABLE ... ADD COLUMN`` migrations declared in
-       :data:`_ALTER_TABLE_ADD_COLUMNS`.
-    3. Insert/upsert the ``schema_version`` row with ``version =
-       target_version``.
+    2. Open an EXPLICIT transaction (``BEGIN``) and execute every
+       statement (each ``CREATE TABLE``/``CREATE INDEX`` uses
+       ``IF NOT EXISTS``, so re-running is a no-op).
+    3. Run any pending ``ALTER TABLE ... ADD COLUMN`` migrations
+       declared in :data:`_ALTER_TABLE_ADD_COLUMNS`.
+    4. Upsert the ``schema_version`` row with ``version =
+       target_version`` and ``COMMIT``.
+    5. On any exception, ``ROLLBACK`` and re-raise so the caller sees
+       the original error and the database is left untouched.
 
     Idempotency
     -----------
-    Re-applying ``schema.sql`` on every connect is **intentional**: it
-    means a database whose ``schema_version`` row drifted (e.g. earlier
-    versions that forgot to bump ``CURRENT_VERSION`` when they added a
-    table) self-heals on the next connect. Version drift can never
-    cause silent table-skipping again.
+    Re-applying ``schema.sql`` on every connect is **intentional**: a
+    database whose ``schema_version`` row drifted (e.g. an earlier
+    feature forgot to bump ``CURRENT_VERSION``) self-heals on the
+    next connect. Version drift can never cause silent
+    table-skipping.
 
-    Atomicity
-    ---------
-    The earlier implementation called ``conn.executescript(schema_sql)``,
-    which issues an implicit ``COMMIT`` before executing the script —
-    if a later step (e.g. the ``schema_version`` insert) failed, the
-    DDL was already committed. The new implementation runs every
-    statement via ``conn.execute()`` inside ``with conn:`` so a
-    failure rolls back the entire migration cleanly.
+    Atomicity (the f-m2-14 fix)
+    ---------------------------
+    Earlier implementations relied on ``conn.executescript(schema_sql)``
+    or just ``with conn:`` to bundle the DDL. Both are unsafe for
+    SQLite DDL:
+
+    * ``executescript`` issues an implicit ``COMMIT`` before running
+      the script.
+    * ``with conn:`` only opens an implicit transaction the first
+      time a DML statement is executed via the connection's
+      ``isolation_level``. ``CREATE TABLE``/``ALTER TABLE`` are NOT
+      DML and Python's sqlite3 driver does **not** auto-BEGIN before
+      them — so each DDL statement effectively auto-commits.
+
+    The fix is to (a) set ``conn.isolation_level = None`` so the
+    driver does not interfere, (b) issue an explicit ``BEGIN`` BEFORE
+    any DDL, and (c) ``COMMIT``/``ROLLBACK`` ourselves. With this
+    pattern, an ``OperationalError`` raised mid-script reverts the
+    earlier ``CREATE TABLE`` statements as well — the database is
+    either fully migrated or fully untouched.
+
+    See ``library/architecture.md`` ("SQLite transactions" section)
+    for the broader rationale and recipe.
     """
 
     schema_sql = SCHEMA_PATH.read_text(encoding="utf-8")
     statements = split_sql_statements(schema_sql)
 
-    with conn:
-        for stmt in statements:
-            conn.execute(stmt)
-        _apply_pending_alter_table_migrations(conn)
-        conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version, description) "
-            "VALUES (?, ?)",
-            (target_version, f"biotech_sniper schema v{target_version}"),
-        )
+    # Take over transaction management from Python's sqlite3 driver.
+    # We restore the previous isolation_level on the way out so the
+    # caller's connection state is unchanged on success or failure.
+    previous_isolation_level = conn.isolation_level
+    conn.isolation_level = None
+    try:
+        conn.execute("BEGIN")
+        try:
+            for stmt in statements:
+                conn.execute(stmt)
+            _apply_pending_alter_table_migrations(conn)
+            conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version, description) "
+                "VALUES (?, ?)",
+                (target_version, f"biotech_sniper schema v{target_version}"),
+            )
+            conn.execute("COMMIT")
+        except Exception:
+            # ROLLBACK is best-effort: if the connection is already
+            # in a state where rollback fails we still want to
+            # surface the original exception, not the rollback's.
+            try:
+                conn.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
+            raise
+    finally:
+        conn.isolation_level = previous_isolation_level
     return target_version

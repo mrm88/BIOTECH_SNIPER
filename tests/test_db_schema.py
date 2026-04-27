@@ -450,13 +450,15 @@ def test_alter_table_note_migration_self_heals_old_schema(tmp_path):
 
 
 def test_run_migrations_rolls_back_on_mid_script_failure(tmp_path, monkeypatch):
-    """If a CREATE TABLE statement raises mid-script, no partial DDL persists.
+    """If the SECOND statement raises, the first CREATE TABLE rolls back too.
 
-    Monkey-patches ``split_sql_statements`` to inject a guaranteed-fail
-    statement after the first CREATE TABLE so we know the partial DDL
-    has already been issued in the same transaction. The atomic
-    migration must roll back the whole transaction so neither the
-    earlier CREATE TABLE nor the schema_version row survive.
+    Monkey-patches ``split_sql_statements`` so the second emitted
+    statement is guaranteed-invalid SQL. The first statement
+    (``CREATE TABLE schema_version``) has already been executed at
+    that point, so this proves the migration uses an EXPLICIT
+    transaction: without one, SQLite would auto-commit the first
+    DDL and the schema_version table would survive the rollback.
+    Post-f-m2-14, no tables from schema.sql may persist.
     """
     db_path = tmp_path / "alpha.db"
 
@@ -464,13 +466,12 @@ def test_run_migrations_rolls_back_on_mid_script_failure(tmp_path, monkeypatch):
 
     def _broken_split(sql: str) -> list[str]:
         statements = real_split(sql)
-        # Insert a guaranteed-fail statement after the first
-        # ``CREATE TABLE schema_version`` so the schema_version row
-        # write at the end never executes.
-        for idx, stmt in enumerate(statements):
-            if "CREATE TABLE" in stmt.upper() and "SCHEMA_VERSION" in stmt.upper():
-                return statements[: idx + 1] + ["this is not valid SQL;"]
-        return statements
+        # The first statement in schema.sql is
+        # ``CREATE TABLE IF NOT EXISTS schema_version``. Inject a
+        # guaranteed-fail statement immediately after it, dropping
+        # everything that follows so we don't accidentally re-issue
+        # the failing DDL twice (which would mask the rollback).
+        return [statements[0], "this is not valid SQL"]
 
     monkeypatch.setattr(db, "split_sql_statements", _broken_split)
 
@@ -478,18 +479,117 @@ def test_run_migrations_rolls_back_on_mid_script_failure(tmp_path, monkeypatch):
     try:
         with pytest.raises(sqlite3.OperationalError):
             db.run_migrations(conn)
-        # The transaction must have rolled back — schema_version row
-        # absent (or table absent), and no other tables created.
-        # Either schema_version table was rolled back, OR it exists
-        # but with no rows — both are acceptable atomic outcomes.
+
+        # Strict assertion: NO tables from schema.sql survive the
+        # rollback. ``sqlite_%`` internal tables are filtered out.
+        # If the explicit BEGIN is missing, schema_version (and any
+        # earlier CREATE TABLE) auto-commits and this assert fails.
         tables = _table_names(conn)
-        if "schema_version" in tables:
-            count = conn.execute(
-                "SELECT COUNT(*) FROM schema_version WHERE version = ?",
-                (db.CURRENT_VERSION,),
-            ).fetchone()[0]
-            assert count == 0, (
-                "schema_version row written despite mid-script failure"
-            )
+        assert tables == set(), (
+            f"expected zero user tables after rollback, got {tables!r}"
+        )
+
+        # Connection should be usable after rollback (no dangling tx).
+        # A trivial query must succeed without raising.
+        conn.execute("SELECT 1").fetchone()
+    finally:
+        conn.close()
+
+
+def test_run_migrations_rolls_back_on_late_failure(tmp_path, monkeypatch):
+    """If a statement deep in schema.sql fails, ALL prior CREATE TABLEs roll back.
+
+    Stronger sibling of the test above: rather than failing on the
+    second statement, this injects the failure AFTER several
+    CREATE TABLE statements have been issued. Validates that the
+    explicit transaction wraps the entire DDL stream — not just the
+    first couple of statements.
+    """
+    db_path = tmp_path / "alpha.db"
+
+    real_split = db.split_sql_statements
+
+    def _broken_split(sql: str) -> list[str]:
+        statements = real_split(sql)
+        # We want the failure to come AFTER multiple CREATE TABLEs
+        # have been executed so the test proves bulk rollback.
+        # schema.sql is well over a dozen statements; insert the
+        # bad SQL after the 5th.
+        assert len(statements) > 5, (
+            "schema.sql has fewer than 6 statements — adjust this test"
+        )
+        return statements[:5] + ["this is not valid SQL"]
+
+    monkeypatch.setattr(db, "split_sql_statements", _broken_split)
+
+    conn = db.connect(db_path)
+    try:
+        with pytest.raises(sqlite3.OperationalError):
+            db.run_migrations(conn)
+
+        # ALL of the first 5 CREATE TABLE/INDEX statements must have
+        # been rolled back: zero user tables remain.
+        tables = _table_names(conn)
+        assert tables == set(), (
+            f"expected zero user tables after late-failure rollback, "
+            f"got {tables!r}"
+        )
+
+        # And rolling back must not have left an open transaction
+        # that blocks future writes.
+        conn.execute("CREATE TABLE _post_rollback (id INTEGER)")
+        conn.execute("INSERT INTO _post_rollback VALUES (1)")
+        conn.commit()
+        assert conn.execute("SELECT COUNT(*) FROM _post_rollback").fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
+def test_run_migrations_swallows_duplicate_column_during_alter(tmp_path, monkeypatch):
+    """Duplicate-column OperationalError during ALTER must NOT roll back.
+
+    The ALTER-TABLE-ADD-COLUMN migrations must tolerate a "duplicate
+    column name" race (e.g. two cron units race the same migration).
+    That specific OperationalError must be swallowed locally so it
+    doesn't take down the outer transaction. After the race, the
+    migration must still complete (``schema_version`` row written
+    and committed).
+
+    We patch ``_ALTER_TABLE_ADD_COLUMNS`` so the migration tries to
+    add a column that ALREADY EXISTS in the schema (``id`` on
+    ``schema_version``). The PRAGMA pre-check in the helper
+    short-circuits — but we ALSO patch the helper to skip the
+    pre-check, simulating the race window.
+    """
+    db_path = tmp_path / "alpha.db"
+
+    def _patched_apply(conn_):
+        # Bypass the PRAGMA pre-check to force the ALTER to actually
+        # execute against an already-existing column. SQLite will
+        # raise OperationalError("duplicate column name: ...").
+        # The fix in run_migrations must catch this WITHOUT rolling
+        # back the outer transaction.
+        try:
+            conn_.execute("ALTER TABLE schema_version ADD COLUMN version INTEGER")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column name" not in str(exc).lower():
+                raise
+
+    monkeypatch.setattr(db, "_apply_pending_alter_table_migrations", _patched_apply)
+
+    conn = db.connect(db_path)
+    try:
+        v = db.run_migrations(conn)
+        assert v == db.CURRENT_VERSION
+
+        # Outer transaction committed: schema_version row present.
+        applied = conn.execute(
+            "SELECT MAX(version) FROM schema_version"
+        ).fetchone()[0]
+        assert applied == db.CURRENT_VERSION
+
+        # And no exception escaped: the DDL committed cleanly.
+        tables = _table_names(conn)
+        assert "schema_version" in tables
     finally:
         conn.close()
