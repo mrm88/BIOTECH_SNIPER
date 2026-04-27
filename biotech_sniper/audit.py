@@ -11,6 +11,7 @@ sys.path.insert(0, str(BASE_DIR / 'sectors'))
 
 failures = []
 warnings = []
+sources: dict = {}
 today = datetime.date.today().isoformat()
 print(f'FULL RUNTIME AUDIT — {today}')
 print('='*60)
@@ -26,8 +27,10 @@ try:
     if studies:
         print(f'  Sample: {studies[0].get("protocolSection",{}).get("identificationModule",{}).get("briefTitle","")[:60]}')
     print('  OK')
+    sources['clinicaltrials_gov'] = {'ok': r.status_code == 200, 'status': r.status_code, 'studies': len(studies)}
 except Exception as e:
     failures.append(f'ClinicalTrials: {e}'); print(f'  FAIL: {e}')
+    sources['clinicaltrials_gov'] = {'ok': False, 'error': str(e)}
 
 # ── 2. Warpspeed.sh ─────────────────────────────────────────
 print('\n[2] Warpspeed.sh')
@@ -57,8 +60,12 @@ try:
     tickers_data = r2.json()
     print(f'  CIK file: {r2.status_code} | Companies: {len(tickers_data):,}')
     print('  OK')
+    sources['sec_edgar'] = {'ok': r.status_code == 200 and r2.status_code == 200,
+                            'rss_status': r.status_code, 'cik_status': r2.status_code,
+                            'rss_entries': len(feed.entries), 'companies': len(tickers_data)}
 except Exception as e:
     failures.append(f'SEC: {e}'); print(f'  FAIL: {e}')
+    sources['sec_edgar'] = {'ok': False, 'error': str(e)}
 
 # ── 4. USASpending.gov ──────────────────────────────────────
 print('\n[4] USASpending.gov awards')
@@ -111,8 +118,11 @@ try:
     if feed.entries:
         print(f'  Sample: {feed.entries[0].get("title","")[:80]}')
     print('  OK')
+    sources['news_rss'] = {'ok': r.status_code == 200, 'status': r.status_code,
+                           'entries': len(feed.entries), 'feed': 'fda_adcom_rss'}
 except Exception as e:
     failures.append(f'FDA RSS: {e}'); print(f'  FAIL: {e}')
+    sources['news_rss'] = {'ok': False, 'error': str(e)}
 
 # ── 7. BiopharmCatalyst ─────────────────────────────────────
 print('\n[7] BiopharmCatalyst AdCom')
@@ -257,3 +267,21 @@ for w in warnings:
     print(f'  WARN: {w}')
 if not failures:
     print('\nALL CRITICAL TESTS PASS')
+
+# ── Write structured audit JSON to state/audit_latest.json ──
+try:
+    state_dir = BASE_DIR / 'state'
+    state_dir.mkdir(parents=True, exist_ok=True)
+    audit_path = state_dir / 'audit_latest.json'
+    audit_data = {
+        'as_of_date': today,
+        'generated_at': datetime.datetime.utcnow().isoformat() + 'Z',
+        'sources': sources,
+        'failures': failures,
+        'warnings': warnings,
+    }
+    with open(audit_path, 'w') as f:
+        json.dump(audit_data, f, indent=2, sort_keys=True)
+    print(f'\nAudit JSON written to {audit_path}')
+except Exception as e:
+    print(f'\nWARNING: failed to write audit JSON: {e}')
