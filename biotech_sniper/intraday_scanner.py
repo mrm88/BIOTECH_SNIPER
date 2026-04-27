@@ -24,19 +24,35 @@ EMAIL RULES: Only send if something actually changed.
 """
 
 import json
+import logging
 import os
 import re
 import datetime
+import time
 
 try:
-    from new_opportunity_sniper import scan_for_new_opportunities, format_new_opp_email
+    # f-m4-08a: bare ``from new_opportunity_sniper import …`` used to
+    # rely on the broken sys.path shim in master_unified_run; the
+    # canonical path is the fully-qualified ``biotech_sniper.``
+    # module.
+    from biotech_sniper.new_opportunity_sniper import (
+        scan_for_new_opportunities,
+        format_new_opp_email,
+    )
     _NEW_OPP_SNIPER_AVAILABLE = True
 except Exception as _e:
     print(f'  [intraday] new_opp_sniper not available: {_e}')
     _NEW_OPP_SNIPER_AVAILABLE = False
 import requests
 
+from biotech_sniper import logging_setup
 from biotech_sniper.paths import BASE_DIR as BASE
+
+# f-m4-08a: module-level logger. Renamed to ``_logger`` (rather than
+# ``log``) to avoid collision with ``run_intraday_scan``'s local
+# ``log`` variable that holds the JSON dict loaded from
+# ``state/intraday_log.json``.
+_logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -406,10 +422,17 @@ def scan_usaspending_intraday(seen_award_ids: set) -> list:
     """
     alerts = []
     try:
-        from sectors.contracts.sam_sniper import search_usaspending_by_keyword, match_award_to_ticker, score_award_signal
-        import sys
-        sys.path.insert(0, str(BASE / "sectors/contracts"))
-        from sam_sniper import search_usaspending_by_keyword, match_award_to_ticker, score_award_signal, load_ticker_map
+        # f-m4-08a: replace the bare ``from sectors.contracts.sam_sniper``
+        # / ``from sam_sniper`` imports + sys.path mutation with a
+        # single fully-qualified import. The legacy bare import paths
+        # never resolved in this layout and the function silently
+        # ate every call.
+        from biotech_sniper.sectors.contracts.sam_sniper import (
+            load_ticker_map,
+            match_award_to_ticker,
+            score_award_signal,
+            search_usaspending_by_keyword,
+        )
 
         ticker_map = load_ticker_map()
         awards = search_usaspending_by_keyword(
@@ -646,7 +669,15 @@ def format_intraday_email(breaking: list, new_plays: list, removals: list,
 
 def run_intraday_scan():
     """Main entry point — runs all 3 jobs, emails if anything changed."""
+    # f-m4-08a: configure structured JSON logging for the intraday
+    # cycle so log lines land in ``/var/log/alpha_sniper/intraday.log``
+    # (or the env-overridden destination). Idempotent on subsequent
+    # calls within the same process.
+    logging_setup.configure(log_name="intraday")
+    started_at = time.monotonic()
+
     now  = datetime.datetime.now().strftime("%Y-%m-%d %H:%M PT")
+    _logger.info("intraday_start", extra={"event": "intraday_start", "ts": now})
     data = load_active()
     log  = load_log()
 
@@ -874,6 +905,26 @@ def run_intraday_scan():
 
     new_opps = result_new_opps if 'result_new_opps' in dir() else []
     should_email = email_body is not None or bool(new_opps)
+
+    # f-m4-08a: structured ``intraday_done`` log line replaces the
+    # legacy ad-hoc print summary. Carries cycle-level counts so
+    # operators can grep the JSON log for SLO tracking.
+    elapsed = time.monotonic() - started_at
+    _logger.info(
+        "intraday_done",
+        extra={
+            "event": "intraday_done",
+            "duration_sec": elapsed,
+            "scan_time": now,
+            "breaking": len(breaking),
+            "new_plays": len(new_plays),
+            "removals": len(removals),
+            "upgrades": len(upgrades),
+            "adcom_alerts": len(adcom_alerts),
+            "new_opportunities": len(new_opps),
+            "should_email": bool(should_email),
+        },
+    )
 
     return {
         "breaking":          breaking,

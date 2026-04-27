@@ -31,20 +31,153 @@ STEP ORDER (6AM daily):
 
 import json
 import datetime
-import sys
+import logging
+import sqlite3
+import time
 from pathlib import Path
 
-from biotech_sniper.paths import BASE_DIR
+from biotech_sniper.paths import BASE_DIR, DATA_DIR, STATE_DIR
+from biotech_sniper import logging_setup
+# NOTE: ``biotech_sniper.audit`` is imported lazily inside
+# :func:`run_unified_scan` because the audit module runs a sizeable
+# block of network probes at import time (legacy module-level script
+# kept for ``python -m biotech_sniper.audit`` compatibility). Doing
+# ``from biotech_sniper import audit`` at module top would slow every
+# ``import biotech_sniper.master_unified_run`` to ~10s and break test
+# hermeticity.
+
 OUTPUT_FILE = BASE_DIR / "intelligence/unified_master_signals.json"
 
-sys.path.insert(0, str(BASE_DIR / "intelligence"))
-sys.path.insert(0, str(BASE_DIR / "sectors/contracts"))
-sys.path.insert(0, str(BASE_DIR / "sectors/adcom"))
-sys.path.insert(0, str(BASE_DIR / "sectors"))
+# f-m4-08a: bare cross-package imports (``from amendment_tracker
+# import …``, ``from sam_sniper import …`` …) used to be resolvable
+# only because the module level ``sys.path.insert`` calls below
+# pointed at ``BASE_DIR/intelligence`` etc. Those directories DO NOT
+# exist in this layout (the modules live under
+# ``biotech_sniper/intelligence/`` etc.), so every bare import
+# silently raised :class:`ModuleNotFoundError` at runtime and the
+# orchestrator's ``try/except`` blocks swallowed the error — the
+# daily systemd unit "ran" but performed no actual pipeline work.
+#
+# The fix is twofold:
+#   * remove the broken ``sys.path.insert`` calls outright,
+#   * import every cross-package symbol under its fully-qualified
+#     ``biotech_sniper.<sub>`` path inside ``run_unified_scan``.
+
+log = logging.getLogger(__name__)
+
+
+def _today_llm_cost_usd(db_path: Path | None = None) -> float:
+    """Return today's total LLM spend (USD) from ``llm_cost_ledger``.
+
+    Returns ``0.0`` when the database is missing, the table has not
+    been created yet, or any SQLite error occurs — the daily summary
+    must never crash on missing-state.
+    """
+    target = Path(db_path) if db_path is not None else (DATA_DIR / "alpha_sniper.db")
+    if not target.exists():
+        return 0.0
+    try:
+        conn = sqlite3.connect(str(target))
+        try:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(cost_usd), 0.0) FROM llm_cost_ledger "
+                "WHERE date(called_at) = date('now')"
+            ).fetchone()
+            return float(row[0]) if row and row[0] is not None else 0.0
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001 — never crash the daily summary
+        return 0.0
 
 
 def run_unified_scan():
+    """Daily orchestrator entrypoint.
+
+    Wraps :func:`_run_unified_scan_impl` with structured logging,
+    a ``try/finally`` that always refreshes ``state/audit_latest.json``
+    via :func:`biotech_sniper.audit.write_audit_latest`, and a
+    ``daily_done`` log line carrying ``duration_sec``,
+    ``orders_submitted``, ``cards_generated`` and ``llm_cost_usd``
+    on the success path (per the f-m4-08a contract).
+    """
+    # f-m4-08a: configure structured JSON logging for the daily run
+    # before any other work happens so every downstream log line lands
+    # in ``/var/log/alpha_sniper/daily.log`` (or the env-overridden
+    # destination). ``configure`` is idempotent on the second call
+    # within the same process.
+    logging_setup.configure(log_name="daily")
+
     today = datetime.date.today().isoformat()
+    started_at = time.monotonic()
+    state: dict = {"play_cards_written": [], "n_orders": 0}
+    success = False
+
+    log.info(
+        "daily_start",
+        extra={"event": "daily_start", "date": today},
+    )
+
+    try:
+        master = _run_unified_scan_impl(
+            today=today, started_at=started_at, state=state
+        )
+        success = True
+        return master
+    finally:
+        elapsed = time.monotonic() - started_at
+        cards = len(state.get("play_cards_written") or [])
+        n_orders = int(state.get("n_orders") or 0)
+        cost = _today_llm_cost_usd()
+        # f-m4-08a: refresh audit_latest.json with the M4 contract
+        # fields (last_daily_run, db_size_bytes, paper_account_equity)
+        # PLUS a ``last_daily_run_summary`` block on every cycle —
+        # success OR failure. The write is in a ``finally`` so a
+        # crashed daily run still records that the cycle ran.
+        try:
+            # Lazy import: see module-level note about audit's
+            # network probes running at import time.
+            from biotech_sniper.audit import write_audit_latest as _write_audit_latest
+
+            _write_audit_latest(
+                STATE_DIR / "audit_latest.json",
+                extra={
+                    "last_daily_run_summary": {
+                        "date": today,
+                        "duration_sec": elapsed,
+                        "orders_submitted": n_orders,
+                        "cards_generated": cards,
+                        "llm_cost_usd": cost,
+                        "success": success,
+                    }
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 — audit write must not crash the run
+            log.warning(
+                "audit_write_failed",
+                extra={"event": "audit_write_failed", "error": repr(exc)},
+            )
+        if success:
+            log.info(
+                "daily_done",
+                extra={
+                    "event": "daily_done",
+                    "duration_sec": elapsed,
+                    "orders_submitted": n_orders,
+                    "cards_generated": cards,
+                    "llm_cost_usd": cost,
+                },
+            )
+
+
+def _run_unified_scan_impl(*, today: str, started_at: float, state: dict) -> dict:
+    """Body of :func:`run_unified_scan` — kept as a separate helper so
+    the wrapper can apply structured logging + audit refresh in a
+    ``try/finally`` without re-indenting the entire orchestrator.
+
+    ``state`` is mutated as the run progresses so the wrapper can
+    read ``play_cards_written`` / ``n_orders`` from it inside
+    ``finally`` even when the body raises mid-way.
+    """
     all_signals  = []
     sector_results = {}
     needs_scoring  = []  # global scoring queue — populated by discovery + sectors
@@ -59,7 +192,7 @@ def run_unified_scan():
     print(f"STEP 0a: AUTO-RESOLVE MISSING IR URLS")
     print(f"{'─'*70}")
     try:
-        from company_resolver import auto_resolve_missing_ir_urls
+        from biotech_sniper.intelligence.company_resolver import auto_resolve_missing_ir_urls
         auto_resolve_missing_ir_urls()
     except Exception as e:
         print(f"  Auto-resolver skipped: {e}")
@@ -95,7 +228,7 @@ def run_unified_scan():
     print(f"{'─'*70}")
     discovery_result = {}
     try:
-        from master_discovery import run_discovery
+        from biotech_sniper.intelligence.master_discovery import run_discovery
         discovery_result = run_discovery()
 
         # All newly discovered candidates with known tickers → scoring queue
@@ -111,7 +244,7 @@ def run_unified_scan():
                 science_scoring_prompt = base_scoring_prompt
                 if sector == "BIOTECH" and nct_id and nct_id.startswith("NCT"):
                     try:
-                        from intelligence.trial_science_reader import get_science_profile
+                        from biotech_sniper.intelligence.trial_science_reader import get_science_profile
                         science_profile = get_science_profile(nct_id, candidate)
                         if science_profile.get("science_prompt"):
                             science_scoring_prompt = science_profile["science_prompt"]
@@ -171,15 +304,15 @@ def run_unified_scan():
     print(f"{'─'*70}")
     try:
         # Step 1a: Amendment tracker
-        from amendment_tracker import run_amendment_check
+        from biotech_sniper.intelligence.amendment_tracker import run_amendment_check
         # Step 1b: IR events watcher (checks all IR pages + SEC EDGAR)
-        from ir_events_watcher import run_ir_events_check
+        from biotech_sniper.intelligence.ir_events_watcher import run_ir_events_check
         # Step 1c: SEC 8-K monitor
-        from sec_8k_monitor import run_8k_monitor
+        from biotech_sniper.intelligence.sec_8k_monitor import run_8k_monitor
         # Step 1d: Twitter/X queries (queries only — cron agent runs them)
-        from twitter_biotech_monitor import build_twitter_search_queries
+        from biotech_sniper.intelligence.twitter_biotech_monitor import build_twitter_search_queries
         # Lifecycle manager
-        from watchlist_lifecycle import run_lifecycle_check
+        from biotech_sniper.intelligence.watchlist_lifecycle import run_lifecycle_check
 
         # Step 1a
         print(f"\n  Step 1a: Amendment tracker...")
@@ -240,7 +373,7 @@ def run_unified_scan():
     print(f"SECTOR 2: GOVERNMENT CONTRACTS (USASpending + Defense.gov RSS + SAM.gov)")
     print(f"{'─'*70}")
     try:
-        from sam_sniper import run_contract_scan
+        from biotech_sniper.sectors.contracts.sam_sniper import run_contract_scan
         contracts_result = run_contract_scan(days_back=3)
 
         contract_signals = contracts_result.get("signals", [])
@@ -270,7 +403,7 @@ def run_unified_scan():
     print(f"SECTOR 3: FDA ADVISORY COMMITTEES (multi-source)")
     print(f"{'─'*70}")
     try:
-        from adcom_scanner import run_adcom_scan
+        from biotech_sniper.sectors.adcom.adcom_scanner import run_adcom_scan
         adcom_result = run_adcom_scan()
 
         adcom_signals = adcom_result.get("signals", [])
@@ -308,7 +441,7 @@ def run_unified_scan():
     science_enrichment_result = {}
     science_section_text = ""
     try:
-        from intelligence.science_enrichment_pipeline import run_science_enrichment, format_science_section_for_email
+        from biotech_sniper.intelligence.science_enrichment_pipeline import run_science_enrichment, format_science_section_for_email
         science_enrichment_result = run_science_enrichment()
         science_section_text = format_science_section_for_email(
             science_enrichment_result.get("enriched_plays", {})
@@ -330,21 +463,21 @@ def run_unified_scan():
     resolver_results = {}
     learning_results = {}
     try:
-        from performance_tracker import run_tracker
+        from biotech_sniper.performance_tracker import run_tracker
         tracker_results = run_tracker()
         print(f"  Tracker: {len(tracker_results.get('updated', []))} plays updated | {len(tracker_results.get('catalyst_signals', []))} catalyst signals")
     except Exception as e:
         print(f"  Tracker error: {e}")
 
     try:
-        from auto_resolver import run_auto_resolver
+        from biotech_sniper.auto_resolver import run_auto_resolver
         resolver_results = run_auto_resolver()
         print(f"  Resolver: {resolver_results.get('new_resolutions', 0)} new resolutions | {resolver_results.get('total_resolved', 0)} total resolved")
     except Exception as e:
         print(f"  Resolver error: {e}")
 
     try:
-        from learning_engine import run_learning_cycle
+        from biotech_sniper.learning_engine import run_learning_cycle
         learning_results = run_learning_cycle()
         print(f"  Learning: {learning_results.get('summary', 'no data yet')}")
     except Exception as e:
@@ -364,6 +497,10 @@ def run_unified_scan():
         print(f"  → {len(play_cards_written)} play cards written for {today}")
     except Exception as e:
         print(f"  → emit_play_cards error: {e}")
+    # Mirror into the wrapper's state dict so the ``finally`` block
+    # in :func:`run_unified_scan` can report ``cards_generated``
+    # accurately even when this branch raises (state is shared).
+    state["play_cards_written"] = play_cards_written
 
     # ── CONSOLIDATE ALL SIGNALS ──────────────────────────────────────────────
     critical = [s for s in all_signals if s.get("severity") == "CRITICAL"]
@@ -419,18 +556,24 @@ def run_unified_scan():
     with open(OUTPUT_FILE, "w") as f:
         json.dump(master, f, indent=2)
 
-    print(f"\n{'#'*70}")
-    print(f"UNIFIED SCAN COMPLETE — {today}")
-    print(f"  Total signals: {len(all_signals)} ({len(critical)} critical, {len(high)} high)")
-    print(f"  Needs scoring: {len(deduped_scoring)} new candidates")
-    print(f"  Active plays: {len(active_plays)}")
-    if discovery_result:
-        dr = discovery_result.get("summary", {})
-        print(f"  Discovery: {dr.get('total_new_biotech',0)} biotech | "
-              f"{dr.get('total_new_contracts',0)} contracts | "
-              f"{dr.get('total_new_adcom',0)} adcom | "
-              f"{dr.get('defense_rss_matched',0)} defense RSS matched")
-    print(f"{'#'*70}\n")
+    # f-m4-08a: the legacy ``UNIFIED SCAN COMPLETE`` print() block was
+    # replaced by a structured ``daily_done`` JSON log line emitted by
+    # :func:`run_unified_scan` after this helper returns. We log a
+    # brief INFO summary here so journalctl readers still see the
+    # consolidated counts, but the canonical machine-readable summary
+    # is the wrapper's ``daily_done`` event.
+    log.info(
+        "daily_summary",
+        extra={
+            "event": "daily_summary",
+            "date": today,
+            "total_signals": len(all_signals),
+            "critical_signals": len(critical),
+            "high_signals": len(high),
+            "needs_scoring": len(deduped_scoring),
+            "active_plays": len(active_plays),
+        },
+    )
 
     return master
 
