@@ -1,0 +1,49 @@
+{
+  "alerts_sent": [
+    {
+      "key": "ir:VRDN:webcast_prereg_detected",
+      "ticker": "VRDN",
+      "ts": "2026-03-31 16:28 PT",
+      "type": "upgrade"
+    }
+  ],
+  "last_scan": "2026-04-24 21:33 PT",
+  "seen_award_ids": [],
+  "seen_urls": [
+    "",
+    "https://www.sec.gov/Archives/edgar/data/1652130/000119312526151300/0001193125-26-151300-index.htm",
+    "https://www.prnewswire.com/news-releases/ideaya-biosciences-announces-late-breaking-abstract-oral-presentation-at-asco-2026-to-provide-complete-data-from-phase-23-registrational-trial-optimum-02-of-darovasertib-in-combination-with-crizotinib-in-1l-hlaa2-negative-meta-302747826.html",
+    "https://endpoints.news/replimune-looks-ahead-as-repeat-crl-speeds-the-companys-decline/",
+    "https://endpoints.news/oric-to-advance-prostate-cancer-drug-to-phase-3-but-combo-choice-raises-doubts/",
+    "https://endpoints.news/gilead-declines-another-arcus-option-after-phase-3-tigit-fail/",
+    "ir:VRDN:webcast_prereg_detected",
+    "https://endpoints.news/nektars-long-term-mid-stage-alopecia-data-fuels-phase-3-plans/",
+    "https://www.prnewswire.com/news-releases/aardvark-therapeutics-aard-faces-investor-scrutiny-amid-56-drop-on-clinical-pause-for-lead-drug-candidate-hagens-berman-302739496.html",
+    "https://endpoints.news/roche-to-start-a-new-phase-3-trial-for-elevidys/",
+    "https://www.prnewswire.com/news-releases/ideaya-biosciences-to-announce-topline-results-from-phase-23-optimum-02-trial-in-metastatic-uveal-melanoma-on-monday-april-13-2026-302739365.html",
+    "https://www.statnews.com/2026/04/16/roche-elevidys-pivotal-trial-europe-sarepta/?utm_campaign=rss",
+    "https://endpoints.news/novo-nordisks-sickle-cell-therapy-hits-in-phase-3-but-data-lag-expectations/",
+    "https://www.prnewswire.com/news-releases/oved--oved-successful-in-obtaining-decisive-appellate-court-victory-on-behalf-of-client-302746309.html",
+    "https://www.prnewswire.com/news-releases/aardvark-therapeutics-aard-faces-investor-scrutiny-amid-56-drop-on-clinical-pause-for-lead-drug-candidate-hagens-berman-302750579.html",
+    "https://endpoints.news/revolution-medicines-pancreatic-cancer-drug-doubles-survival-time-in-phase-3/",
+    "https://www.sec.gov/Archives/edgar/data/1628171/000119312526152039/0001193125-26-152039-index.htm",
+    "https://www.sec.gov/Archives/edgar/data/1628171/000119312526161800/0001193125-26-161800-index.htm",
+    "https://www.statnews.com/2026/04/16/travere-therapeutics-kidney-disease-fda-approval/?utm_campaign=rss",
+    "https://www.sec.gov/Archives/edgar/data/1628171/000119312526159289/0001193125-26-159289-index.htm",
+    "https://endpoints.news/lipocines-postpartum-depression-drug-fails-astrazeneca-claims-liver-cancer-win/",
+    "https://www.prnewswire.com/news-releases/hoth-therapeutics-hoth-reports-positive-ht-va-crada-data-gdnf-reprograms-liver-fat-metabolism-shuts-down-fat-creation-gene-and-activates-fat-burning-pathways-outperforming-semaglutide-302740965.html",
+    "https://www.prnewswire.com/news-releases/ray-lahood-60-minutes-story-on-californias-high-speed-rail-project-missed-the-news-302735007.html",
+    "https://endpoints.news/revolution-medicines-buyout-price-soars-after-pancreatic-cancer-win/",
+    "https://endpoints.news/immunovants-fcrn-drug-fails-in-a-pair-of-phase-3-trials-in-thyroid-eye-disease/",
+    "https://endpoints.news/meiragtx-buys-back-gene-therapy-from-j-storm-brings-in-56m-series-c/",
+    "https://www.prnewswire.com/news-releases/verismo-therapeutics-initial-clinical-data-from-star-101-phase-1-trial-of-synkir-110-kir-car-presented-at-aacr-2026-plenary-session-302747527.html",
+    "https://endpoints.news/amgen-seeks-to-buoy-tepezza-with-injectable-data-in-face-of-incoming-competition/",
+    "https://www.statnews.com/2026/04/08/health-news-what-does-maha-movement-look-like-these-days/?utm_campaign=rss",
+    "https://endpoints.news/gsk-plans-five-phase-3-studies-for-gynecological-cancer-adc-from-hansoh/",
+    "https://www.prnewswire.com/news-releases/grail-to-present-new-data-from-nhs-galleri-and-pathfinder-2-at-2026-asco-annual-meeting-302749354.html",
+    "https://endpoints.news/sanofis-tolebrutinib-gets-chmp-backing-for-certain-ms-patients-after-fda-rejection/",
+    "https://endpoints.news/novos-pill-for-kids-altimmunes-225m-offering-merck-teams-with-google-cloud/",
+    "https://www.globenewswire.com/news-release/2026/03/03/3248382/0/en/Cat-Footwear-Launches-Power-Spring-Its-First-Proprietary-Sole-Technology-Designed-to-Absorb-Impact-and-Increase-All-Day-Comfort-for-Workers.html",
+    "https://endpoints.news/lilly-wins-approval-of-anti-obesity-pill-orforglipron-setting-up-new-battle-with-novo/"
+  ]
+}

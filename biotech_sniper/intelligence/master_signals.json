@@ -1,0 +1,241 @@
+{
+  "run_date": "2026-03-31",
+  "all_signals": [],
+  "critical": [],
+  "high": [],
+  "total": 0,
+  "module_results": {
+    "amendment": {
+      "run_date": "2026-03-31",
+      "signals": [],
+      "tickers_checked": [
+        "IDYA",
+        "AGIO",
+        "MLTX",
+        "RZLT",
+        "RVMD",
+        "TVTX",
+        "AXSM",
+        "RGNX",
+        "ARGX",
+        "NTLA",
+        "VRDN",
+        "NAMS"
+      ],
+      "total_signals": 0,
+      "bearish_signals": [],
+      "bullish_signals": []
+    },
+    "ir_events": {
+      "run_date": "2026-03-31",
+      "signals": [],
+      "critical": [],
+      "tickers_checked": [
+        "IDYA",
+        "AGIO",
+        "MLTX",
+        "RZLT",
+        "RVMD",
+        "TVTX",
+        "AXSM",
+        "RGNX",
+        "ARGX",
+        "NTLA",
+        "VRDN",
+        "NAMS"
+      ]
+    },
+    "sec_8k": {
+      "run_date": "2026-03-31",
+      "mode": "daily",
+      "signals": [],
+      "breaking": [],
+      "total": 0
+    },
+    "twitter": {
+      "run_date": "2026-03-31",
+      "signals": [],
+      "critical": [],
+      "high": [],
+      "total": 0
+    },
+    "lifecycle": {
+      "run_date": "2026-03-31",
+      "active_count": 9,
+      "monitor_count": 5,
+      "removed": [],
+      "upgraded": [],
+      "graduated": [],
+      "actions": [],
+      "active_plays_ordered": [
+        {
+          "ticker": "TVTX",
+          "days_out": 13,
+          "p_success": 77,
+          "direction": "LONG_CALLS",
+          "announcement": "April 13 2026",
+          "certainty": "CERTAIN",
+          "option": "$35C 2026-04-17"
+        },
+        {
+          "ticker": "IDYA",
+          "days_out": 15,
+          "p_success": 96,
+          "direction": "LONG_CALLS",
+          "announcement": "late April - early May 2026",
+          "certainty": "ESTIMATED",
+          "option": "$40C 2026-05-16"
+        },
+        {
+          "ticker": "RGNX",
+          "days_out": 15,
+          "p_success": 68,
+          "direction": "LONG_CALLS",
+          "announcement": "April - May 2026",
+          "certainty": "ESTIMATED",
+          "option": "$10C 2026-07-17"
+        },
+        {
+          "ticker": "AXSM",
+          "days_out": 30,
+          "p_success": 85,
+          "direction": "LONG_CALLS",
+          "announcement": "April 30 2026",
+          "certainty": "CERTAIN",
+          "option": "$200C 2026-05-16"
+        },
+        {
+          "ticker": "ARGX",
+          "days_out": 40,
+          "p_success": 87,
+          "direction": "CALL_SPREAD",
+          "announcement": "May 10 2026",
+          "certainty": "CERTAIN",
+          "option": "$750/800 spreadC 2026-05-16"
+        },
+        {
+          "ticker": "AGIO",
+          "days_out": 45,
+          "p_success": 6,
+          "direction": "LONG_PUTS",
+          "announcement": "May - June 2026",
+          "certainty": "ESTIMATED",
+          "option": "$17.5P 2026-08-21"
+        },
+        {
+          "ticker": "NTLA",
+          "days_out": 45,
+          "p_success": 82,
+          "direction": "LONG_CALLS",
+          "announcement": "May - June 2026",
+          "certainty": "ESTIMATED",
+          "option": "$15C 2026-07-17"
+        },
+        {
+          "ticker": "VRDN",
+          "days_out": 999,
+          "p_success": 80,
+          "direction": "LONG_CALLS",
+          "announcement": "Q2 2026",
+          "certainty": "ESTIMATED",
+          "option": "$25C 2026-07-17"
+        },
+        {
+          "ticker": "LPCN",
+          "days_out": 999,
+          "p_success": 62,
+          "direction": "EQUITY_ONLY",
+          "announcement": "Q2 2026",
+          "certainty": "ESTIMATED",
+          "option": "$NoneNone None"
+        }
+      ]
+    }
+  },
+  "summary_for_email": "INTELLIGENCE SUITE: No signals today. All watchlist trials stable.",
+  "active_plays_ordered": [
+    {
+      "ticker": "TVTX",
+      "days_out": 13,
+      "p_success": 77,
+      "direction": "LONG_CALLS",
+      "announcement": "April 13 2026",
+      "certainty": "CERTAIN",
+      "option": "$35C 2026-04-17"
+    },
+    {
+      "ticker": "IDYA",
+      "days_out": 15,
+      "p_success": 96,
+      "direction": "LONG_CALLS",
+      "announcement": "late April - early May 2026",
+      "certainty": "ESTIMATED",
+      "option": "$40C 2026-05-16"
+    },
+    {
+      "ticker": "RGNX",
+      "days_out": 15,
+      "p_success": 68,
+      "direction": "LONG_CALLS",
+      "announcement": "April - May 2026",
+      "certainty": "ESTIMATED",
+      "option": "$10C 2026-07-17"
+    },
+    {
+      "ticker": "AXSM",
+      "days_out": 30,
+      "p_success": 85,
+      "direction": "LONG_CALLS",
+      "announcement": "April 30 2026",
+      "certainty": "CERTAIN",
+      "option": "$200C 2026-05-16"
+    },
+    {
+      "ticker": "ARGX",
+      "days_out": 40,
+      "p_success": 87,
+      "direction": "CALL_SPREAD",
+      "announcement": "May 10 2026",
+      "certainty": "CERTAIN",
+      "option": "$750/800 spreadC 2026-05-16"
+    },
+    {
+      "ticker": "AGIO",
+      "days_out": 45,
+      "p_success": 6,
+      "direction": "LONG_PUTS",
+      "announcement": "May - June 2026",
+      "certainty": "ESTIMATED",
+      "option": "$17.5P 2026-08-21"
+    },
+    {
+      "ticker": "NTLA",
+      "days_out": 45,
+      "p_success": 82,
+      "direction": "LONG_CALLS",
+      "announcement": "May - June 2026",
+      "certainty": "ESTIMATED",
+      "option": "$15C 2026-07-17"
+    },
+    {
+      "ticker": "VRDN",
+      "days_out": 999,
+      "p_success": 80,
+      "direction": "LONG_CALLS",
+      "announcement": "Q2 2026",
+      "certainty": "ESTIMATED",
+      "option": "$25C 2026-07-17"
+    },
+    {
+      "ticker": "LPCN",
+      "days_out": 999,
+      "p_success": 62,
+      "direction": "EQUITY_ONLY",
+      "announcement": "Q2 2026",
+      "certainty": "ESTIMATED",
+      "option": "$NoneNone None"
+    }
+  ],
+  "removed_today": [],
+  "graduated_today": []
+}

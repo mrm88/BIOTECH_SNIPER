@@ -1,0 +1,480 @@
+════════════════════════════════════════════════════════════════════════
+BIOTECH SNIPER — CLINICAL TRIAL PROBABILITY SCORE
+════════════════════════════════════════════════════════════════════════
+TICKER:       LPCN (Lipocine Inc.)
+DRUG:         LPCN 1154 — oral brexanolone (allopregnanolone),
+              GABA-A positive allosteric modulator (PAM)
+EVENT:        PHASE 3 TOPLINE DATA — Expected early Q2 2026
+INDICATION:   Severe postpartum depression (PPD)
+TRIAL:        Phase 3 pivotal (RCT, double-blind, placebo-controlled,
+              n=90, 48-hour oral treatment, NCT06979544)
+ANALYST:      Claude (automated scoring)
+DATE:         March 30, 2026
+
+IMPORTANT CORRECTION: The task description characterized LPCN 1154 as
+an "oral progesterone prodrug." This is INCORRECT. LPCN 1154 is an
+ORAL FORMULATION OF BREXANOLONE (allopregnanolone), the same active
+ingredient as the FDA-approved IV drug Zulresso. It is NOT a different
+drug — it is a 505(b)(2) reformulation for oral delivery.
+════════════════════════════════════════════════════════════════════════
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 1: BASE RATES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+(a) 505(b)(2) Reformulation Success Rates
+──────────────────────────────────────────
+• LPCN 1154 is pursuing a 505(b)(2) NDA pathway — relying on FDA's
+  prior finding of safety and efficacy for IV brexanolone (Zulresso)
+  as the reference product.
+• LPCN 1154 has ALREADY demonstrated PK bioequivalence to IV
+  brexanolone in a pivotal PK bridge study (June 2024):
+  - Cmax GMR: 105% (90% CI: 92-120%) ✓
+  - AUC0-∞ GMR: 97% (90% CI: 88-107%) ✓
+  - AUC0-t GMR: 88% (90% CI: 80-99%) ✓
+  - Ctrough: met criteria (higher than IV trough)
+  [Source: Lipocine/Nasdaq PR, June 25, 2024]
+• For 505(b)(2) products with established bioequivalence, the
+  primary question is whether the oral formulation provides
+  COMPARABLE efficacy and ACCEPTABLE safety in the clinical setting.
+• 505(b)(2) approval rate when pivotal trial meets primary: ~75-85%.
+• HOWEVER: FDA required a clinical efficacy/safety study (not just
+  PK bridge), which suggests some regulatory uncertainty about
+  whether oral bioequivalence translates to clinical benefit.
+
+  BASE RATE (505(b)(2) with bioequivalence + positive pivotal): ~75-80%
+
+(b) IV Brexanolone (Zulresso) Efficacy in PPD
+──────────────────────────────────────────────
+• Brexanolone IV approved 2019 for PPD based on three Phase 3 trials:
+  [Source: PMC8146562, Psychopharmacology Bulletin]
+  [Source: South Carolina Blues/PMC]
+  
+  Study 202A (Phase 2, severe PPD, n=21):
+  - HAM-D reduction: BRX -21.0 vs PBO -8.8 (Δ=-12.2, p<0.05)
+  - 70% remission at Hour 60 vs 9% placebo
+  
+  Study 202B (Phase 3, severe PPD, n=122):
+  - BRX60: HAM-D Δ=-5.5 vs PBO (p<0.05)
+  - BRX90: HAM-D Δ=-3.7 vs PBO (p<0.05)
+  - Remission at Hour 60: 51% (BRX60), 31% (BRX90) vs 16% PBO
+  
+  Study 202C (Phase 3, moderate PPD, n=104):
+  - BRX90: HAM-D Δ=-2.5 vs PBO (p<0.05)
+  - Remission at Hour 60: 61% BRX vs 39% PBO
+  
+• CRITICAL OBSERVATION: The Phase 2 effect size (12.2 points) was
+  MUCH larger than Phase 3 effect sizes (2.5-5.5 points). This
+  "shrinking effect" is common in depression trials due to high
+  placebo response rates.
+• Pooled Phase 3 analysis: BRX achieved 50% HAM-D remission at
+  Hour 60 vs 26% placebo. Response rate (≥50% reduction): 74% vs
+  56%. These are MODEST but significant effects.
+  [Source: PMC7957380, J Women's Health]
+
+  BASE RATE (brexanolone-equivalent oral formulation in PPD): ~60-70%
+
+(c) LPCN 1154 Phase 3 Trial Design Considerations
+──────────────────────────────────────────────────
+• Phase 3: n=90, randomized, double-blind, placebo-controlled
+• Population: Women ≥15 years with SEVERE PPD (baseline HAM-D 28.3)
+• Treatment: 48-hour oral dosing (vs 60-hour IV for Zulresso)
+• Primary endpoint: Change from baseline in HAM-D at Hour 60
+• Setting: OUTPATIENT (vs inpatient REMS for Zulresso)
+• LPLV completed Feb 18, 2026. Topline expected early Q2 2026.
+  [Source: Lipocine PR/BioUtah, Feb 18, 2026]
+  [Source: Lipocine IR, Jan 20, 2026]
+
+• KEY DIFFERENCES from Zulresso pivotal program:
+  1. Oral vs IV delivery (despite PK bioequivalence)
+  2. 48-hour vs 60-hour treatment duration
+  3. Outpatient vs inpatient setting
+  4. No REMS-type monitoring required
+  5. n=90 (similar to 202B study, n=122)
+  
+• FDA guidance: Required single confirmatory efficacy trial. The fact
+  that FDA accepted ONE trial (not two) reflects confidence in the
+  brexanolone reference, but the requirement for ANY efficacy study
+  (vs pure PK bridge) means FDA wants direct evidence of oral efficacy.
+  [Source: Lipocine/PR Newswire, Feb 6, 2025]
+
+  BASE RATE (single confirmatory trial, PPD, PK-bridged): ~60-70%
+
+(d) PPD Trial Placebo Response Rates
+─────────────────────────────────────
+• PPD trials have NOTORIOUSLY high placebo response rates:
+  - Zulresso 202B: Placebo HAM-D reduction of 14.0-14.4 points
+    (out of baseline ~28-29). That's ~50% improvement on PLACEBO.
+  - Zulresso 202C: Placebo HAM-D reduction of 12.1 points.
+  - Zuranolone SKYLARK: Similar high placebo rates.
+• This high placebo response dramatically narrows the drug-placebo
+  gap. Brexanolone IV achieved only 2.5-5.5 point superiority in
+  the larger Phase 3 trials (vs 12.2 in small Phase 2).
+• In an OUTPATIENT setting (LPCN 1154 Phase 3), placebo response
+  may be even HIGHER than inpatient Zulresso trials, because:
+  (a) Patients are in their home environment with support
+  (b) Less anxiety about being in a hospital
+  (c) Natural course of PPD includes spontaneous improvement
+• With n=90 and a narrow drug-placebo gap, the study needs
+  adequate power. If placebo response is ≥14 points (as in 202B),
+  the drug needs to achieve ~17-18 points — a narrow target.
+
+  BASE RATE (accounting for placebo response risk): ~55-65%
+
+COMPOSITE BASE RATE: ~62%
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 2: FACTOR ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+FACTOR 1: Prior Data / Bioequivalence Strength (Weight: 30%)
+──────────────────────────────────────────────────────────────
+Score: 7.5/10
+
+POSITIVES (STRONG):
+• PK bioequivalence ESTABLISHED: Cmax, AUC0-∞, AUC0-t all met
+  standard BE criteria (GMR and 90% CI within 80-125%).
+  [Source: Lipocine/Nasdaq, June 25, 2024]
+• Ctrough for oral was HIGHER than IV trough — potentially
+  providing more sustained CNS exposure during the 48-hour
+  treatment window.
+• LPCN 1154 is the SAME MOLECULE as FDA-approved brexanolone.
+  Not a prodrug, not a derivative — it IS brexanolone delivered
+  orally. The mechanism is proven and validated.
+• IV brexanolone has been approved since 2019 with established
+  efficacy data in 3 RCTs (n=247 total).
+• qEEG study in healthy volunteers showed concentration- and time-
+  dependent CNS activity consistent with GABA-A PAM mechanism.
+  [Source: Lipocine/PR Newswire, Feb 18, 2026]
+
+NEGATIVES:
+• PK bioequivalence does NOT guarantee clinical equivalence.
+  Oral delivery has different absorption kinetics, first-pass
+  metabolism, and PK variability vs constant-rate IV infusion.
+• AUC0-t GMR of 88% (90% CI: 80-99%) was at the LOWER bound of
+  the bioequivalence range. This means oral exposure is modestly
+  LOWER than IV in some patients, potentially reducing efficacy.
+• No Phase 2 clinical efficacy data for ORAL LPCN 1154 exists.
+  The PK bridge is the only prior evidence. This is a single
+  pivotal trial design with NO prior clinical signal.
+• Brexanolone IV 48-hour cutoff (vs 60 hours): LPCN 1154 uses
+  48-hour dosing period, which is shorter than the full 60-hour
+  Zulresso infusion. The last 12 hours of infusion may contribute
+  to sustained efficacy — this is unproven territory.
+
+WEIGHTED CONTRIBUTION: 7.5 × 0.30 = 2.25
+
+────────────────────────────────────────────────
+FACTOR 2: Trial Design / Statistical Risk (Weight: 30%)
+────────────────────────────────────────────────
+Score: 5.5/10
+
+POSITIVES:
+• Trial design "aligns closely with the Zulresso registrational
+  trials with respect to patient population (women with severe PPD
+  and similar baseline HAM-D scores), treatment duration, sample
+  size, and the primary efficacy endpoint."
+  [Source: Lipocine/PR Newswire, Feb 18, 2026]
+• Baseline HAM-D of 28.3 — SEVERE population, consistent with
+  Zulresso 202B (baseline ~28-29).
+• Single confirmatory trial per FDA guidance — regulatory alignment.
+• 48-hour treatment duration aligns with PK bridge study design.
+• Outpatient setting improves real-world applicability.
+• 90 patients enrolled and completed (LPLV Feb 18, 2026).
+  [Source: Lipocine/BioUtah, Feb 18, 2026]
+
+NEGATIVES (SIGNIFICANT):
+• n=90 is BORDERLINE for a PPD trial with high placebo response.
+  Zulresso 202B had n=122 and achieved p<0.05 with only 3.7-5.5
+  point HAM-D superiority. At n=90, statistical power is reduced.
+• HIGH PLACEBO RESPONSE is the #1 risk. In Zulresso trials, placebo
+  improved by 12-14 HAM-D points. In an outpatient setting, this
+  could be even higher (less anxiety, more natural support).
+• 48-hour vs 60-hour treatment: Zulresso's pivotal endpoint was at
+  Hour 60, which was during infusion tapering. LPCN 1154 measures
+  at Hour 60 but treatment stopped at Hour 48 — patients have been
+  off-drug for 12 hours. PK BE suggests equivalent AUC, but the
+  kinetics of brain exposure may differ.
+• Outpatient compliance: Unlike IV infusion where delivery is
+  guaranteed, oral dosing depends on patient compliance. Even with
+  a 48-hour regimen, missed or delayed doses could reduce efficacy.
+• Lipocine is a SMALL company. Trial execution quality is always a
+  concern with limited-resource sponsors, though 19 sites and
+  successful enrollment suggest adequate infrastructure.
+
+WEIGHTED CONTRIBUTION: 5.5 × 0.30 = 1.65
+
+────────────────────────────────────────────────
+FACTOR 3: Safety Profile (Weight: 20%)
+────────────────────────────────────────────────
+Score: 8.0/10
+
+POSITIVES (STRONG):
+• Phase 3 safety data (unblinded): "All reported nervous system
+  adverse events were mild to moderate in severity."
+  [Source: Lipocine/PR Newswire, Feb 18, 2026]
+• ZERO drug discontinuations, ZERO excessive sedation events, ZERO
+  loss of consciousness, ZERO drug-related serious adverse events.
+  [Source: Lipocine/BioUtah, Feb 18, 2026]
+• This is a MAJOR improvement over IV brexanolone (Zulresso), which
+  had: sedation, loss of consciousness (required REMS program),
+  dizziness, and required 60-hour inpatient monitoring.
+• High drug compliance reported.
+• Oral delivery inherently avoids IV-related AEs (infusion site
+  reactions, need for medical monitoring).
+
+NEGATIVES:
+• Safety data is unblinded — similar AEs could exist in placebo arm.
+  No comparative data disclosed yet.
+• Small sample (n=90) limits detection of rare AEs.
+• Brexanolone is a Schedule IV controlled substance (zuranolone is
+  also Schedule IV). Abuse potential labeling will apply.
+• No long-term safety data for oral brexanolone — though IV
+  brexanolone has 7+ years of post-marketing safety data.
+
+WEIGHTED CONTRIBUTION: 8.0 × 0.20 = 1.60
+
+────────────────────────────────────────────────
+FACTOR 4: Competitive Landscape / Commercial (Weight: 20%)
+────────────────────────────────────────────────
+Score: 5.0/10
+
+POSITIVES:
+• Brexanolone IV (Zulresso) was WITHDRAWN from market by Sage
+  Therapeutics in April 2025. There is now NO IV brexanolone option.
+  [Source: Psychopharmacology Institute, March 24, 2026]
+• LPCN 1154 would fill the gap left by Zulresso withdrawal —
+  oral brexanolone with faster onset than SSRIs and more convenient
+  than the former IV regimen.
+• 48-hour outpatient treatment vs zuranolone's 14-day course —
+  potentially faster and shorter for rapid relief.
+• Severe PPD patients with suicide risk need rapid relief — LPCN
+  1154's profile is well-suited for this acute need.
+• PPD market growing rapidly: $166.8M (2026) → $1.38B (2034),
+  30.2% CAGR. Zuranolone accounts for $141M in 2026.
+  [Source: Fortune Business Insights]
+
+NEGATIVES:
+• Zuranolone (Zurzuvae) already approved oral PPD treatment (Aug
+  2023). 14-day course, at-home, once-daily. Established market
+  position with $141M in 2026 revenue.
+  [Source: Fortune Business Insights]
+• LPCN 1154 must differentiate vs zuranolone: shorter course (48hr
+  vs 14 days) but requires more intensive dosing schedule.
+• LPCN is a TINY company with limited commercial infrastructure.
+  Would likely need partnership for launch.
+• Limited cash — Lipocine's financial resources are constrained.
+  Even if Phase 3 succeeds, NDA submission, manufacturing scale-up,
+  and commercialization require significant capital.
+• The PPD market is real but still small (~$167M in 2026). Not a
+  massive commercial opportunity for a standalone company.
+
+WEIGHTED CONTRIBUTION: 5.0 × 0.20 = 1.00
+
+────────────────────────────────────────────────
+TOTAL FACTOR SCORE: 2.25 + 1.65 + 1.60 + 1.00 = 6.50/10
+────────────────────────────────────────────────
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 3: MONTE CARLO SCENARIO ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BULL CASE (P=40%): PRIMARY MET — Strong Effect Size
+────────────────────────────────────────────────────
+• HAM-D reduction difference ≥4 points vs placebo at Hour 60
+  (comparable to Zulresso 202B BRX60 arm: -5.5 points).
+• Statistically significant (p<0.05) and clinically meaningful.
+• Safety clean: no sedation, no LOC — eliminates Zulresso REMS
+  concern.
+• Remission rate ≥40% vs ≤25% placebo.
+• Stock impact: +80-150% (micro-cap with pipeline-transforming data)
+• NDA submission 2026 on 505(b)(2) pathway.
+
+BASE CASE (P=20%): BORDERLINE — Marginal Signal
+────────────────────────────────────────────────
+• HAM-D reduction difference of 2-3 points vs placebo.
+• May or may not reach statistical significance (p=0.04-0.08).
+• If p<0.05: positive but modest. If p>0.05: mixed.
+• Safety advantage over Zulresso maintained.
+• Stock impact: +20-40% (if p<0.05) or -10-20% (if p>0.05)
+
+BEAR CASE (P=40%): PRIMARY NOT MET
+────────────────────────────────────
+• HAM-D reduction difference <2 points vs placebo.
+• High placebo response (~14-16 point improvement) drowns drug signal.
+• Possible explanations:
+  (a) Oral PK variability reduces consistency of brain exposure
+  (b) 48-hour treatment insufficient (vs 60-hour IV)
+  (c) Outpatient setting inflates placebo response
+  (d) n=90 underpowered for the small expected effect size
+• Stock impact: -40-60%
+
+PROBABILITY DISTRIBUTION:
+  Bull (strong hit):            40%
+  Base (borderline):            20%
+  Bear (primary not met):       40%
+
+EXPECTED OUTCOME: Uncertain — essentially a coin flip weighted
+slightly toward success by the bioequivalence foundation.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 4: FINAL OUTPUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  P(POSITIVE TOPLINE DATA — PRIMARY ENDPOINT MET):   60%            ║
+║  80% CONFIDENCE INTERVAL:                           [45% — 72%]    ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  P(STRONG HIT ≥4pt HAM-D superiority):              40%            ║
+║  P(EVENTUAL FDA APPROVAL via 505(b)(2)):            50%            ║
+║  P(APPROVAL conditional on positive Phase 3):       80%            ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+RATIONALE FOR 60% ESTIMATE:
+─────────────────────────────
+This is a MODERATE-CONVICTION estimate reflecting genuine uncertainty:
+
+1. PROVEN MOLECULE: LPCN 1154 IS brexanolone. The molecule works —
+   three RCTs proved it for IV delivery, and it was FDA-approved.
+   The question is purely about whether oral delivery replicates
+   the IV clinical effect. PK bioequivalence is established.
+
+2. BIOEQUIVALENCE PROVIDES A FLOOR: Unlike a novel molecule where
+   the drug might simply not work, oral brexanolone has demonstrated
+   equivalent systemic exposure to IV brexanolone. This provides a
+   pharmacological foundation for efficacy.
+
+3. FDA PATHWAY IS FAVORABLE: 505(b)(2) with single confirmatory trial
+   per FDA guidance. The regulatory bar is lower than a traditional
+   Phase 3 program — one positive trial could suffice.
+
+4. ZULRESSO WITHDRAWAL CREATES MARKET NEED: With IV brexanolone off
+   the market (April 2025), LPCN 1154 fills a genuine therapeutic gap.
+   FDA may be motivated to ensure an oral brexanolone option exists.
+
+WHY NOT HIGHER (>65%):
+• The CRITICAL uncertainty is the placebo response rate. In PPD trials,
+  placebo improvement has historically been 12-15 HAM-D points. With
+  the drug-placebo gap only 2.5-5.5 points in the LARGER Phase 3 trials
+  of IV brexanolone, there is a meaningful chance that n=90 is
+  underpowered to detect this small difference.
+  [Source: PMC8146562; PMC7957380]
+
+• The outpatient setting may INCREASE placebo response relative to
+  the inpatient Zulresso trials. Natural PPD course, home environment,
+  supportive care — all favor higher spontaneous improvement.
+
+• AUC0-t GMR of 88% (at the lower bioequivalence boundary) means some
+  patients may get modestly LESS drug exposure orally than they would
+  IV. In a trial powered for a small effect size, this matters.
+
+• 48-hour oral dosing vs 60-hour IV infusion is a 20% reduction in
+  treatment duration. The final 12 hours of Zulresso infusion
+  (tapering) may contribute to sustained symptom relief.
+
+• NO prior clinical efficacy data exists for ORAL brexanolone. This
+  Phase 3 is the first and only clinical efficacy assessment. There
+  is no Phase 2 signal to calibrate expectations.
+
+• Small company with limited resources. Trial execution risk is real
+  despite apparently successful enrollment and dosing.
+
+─────────────────────────────────────────────────────────────────────
+UPSIDE DRIVERS (if positive)
+─────────────────────────────────────────────────────────────────────
+• LPCN is a MICRO-CAP stock. Positive Phase 3 data would be
+  transformational — 80-150% or more upside potential.
+• 505(b)(2) NDA pathway means faster approval timeline — potentially
+  on market by 2027.
+• FIRST oral brexanolone product. Fills gap left by Zulresso
+  withdrawal. Could be preferred over zuranolone for severe PPD
+  requiring rapid relief (48 hours vs 14 days).
+• Clean safety profile (no sedation, no LOC) eliminates the biggest
+  commercial barrier that limited Zulresso adoption.
+• Partnership/acquisition premium if data is positive — multiple
+  pharma companies interested in PPD space.
+• PPD market projected to reach $1.38B by 2034 (CAGR 30.2%).
+  [Source: Fortune Business Insights]
+
+─────────────────────────────────────────────────────────────────────
+DOWNSIDE RISKS (if negative)
+─────────────────────────────────────────────────────────────────────
+• LPCN is essentially a single-asset company (LPCN 1154 is the
+  lead program). Failure = severe stock decline (-40-60%+).
+• Small company may not survive a Phase 3 failure financially.
+• PPD space already has zuranolone — market may move on.
+• If the trial fails due to high placebo response, a second trial
+  would face the same challenge (not a solvable problem).
+• Lipocine has a mixed track record — prior testosterone program
+  (LPCN 1021/Tlando) had a complicated regulatory history.
+
+─────────────────────────────────────────────────────────────────────
+TRADING NOTE
+─────────────────────────────────────────────────────────────────────
+POSITION: MODERATE LEAN LONG (positive EV, high risk)
+SIZING: 1-2% of portfolio MAX (micro-cap, binary event)
+
+RATIONALE:
+• 60% probability of positive data on a micro-cap binary event with
+  80-150% upside and -40-60% downside.
+• Expected value calculation:
+  - 60% × +100% (avg upside) = +60%
+  - 40% × -50% (avg downside) = -20%
+  - NET EV: +40% (strongly positive)
+• The EV is highly favorable, but position sizing must reflect the
+  40% failure probability and micro-cap illiquidity.
+
+STRUCTURE:
+• Equity preferred over options (if options exist, they will have
+  extremely high IV on a micro-cap biotech).
+• Small position — max 1-2% of portfolio.
+• Consider splitting entry: 50% now, 50% if stock dips.
+• KEY TIMING: Topline expected "early Q2 2026" per CEO guidance
+  (Jan 12 and Jan 20, 2026 PRs). Could be April-May 2026.
+  [Source: Lipocine IR, Jan 12, 2026; Psychiatric Times, Jan 20, 2026]
+
+RISK MANAGEMENT:
+• Position sizing is the primary risk management tool here.
+• No stop loss — this is a binary event. Either it works or it doesn't.
+• Monitor for any interim safety data releases or management tone
+  changes pre-readout.
+• Watch zuranolone commercial performance for market sizing signal.
+
+════════════════════════════════════════════════════════════════════════
+SOURCES:
+• Lipocine/PR Newswire: LPLV Announcement, Feb 18, 2026
+  (https://www.prnewswire.com/news-releases/lipocine-announces-last-patient-last-visit-in-pivotal-phase-3-trial-of-lpcn-1154-for-postpartum-depression-ppd-302691331.html)
+• Lipocine/BioUtah: LPLV and Safety Profile, Feb 18, 2026
+  (https://bioutah.org/lipocine-announces-last-patient-last-visit-in-pivotal-phase-3-trial-of-lpcn-1154-for-postpartum-depression-ppd/)
+• Lipocine IR: Enrollment and Dosing Complete, Jan 20, 2026
+  (https://ir.lipocine.com/2026-01-20-Lipocine-Announces-Completion-of-Enrollment-and-Dosing-in-Phase-3-Trial-of-LPCN-1154-in-Postpartum-Depression-PPD)
+• Lipocine IR: Second Interim Safety Review, Jan 12, 2026
+  (https://ir.lipocine.com/2026-01-12-Lipocine-Reports-Encouraging-Progress-Post-Second-Interim-Safety-Review-in-Phase-3-Trial-of-LPCN-1154-in-Postpartum-Depression-PPD)
+• Lipocine: First Patient Dosed in Phase 3, June 26, 2025
+  (https://www.lipocine.com/news-article/lipocine-announces-first-patient-dosed-in-phase-3-clinical-trial-for-lpcn-1154-in-postpartum-depression/)
+• Lipocine/Nasdaq: PK Bioequivalence Results, June 25, 2024
+  (https://www.nasdaq.com/press-release/lipocine-announces-lpcn-1154-meets-bioequivalence-iv-brexanolone-pivotal-study-2024)
+• Lipocine: PK BE Study Results
+  (https://www.lipocine.com/news-article/lipocine-announces-lpcn-1154-meets-bioequivalence-with-iv-brexanolone-in-pivotal-study/)
+• Lipocine/PR Newswire: FDA Regulatory Guidance, Feb 6, 2025
+  (https://www.prnewswire.com/news-releases/lipocine-receives-updated-regulatory-guidance-on-lpcn-1154-302369628.html)
+• Psychiatric Times: Phase 3 Enrollment Complete, Jan 20, 2026
+  (https://www.psychiatrictimes.com/view/enrollment-and-dosing-complete-in-phase-3-trial-of-lpcn-1154-for-postpartum-depression)
+• PMC/Psychopharmacology Bulletin: Brexanolone PPD Review
+  (https://pmc.ncbi.nlm.nih.gov/articles/PMC8146562/)
+• PMC/J Women's Health: Brexanolone Post Hoc Analyses
+  (https://pmc.ncbi.nlm.nih.gov/articles/PMC7957380/)
+• South Carolina Blues: Brexanolone Evidence Review
+  (https://www.southcarolinablues.com/web/public/brands/medicalpolicy/external-policies/brexanolone-zulresso-for-postpartum-depression/)
+• Nature: Brexanolone Anti-Inflammatory Effects in PPD, Jan 2026
+  (https://www.nature.com/articles/s41398-026-03834-9)
+• Psychopharmacology Institute: Q1 2026 Review (Zuranolone/PPD)
+  (https://psychopharmacologyinstitute.com/publication/q1-2026-in-review-milsaperidone-glp-1-ras-and-zuranolone/)
+• Fortune Business Insights: PPD Treatment Market
+  (https://www.fortunebusinessinsights.com/postpartum-depression-treatment-market-109264)
+• Frontiers/Psychiatry: Zuranolone Post-Marketing Safety
+  (https://www.frontiersin.org/journals/psychiatry/articles/10.3389/fpsyt.2025.1517773/full)
+• ClinicalTrials.gov: LPCN 1154 Phase 3 (NCT06979544)
+════════════════════════════════════════════════════════════════════════

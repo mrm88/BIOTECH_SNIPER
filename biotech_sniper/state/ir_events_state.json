@@ -1,0 +1,44 @@
+{
+  "IDYA": {
+    "ir_url": "https://ir.ideayabio.com/events",
+    "content_hash": "599a77c8bfc6",
+    "last_checked": "2026-04-02",
+    "page_length": 114084
+  },
+  "RZLT": {
+    "ir_url": "https://ir.rezolutebio.com/events",
+    "content_hash": "f7c15c6800bb",
+    "last_checked": "2026-04-02",
+    "page_length": 443630
+  },
+  "RVMD": {
+    "ir_url": "https://www.revmed.com/investors",
+    "content_hash": "88cf543e9a3a",
+    "last_checked": "2026-04-02",
+    "page_length": 33949
+  },
+  "TVTX": {
+    "ir_url": "https://ir.travere.com",
+    "content_hash": "d7a2e37743d0",
+    "last_checked": "2026-04-02",
+    "page_length": 183278
+  },
+  "ARGX": {
+    "ir_url": "https://www.argenx.com/investors/events",
+    "content_hash": "5c9fc5b5a67d",
+    "last_checked": "2026-04-02",
+    "page_length": 73691
+  },
+  "VRDN": {
+    "ir_url": "https://www.viridiantherapeutics.com/investors",
+    "content_hash": "943237bc885c",
+    "last_checked": "2026-04-02",
+    "page_length": 137704
+  },
+  "CELC": {
+    "ir_url": "https://ir.celc.com/events",
+    "content_hash": "e3dffc99484a",
+    "last_checked": "2026-04-02",
+    "page_length": 4671
+  }
+}

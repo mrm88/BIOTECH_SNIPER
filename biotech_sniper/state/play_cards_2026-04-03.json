@@ -1,0 +1,30 @@
+{
+  "IDYA": {
+    "why_line": "OI jumped 101→153 overnight. DB lock imminent 1H Apr, BofA webcast May 12. LPCN -78% yesterday — IDYA PFS endpoint already confirmed.",
+    "edge_line": "LPCN failed OS; IDYA endpoint is PFS — 7.1 mo vs ~3 mo historical in Ph1/2. Market conflates bio risk post-LPCN. Lower bar."
+  },
+  "RGNX": {
+    "why_line": "Pivotal topline 'early Q2 2026' confirmed Mar 11 PR Newswire. Ph1/2: strong biomarkers, zero SAEs. $10C Jul @ $2 = 3.1x if +80%.",
+    "edge_line": "Biomarker endpoint (≥10% dystrophin) is a LOW BAR vs functional DMD outcomes. Regulatory path materially easier than market prices in."
+  },
+  "AXSM": {
+    "why_line": "PDUFA Apr 30, 27 days. Stock -1.9% today on broad macro selloff — zero AXSM-specific news. Dip = cheaper entry into near-certain catalyst.",
+    "edge_line": "Same molecule as FDA-approved AUVELITY. FDA blessed agitation endpoint w/ REXULTI 2023. BTD + Priority Review. Not a novel path."
+  },
+  "ARGX": {
+    "why_line": "$750 leg ATM at $746 stock today — maximum spread leverage. PDUFA May 10, 37 days. $9.25 debit for $40.75 max. 4.4x.",
+    "edge_line": "Argenx has ZERO prior sNDA rejections. Label expansion #4 for efgartigimod (gMG '21, ITP '22, CIDP '23). FDA knows this drug cold."
+  },
+  "AGIO": {
+    "why_line": "Stock +3% today = puts cheaper than yesterday. 6.8x multiple. Ph2 showed ~20% TI; trial powered for 40%. 94% fail prob. Better entry NOW.",
+    "edge_line": "8-week transfusion independence window is biologically wrong for LR-MDS — bone marrow takes months to respond. Endpoint design is the tell."
+  },
+  "NTLA": {
+    "why_line": "3-year data published Apr 2: 96% attack reduction, 31/32 patients attack-free. Last pt completed window ~Mar 30. DB lock ~May. 2.5x if +75%.",
+    "edge_line": "Only Ph3 in vivo CRISPR program globally. RMAT designation. Market pricing this like routine bio — it's a platform-defining moment."
+  },
+  "VRDN": {
+    "why_line": "Down -1.6% on IMVT sympathy — zero VRDN data. Cash floor $17/share ($875M, 51M shares). Stock only $1.84 above cash. Dual Q2 catalysts.",
+    "edge_line": "Market pricing VRDN as if pipeline is worthless. $1.84 above cash buys REVEAL-2 chronic TED + veligrotug PDUFA Jun 30. Both in same window."
+  }
+}

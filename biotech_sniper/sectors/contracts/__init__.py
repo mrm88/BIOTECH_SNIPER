@@ -1,0 +1,1 @@
+"""Contracts sector sub-package."""

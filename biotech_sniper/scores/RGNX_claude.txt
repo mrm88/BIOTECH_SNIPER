@@ -1,0 +1,422 @@
+================================================================================
+BIOTECH SNIPER — CLINICAL TRIAL PROBABILITY SCORE
+================================================================================
+Ticker:       RGNX (REGENXBIO Inc.)
+Drug:         RGX-202 — AAV8 microdystrophin gene therapy
+Indication:   Duchenne Muscular Dystrophy (DMD)
+Trial:        AFFINITY DUCHENNE Phase I/II/III (NCT05693142)
+Readout:      Pivotal topline data — Early Q2 2026 (company-confirmed)
+Scored:       2026-03-30
+Stock Price:  ~$8.46-$9.90 | Market Cap: ~$490M
+Analyst Avg:  $28.75 (Buy consensus, 8 analysts)
+================================================================================
+
+>>> CRITICAL CLARIFICATION: PRIMARY ENDPOINT DISTINCTION <<<
+
+The pivotal Phase 3 (Part 2) primary endpoint is NOT NSAA change from baseline.
+The primary endpoint is: PROPORTION OF PARTICIPANTS WITH MICRODYSTROPHIN
+EXPRESSION ≥10% AT WEEK 12 (biomarker/surrogate endpoint for accelerated approval).
+
+Secondary endpoints include: NSAA, timed function tests (TTStand, 10MWR, TTClimb),
+PDMS-3 (for <4yo), SV95C.
+
+This is a CRITICAL distinction. REGENXBIO aligned with FDA on using microdystrophin
+expression as a surrogate endpoint to support accelerated approval. This dramatically
+changes the probability calculation vs. the EMBARK analogy (which used NSAA as primary).
+
+Source: REGENXBIO pivotal enrollment completion PR (Oct 30, 2025); ClinicalTrials.gov NCT05693142;
+Fierce Biotech (Mar 12, 2026); REGENXBIO Q4 2025 earnings (Mar 5, 2026).
+
+================================================================================
+SECTION 1: BASE RATES
+================================================================================
+
+(a) AAV Gene Therapy Phase 3 Success Rate (Neuromuscular Disease)
+-------------------------------------------------------------------------
+- Overall CGT Phase 3 → submission success rate: 45.7% (all indications)
+  Source: Clin Pharm & Therapeutics (Dec 2024), PMC11657587
+- Rare disease gene therapy Phase 3 success: 68-75%
+  Source: Nature Reviews Drug Discovery (2025), Managed Healthcare Executive (Apr 2025)
+- AAV gene therapy overall LOA from Phase 1: 13.6%
+  Source: Clin Pharm & Therapeutics (Dec 2024)
+- AAV Phase 3 → BLA transition: 80.0%
+  Source: Same study
+- Orphan gene therapy Phase 3 success: 68.4%
+  Source: NEWDIGS FoCUS Pipeline Analysis Model via Nature Reviews Drug Discovery
+
+Adjusted base rate for AAV orphan/neuromuscular Phase 3: ~65-75%
+
+(b) DMD Gene Therapy Historical Success Rates
+-------------------------------------------------------------------------
+- Sarepta ELEVIDYS (SRP-9001): Phase 3 EMBARK FAILED primary NSAA endpoint
+  (p=0.2441, between-group diff 0.65 points, 95% CI: -0.45 to 1.74)
+  BUT: Received accelerated approval (Jun 2023) and traditional approval (Jun 2024)
+  based on totality of evidence including microdystrophin expression
+  Source: Nature Medicine (Oct 2024)
+- Pfizer PF-06939926: Shelved after Phase 3 safety/efficacy concerns
+- Solid Biosciences SGT-003: Phase 1 early data positive, not yet pivotal
+  Source: BioPharma Dive (Feb 2025)
+
+DMD gene therapy Phase 3 on NSAA primary: 0/1 (0% — Sarepta missed)
+DMD gene therapy Phase 3 on biomarker primary: 1/1 (100% — Sarepta expression met)
+DMD gene therapy approval via accelerated pathway: 1/1 (100%)
+
+KEY INSIGHT: RGNX is pursuing BIOMARKER primary endpoint, not NSAA. This maps to
+the successful precedent, not the failed one.
+
+(c) NSAA as Primary Endpoint — Historical Hit Rate
+-------------------------------------------------------------------------
+- Sarepta EMBARK: MISSED (p=0.2441) — NSAA is notoriously variable
+- NSAA has high inter-patient variability, especially in ambulatory DMD boys
+- The 52-week timeframe compounds variability; maturational effects confound
+- Industry consensus: NSAA is suboptimal as a primary for gene therapy in DMD
+- RGNX is NOT using NSAA as primary — they learned from Sarepta's experience
+
+NSAA as supportive/secondary: RGNX Phase I/II data is strong (see Section 2)
+
+(d) Microdystrophin Expression Phase 3 Outcomes (Direct Analogy)
+-------------------------------------------------------------------------
+- Sarepta EMBARK: Mean microdystrophin expression 34.29% at Week 12 (treated)
+  vs 0.00% (placebo). This was the basis for accelerated + traditional approval.
+  Source: Nature Medicine (Oct 2024)
+- RGNX Phase I/II: Expression 20% to 122% across pivotal dose patients (n=10+)
+  ALL patients had expression >10% at Week 12
+  Source: REGENXBIO PR (Mar 11, 2026); REGENXBIO PR (Oct 30, 2025)
+- Newest patient (age 3.6): 51.2% at Week 12
+  Source: REGENXBIO MDA presentation (Mar 2026)
+
+Expression threshold of ≥10% is a LOW BAR given Phase I/II range of 20-122%.
+This is by design — FDA aligned on this as the pivotal endpoint.
+
+BASE RATE SYNTHESIS: ~75-85% given biomarker primary endpoint + orphan gene therapy
+Phase 3 success rates + favorable precedent with ELEVIDYS expression data.
+
+================================================================================
+SECTION 2: FACTOR ANALYSIS (Weighted Scoring)
+================================================================================
+
+FACTOR 1: Quality of Phase 1/2 NSAA Data (30% weight)
+-------------------------------------------------------------------------
+Score: 8.5/10
+
+Evidence (data cut Jan 5, 2026, n=7 pivotal dose at 12 months):
+- NSAA improvement: +4.9 points vs cTAP model (all pivotal dose patients)
+- Older patients (8+ years, n=5): +5.2 points vs cTAP
+- 18-month data (n=4): +7.4 points vs cTAP (reported Jan 2026)
+- Dose level 1 at 24 months (n=3): +5.6 points vs cTAP
+- All timed function tests exceeded external controls
+- 95% CI demonstrates favorability to RGX-202 vs propensity-weighted controls
+- Exceeded MCID benchmarks referenced by FDA in ELEVIDYS approval
+
+Comparison to Sarepta Phase 1/2:
+- RGNX ~+4.9 NSAA vs cTAP at 12 months is STRONG
+- Sarepta Phase 1/2 showed similar trajectory but smaller older patient cohort
+- RGNX data in 8+ year olds (decline phase) is particularly compelling
+
+Limitations:
+- Small N (7 at pivotal dose), no randomized control
+- External controls (propensity score weighting) have inherent limitations
+- Selection bias in open-label early phase cannot be fully excluded
+
+FACTOR 2: Endpoint Sensitivity / Statistical Power at N~30 (20% weight)
+-------------------------------------------------------------------------
+Score: 9.0/10
+
+CRITICAL: The pivotal N is ~30 (not 60-70 as stated in the task briefing).
+The ~30 additional patients are in the CONFIRMATORY trial (Part 3), not pivotal.
+
+Primary endpoint: Proportion with microdystrophin ≥10% at Week 12
+- This is a BINARY endpoint (yes/no per patient) with N~30
+- In Phase I/II, 100% of patients (all tested) exceeded 10%
+- Expression ranged 20-122% — lowest was still 2x the threshold
+- Even with some manufacturing/patient variability, clearing 10% is highly likely
+- Statistical test: likely exact binomial or similar proportion test
+- If 28/30 or 29/30 hit ≥10%, this overwhelmingly meets endpoint
+
+Power analysis:
+- With expression floor of ~20% in Phase I/II, probability of any single
+  patient failing to reach 10% is very low
+- At N=30, even 2-3 failures still likely meets a pre-specified threshold
+- This endpoint is effectively a binary pass/fail on biological proof of concept
+- MUCH more statistically favorable than NSAA change-from-baseline
+
+FACTOR 3: Competitive Differentiation vs ELEVIDYS (15% weight)
+-------------------------------------------------------------------------
+Score: 7.0/10
+
+Advantages of RGX-202:
+- C-Terminal (CT) domain inclusion: Only microdystrophin with CT domain,
+  shown preclinically to improve DAPC restoration and muscle resilience
+  Source: REGENXBIO data presentations
+- Codon optimization: May improve expression efficiency
+- Superior safety profile: NO SAEs, NO AESIs, NO liver injury signals in 13 patients
+  vs. ELEVIDYS Phase 3: 22.2% SAE rate, 11.1% treatment-related SAEs
+  Source: REGENXBIO PR (Mar 11, 2026); Nature Medicine EMBARK data
+- Higher product purity: >80% full capsids (industry-leading)
+- Higher vector genome copies: 4.9-55.4 vg/diploid genome (highest reported)
+- Expression levels competitive or superior: 20-122% vs Sarepta's ~34% mean
+
+Disadvantages:
+- ELEVIDYS already approved and on market (~$3.2M per dose)
+- ELEVIDYS has 3-year follow-up data showing durable benefit
+  (NSAA +4.39 vs EC at Year 3, p=0.0002)
+  Source: Sarepta PR (Jan 26, 2026)
+- RGX-202 is second-to-market; label differentiation will matter
+- FDA recently rejected RGNX's RGX-121 (Hunter syndrome) BLA — regulatory credibility risk
+  Source: REGENXBIO CRL announcement (Feb 2026)
+
+FACTOR 4: Manufacturing/Expression Consistency (15% weight)
+-------------------------------------------------------------------------
+Score: 8.5/10
+
+- NAVXpress suspension-based manufacturing: proprietary, high-yield process
+- >80% full capsid ratio (industry-leading; reduces empty capsid immunogenicity)
+- Commercial manufacturing initiated at in-house Manufacturing Innovation Center
+  Source: REGENXBIO PR (Oct 30, 2025)
+- Expression consistency: ALL Phase I/II patients showed robust expression
+  - Range: 20-122% (pivotal dose, N=10+)
+  - Age range tested: 1 to 12 years
+  - Youngest patient (3.6 yo): 51.2% — still 5x the threshold
+  - 100% sarcolemmal localization confirmed
+  Source: REGENXBIO MDA presentation (Mar 2026)
+- Full drug supply ready for confirmatory trial
+- AAV8 is well-characterized vector (used in Zolgensma franchise)
+
+Risk factor:
+- Pivotal cohort is larger (N~30) vs Phase I/II expression data (N~13)
+- Manufacturing scale-up from clinical to commercial batches could introduce variability
+- But expression threshold is LOW (10%) relative to demonstrated range (20-122%)
+
+FACTOR 5: Patient Population Selection (20% weight)
+-------------------------------------------------------------------------
+Score: 7.5/10
+
+Strengths:
+- Ambulatory boys aged 1+ (broad age range increases generalizability)
+- Pivotal dose Phase I/II included patients 5.8-12.1 years at dosing
+- 5/7 pivotal dose patients were 8+ (decline phase) — showing benefit in
+  hardest-to-treat ambulatory subgroup
+- Stable corticosteroid requirement (12 weeks) standardizes baseline
+- Genetic confirmation required (exons 18+)
+- AAV8 seronegative screening
+
+Risks:
+- Open-label design: ALL patients know they received treatment (placebo effect on
+  functional measures, though irrelevant for biomarker primary endpoint)
+- Broad age range (1 to 12+) introduces heterogeneity in functional assessments
+- ~13% AAV seropositive exclusion rate (based on Sarepta's AAVrh74 data; AAV8
+  may differ but cross-reactivity exists)
+- Disease stage variability within ambulatory DMD population
+
+WEIGHTED COMPOSITE SCORE:
+  Factor 1 (30%): 8.5 × 0.30 = 2.55
+  Factor 2 (20%): 9.0 × 0.20 = 1.80
+  Factor 3 (15%): 7.0 × 0.15 = 1.05
+  Factor 4 (15%): 8.5 × 0.15 = 1.28
+  Factor 5 (20%): 7.5 × 0.20 = 1.50
+  -----------------------------------------
+  WEIGHTED TOTAL: 8.18 / 10.0
+
+================================================================================
+SECTION 3: MONTE CARLO SCENARIO ANALYSIS
+================================================================================
+
+BULL CASE (30% probability)
+-------------------------------------------------------------------------
+- Primary biomarker endpoint met convincingly: 30/30 or 29/30 patients ≥10%
+- Mean expression 40-60%+ across pivotal cohort
+- Strong NSAA secondary data (+4-6 points vs external controls)
+- Clean safety (no SAEs, no liver signals)
+- FDA grants accelerated approval on first review cycle
+- Confirmatory enrollment completes ahead of BLA submission
+
+P(success) in Bull: ~92%
+Stock implication: $25-40+ (3-5x from ~$8.50 base)
+
+BASE CASE (45% probability)
+-------------------------------------------------------------------------
+- Primary biomarker endpoint met: 27-29/30 patients ≥10%
+- Mean expression 30-50% across pivotal cohort
+- NSAA data directionally positive but with some variability
+- 1-2 mild AEs of interest but manageable
+- FDA discussion needed on label scope; pre-BLA meeting productive
+- Accelerated approval pathway remains viable
+
+P(success) in Base: ~78%
+Stock implication: $15-25 (2-3x from base)
+
+BEAR CASE (25% probability)
+-------------------------------------------------------------------------
+- 2-4 patients fail ≥10% threshold (manufacturing batch issue or immune response)
+- OR unexpected safety signal emerges (liver toxicity, myositis, TMA)
+- OR FDA raises concerns about external control methodology (similar to RGX-121 CRL)
+- NSAA data mixed or not statistically favorable vs controls
+- FDA requires randomized confirmatory trial or additional data before filing
+
+P(success) in Bear: ~40%
+Stock implication: $3-7 (downside to cash value ~$4.50/share)
+
+WEIGHTED P(SUCCESS):
+  Bull:  0.30 × 92% = 27.6%
+  Base:  0.45 × 78% = 35.1%
+  Bear:  0.25 × 40% = 10.0%
+  ================================
+  EXPECTED P(SUCCESS) = 72.7%
+
+================================================================================
+SECTION 4: RISK ADJUSTMENTS
+================================================================================
+
+Upward adjustments:
+  +3% — Phase I/II 100% expression hit rate with large margin above threshold
+  +2% — FDA pre-alignment on surrogate endpoint pathway
+  +1% — Clean safety profile differentiation vs ELEVIDYS
+
+Downward adjustments:
+  -3% — RGX-121 CRL creates regulatory credibility overhang; FDA may apply
+         heightened scrutiny to RGNX submissions
+  -2% — Open-label design + external control methodology (no internal placebo)
+         FDA has recently pushed back on external controls (uniQure, RGX-121)
+  -1% — Competitive pressure from ELEVIDYS 3-year durability data
+  -1% — CNS tumor signal in RGX-111 study; though unrelated to RGX-202,
+         creates AAV vector class-level safety concern at FDA
+
+NET ADJUSTMENT: -1%
+
+================================================================================
+SECTION 5: FINAL OUTPUT
+================================================================================
+
+┌─────────────────────────────────────────────────────────────┐
+│                                                             │
+│  P(SUCCESS ON PRIMARY BIOMARKER ENDPOINT): 72%              │
+│  80% CONFIDENCE INTERVAL: [60%, 82%]                        │
+│                                                             │
+│  P(ACCELERATED APPROVAL WITHIN 18 MONTHS): 55%              │
+│  80% CONFIDENCE INTERVAL: [40%, 68%]                        │
+│                                                             │
+│  CONFIDENCE LEVEL: MODERATE-HIGH                            │
+│  (Strong biomarker data, but regulatory path uncertainty    │
+│   elevated after RGX-121 CRL)                               │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+
+UPSIDE / DOWNSIDE ASYMMETRY:
+  Current price: ~$8.50-$9.90
+  Analyst consensus: $28.75 (median $27.00)
+  Analyst range: $12.00 - $50.00
+
+  SUCCESS scenario (72% prob):
+    Near-term (Q2 2026): $15-22 (+75% to +150%)
+    Approval trajectory (2027): $25-40 (+180% to +370%)
+
+  FAILURE scenario (28% prob):
+    Biomarker miss: $4-6 (-30% to -50%)
+    Safety signal: $2-4 (-55% to -75%)
+
+  EXPECTED VALUE: 0.72 × $18.50 + 0.28 × $5.00 = $14.72 (+~70% EV)
+
+SIMULATED NSAA EFFECT (secondary endpoint):
+  Estimated 12-month NSAA change vs external controls:
+    Median: +3.5 to +5.0 points (based on Phase I/II +4.9 mean)
+    Range: +1.5 to +7.0 points
+    Probability of directionally positive: ~85%
+    Probability of statistically significant vs controls: ~50-60%
+    (Note: Open-label design without internal placebo limits statistical claims)
+
+MICRODYSTROPHIN EXPRESSION (primary endpoint):
+  Estimated proportion ≥10% at Week 12:
+    Point estimate: 93-100% (28-30 of ~30 patients)
+    95% CI lower bound: likely >80%
+    Based on Phase I/II floor of 20% expression (2x threshold)
+
+================================================================================
+SECTION 6: TRADING NOTE
+================================================================================
+
+DEGEN PLAY ASSESSMENT: MODERATE-HIGH CONVICTION ASYMMETRIC BET
+
+Thesis:
+  - Biomarker primary endpoint is highly likely to succeed (~72%)
+  - Asymmetric upside (2-4x) vs downside (30-50% loss)
+  - Expected value is strongly positive (~+70%)
+  - Analyst consensus implies 220%+ upside even at current levels
+  - RGX-121 CRL overhang has depressed stock, creating entry opportunity
+
+Key considerations:
+  1. TIMING: "Early Q2 2026" = April-May 2026. Calendar suggests readout
+     within 4-8 weeks. Stock may run up ahead of data.
+
+  2. IV CRUSH RISK: Options will carry elevated implied volatility.
+     Pure stock position avoids IV crush. If using options, consider
+     spreads to offset premium.
+
+  3. BINARY EVENT: This is a classic binary biotech catalyst.
+     Position sizing should reflect max loss tolerance.
+
+  4. DUAL CATALYST: Even if biomarker endpoint succeeds, market will
+     price in the APPROVAL probability (which is lower, ~55%).
+     Don't expect full analyst target on data alone.
+
+  5. CASH RUNWAY: $241M cash funds into early 2027. No immediate
+     dilution risk but company will need capital if approval delayed.
+     S-3 shelf for $300M filed Nov 2025.
+
+  6. REGULATORY HEADWINDS: RGX-121 CRL + RGX-111 CNS tumor clinical
+     hold create narrative risk. FDA may apply extra scrutiny.
+
+  7. COMPETITIVE DYNAMICS: Sarepta ELEVIDYS 3-year data (Jan 2026)
+     validated the microdystrophin mechanism but set a high bar.
+     Solid Biosciences SGT-003 early data also strong.
+
+POSITION SIZING SUGGESTION:
+  Aggressive/degen: 3-5% of portfolio in common stock
+  Moderate: 1-2% of portfolio
+  Options play: Bull call spread April/May expiry (if available liquidity)
+
+CONVICTION: 7/10 — Strong biomarker probability but regulatory path
+has meaningful uncertainty post-RGX-121 CRL.
+
+================================================================================
+APPENDIX: KEY DATA SOURCES
+================================================================================
+
+1. REGENXBIO Phase I/II Interim Data PR (Mar 11, 2026)
+   https://www.prnewswire.com/news-releases/regenxbio-reports-new-positive-interim-data-from-phase-iii-affinity-duchenne-trial-of-rgx-202-302711193.html
+
+2. REGENXBIO Q4 2025 Earnings (Mar 5, 2026)
+   https://www.prnewswire.com/news-releases/regenxbio-reports-fourth-quarter-and-full-year-2025-financial-results-and-operational-highlights-302704786.html
+
+3. ClinicalTrials.gov — NCT05693142
+   https://clinicaltrials.gov/study/NCT05693142
+
+4. Sarepta EMBARK Phase 3 Results — Nature Medicine (Oct 2024)
+   https://pmc.ncbi.nlm.nih.gov/articles/PMC11750718/
+
+5. Sarepta 3-Year EMBARK Topline (Jan 26, 2026)
+   https://investorrelations.sarepta.com/news-releases/news-release-details/sarepta-announces-positive-topline-three-year-embark-results
+
+6. Gene Therapy Success Rates — Nature Reviews Drug Discovery (2025)
+   https://www.managedhealthcareexecutive.com/view/gene-therapies-for-rare-diseases-twice-as-likely-to-win-fda-nod-study-finds
+
+7. CGT Clinical Development Trajectory — PMC (Dec 2024)
+   https://pmc.ncbi.nlm.nih.gov/articles/PMC12447590/
+
+8. REGENXBIO Pivotal Enrollment Completion (Oct 30, 2025)
+   https://www.prnewswire.com/news-releases/regenxbio-announces-completion-of-pivotal-enrollment-and-initiates-commercial-production-in-duchenne-gene-therapy-program-302599520.html
+
+9. Fierce Biotech Analysis (Mar 12, 2026)
+   https://www.fiercebiotech.com/biotech/regenxbio-posts-clean-safety-profile-dmd-gene-therapy-pivotal-data-loom
+
+10. H.C. Wainwright Analyst Note — 45% Approval Probability (Nov 2024)
+    https://www.investing.com/news/analyst-ratings/hc-wainwright-sees-45-approval-probability-for-rgx202-reiterates-buy-on-regenxbio-stock-93CH-3734376
+
+11. Parent Project Muscular Dystrophy (Mar 11, 2026)
+    https://www.parentprojectmd.org/regenxbio-shares-positive-interim-data-from-phase-i-ii-affinity-duchenne-trial-of-rgx-202/
+
+12. Stock Titan Market Reaction Analysis (Mar 11, 2026)
+    https://www.stocktitan.net/news/RGNX/regenxbio-reports-new-positive-interim-data-from-phase-i-ii-affinity-047rx95pq2z2.html
+
+================================================================================
+END OF SCORE
+================================================================================

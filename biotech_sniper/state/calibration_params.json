@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "last_updated": "2026-04-26",
+  "n_resolved": 6,
+  "p_min_long": 65,
+  "p_max_short": 40,
+  "otm_ranges": {
+    "PDUFA": [
+      10,
+      25
+    ],
+    "READOUT": [
+      13,
+      31
+    ],
+    "LABEL_EXT": [
+      0,
+      5
+    ],
+    "ADCOM": [
+      10,
+      20
+    ],
+    "CONTRACT": [
+      15,
+      30
+    ],
+    "DEFAULT": [
+      10,
+      20
+    ]
+  },
+  "expected_moves": {
+    "PDUFA": [
+      45,
+      30
+    ],
+    "READOUT": [
+      25,
+      25
+    ],
+    "LABEL_EXT": [
+      10,
+      12
+    ],
+    "ADCOM": [
+      25,
+      20
+    ],
+    "CONTRACT": [
+      15,
+      10
+    ],
+    "DEFAULT": [
+      25,
+      20
+    ]
+  },
+  "iv_crush_halfsize_threshold": 150,
+  "science_multipliers": {
+    "A": 1.15,
+    "B": 1.05,
+    "C": 1.0,
+    "D": 0.85,
+    "F": 0.65
+  },
+  "min_n_for_adjustment": 3,
+  "target_directional_accuracy": 0.7,
+  "target_option_hit_rate": 0.5,
+  "target_brier_score": 0.2,
+  "change_log": [
+    {
+      "date": "2026-04-26",
+      "n_resolved": 6,
+      "changes": [
+        "READOUT: [5,15] -> [13,31] (avg_move=36.8%, n=5)",
+        "expected_moves[READOUT] win: 20% -> 25% (avg_actual=36.8%, n=5)"
+      ]
+    }
+  ]
+}

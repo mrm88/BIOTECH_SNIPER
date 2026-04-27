@@ -1,0 +1,356 @@
+================================================================================
+BIOTECH SNIPER — OPTIONS CHAINS BATCH 1
+Live Data Pull: March 30, 2026 (Market Hours)
+Source: Yahoo Finance via yfinance API
+================================================================================
+
+================================================================================
+TICKER: IDYA (IDEAYA Biosciences)
+Stock Price: $31.45
+Catalyst: Phase 2 data readout ~mid-April 2026
+Expected Success Move: +100% → ~$63
+Available May 15 Strikes: $20, $25, $35, $40, $45
+================================================================================
+  --- May $45C (PRIMARY — 43% OTM) ---
+  Strike/Expiry: $45C 2026-05-15
+  Days to Expiry: 46
+  Bid: $0.50 | Ask: $5.00 | Mid: $2.75 | Last: $2.53
+  IV: 143.8% | OI: 74 | Volume: 0
+  Spread: $4.50 — WIDE ($4.50)
+  Realistic fill (decoy target): $2.75 (mid) to $2.70 (mid - $0.05)
+  Contracts for $1k: 3 contracts at $2.75 = $825
+  ON SUCCESS (+100% stock to ~$63):
+    Intrinsic value: $18.00 | Time value est: $0.43 | Total: ~$18.43
+    $1k → ~$5,530 = ~6.7x multiple
+  ON FAILURE (stock flat or down):
+    Option value: ~$0.05 | $1k → ~$15 (near-total loss)
+  Break-even move needed: +43.1% (vs expected central +100%)
+
+  --- May $40C (ALT — 27% OTM) ---
+  Strike/Expiry: $40C 2026-05-15
+  Days to Expiry: 46
+  Bid: $1.50 | Ask: $4.50 | Mid: $3.00 | Last: $3.50
+  IV: 126.5% | OI: 35 | Volume: 0
+  Spread: $3.00 — WIDE ($3.00)
+  Realistic fill (decoy target): $3.00 (mid) to $2.95 (mid - $0.05)
+  Contracts for $1k: 3 contracts at $3.00 = $900
+  ON SUCCESS (+100% stock to ~$63):
+    Intrinsic value: $23.00 | Time value est: $0.17 | Total: ~$23.17
+    $1k → ~$6,952 = ~7.7x multiple
+  ON FAILURE (stock flat or down):
+    Option value: ~$0.05 | $1k → ~$15 (near-total loss)
+  Break-even move needed: +27.2% (vs expected central +100%)
+
+  --- Apr $35C (BEST LIQUIDITY — 11% OTM) ---
+  Strike/Expiry: $35C 2026-04-17
+  Days to Expiry: 18
+  Bid: $0.65 | Ask: $2.10 | Mid: $1.38 | Last: $1.98
+  IV: 92.8% | OI: 5,146 | Volume: 135
+  Spread: $1.45 — WIDE ($1.45)
+  Realistic fill (decoy target): $1.38 (mid) to $1.32 (mid - $0.05)
+  Contracts for $1k: 7 contracts at $1.38 = $962
+  ON SUCCESS (+100% stock to ~$63):
+    Intrinsic value: $28.00 | Time value est: $0.02 | Total: ~$28.02
+    $1k → ~$19,612 = ~20.4x multiple
+  ON FAILURE (stock flat or down):
+    Option value: ~$0.05 | $1k → ~$35 (near-total loss)
+  Break-even move needed: +11.3% (vs expected central +100%)
+
+  >>> IDYA RECOMMENDATION:
+  May $45C is the pure 30-40% OTM target but spread is EXTREMELY WIDE ($4.50).
+  Liquidity is terrible on May chain (OI 35-74, no volume).
+  BETTER OPTION: April 17 $35C has OI=5,146, volume=135, $1.45 spread.
+  April 17 gives only 3 days post mid-April catalyst but captures the move.
+  If want safety buffer: May $40C or $45C with aggressive limit orders.
+  Fill strategy: For May $45C, start limit at $1.50, walk up to $2.50 max.
+  For Apr $35C, target mid of $1.38, should fill near $1.30-1.50.
+
+================================================================================
+TICKER: TVTX (Travere Therapeutics)
+Stock Price: $27.66
+Catalyst: PDUFA date April 13, 2026
+Expected Success Move: +60% → ~$44
+Available May 15 Strikes: $25, $27.5, $32.5, $35, $37.5
+================================================================================
+  --- May $35C (PRIMARY — 27% OTM) ---
+  Strike/Expiry: $35C 2026-05-15
+  Days to Expiry: 46
+  Bid: $2.50 | Ask: $3.80 | Mid: $3.15 | Last: $2.91
+  IV: 138.8% | OI: 4 | Volume: 3
+  Spread: $1.30 — WIDE ($1.30)
+  Realistic fill (decoy target): $3.15 (mid) to $3.10 (mid - $0.05)
+  Contracts for $1k: 3 contracts at $3.15 = $945
+  ON SUCCESS (+60% stock to ~$44):
+    Intrinsic value: $9.00 | Time value est: $0.65 | Total: ~$9.65
+    $1k → ~$2,894 = ~3.1x multiple
+  ON FAILURE (stock flat or down):
+    Option value: ~$0.05 | $1k → ~$15 (near-total loss)
+  Break-even move needed: +26.5% (vs expected central +60%)
+
+  --- Apr $35C (BEST LIQUIDITY — 27% OTM) ---
+  Strike/Expiry: $35C 2026-04-17
+  Days to Expiry: 18
+  Bid: $2.50 | Ask: $2.95 | Mid: $2.73 | Last: $2.80
+  IV: 200.9% | OI: 7,607 | Volume: 870
+  Spread: $0.45 — MODERATE (15-50c)
+  Realistic fill (decoy target): $2.73 (mid) to $2.68 (mid - $0.05)
+  Contracts for $1k: 3 contracts at $2.73 = $818
+  ON SUCCESS (+60% stock to ~$44):
+    Intrinsic value: $9.00 | Time value est: $0.04 | Total: ~$9.04
+    $1k → ~$2,711 = ~3.3x multiple
+  ON FAILURE (stock flat or down):
+    Option value: ~$0.05 | $1k → ~$15 (near-total loss)
+  Break-even move needed: +26.5% (vs expected central +60%)
+
+  >>> TVTX RECOMMENDATION:
+  May $35C has only 4 OI — effectively no market.
+  April 17 $35C is FAR SUPERIOR: OI=7,607, volume=870, $0.45 spread.
+  April 17 gives 4 days post-PDUFA (April 13) — plenty of time to exit.
+  STRONG BUY: April 17 $35C at $2.73 mid. Fill near $2.60-2.75.
+  This is the best liquid option across all 4 tickers.
+
+================================================================================
+TICKER: AXSM (Axsome Therapeutics)
+Stock Price: $160.50
+Catalyst: Q1 Auvelity launch data ~April 30, 2026
+Expected Success Move: +40% → ~$225
+Available May 15 Strikes: $100-$250 (20 strikes)
+================================================================================
+  --- May $220C (PRIMARY — 37% OTM) ---
+  Strike/Expiry: $220C 2026-05-15
+  Days to Expiry: 46
+  Bid: $1.05 | Ask: $1.50 | Mid: $1.27 | Last: $1.50
+  IV: 59.9% | OI: 34 | Volume: 4
+  Spread: $0.45 — MODERATE (15-50c)
+  Realistic fill (decoy target): $1.27 (mid) to $1.22 (mid - $0.05)
+  Contracts for $1k: 7 contracts at $1.27 = $892
+  ON SUCCESS (+40% stock to ~$225):
+    Intrinsic value: $5.00 | Time value est: $6.11 | Total: ~$11.11
+    $1k → ~$7,777 = ~8.7x multiple
+  ON FAILURE (stock flat or down):
+    Option value: ~$0.05 | $1k → ~$35 (near-total loss)
+  Break-even move needed: +37.1% (vs expected central +40%)
+
+  --- May $210C (ALT — 31% OTM) ---
+  Strike/Expiry: $210C 2026-05-15
+  Days to Expiry: 46
+  Bid: $1.50 | Ask: $4.10 | Mid: $2.80 | Last: $2.60
+  IV: 66.2% | OI: 2 | Volume: 1
+  Spread: $2.60 — WIDE ($2.60)
+  Realistic fill (decoy target): $2.80 (mid) to $2.75 (mid - $0.05)
+  Contracts for $1k: 3 contracts at $2.80 = $840
+  ON SUCCESS (+40% stock to ~$225):
+    Intrinsic value: $15.00 | Time value est: $3.61 | Total: ~$18.61
+    $1k → ~$5,584 = ~6.6x multiple
+  ON FAILURE (stock flat or down):
+    Option value: ~$0.05 | $1k → ~$15 (near-total loss)
+  Break-even move needed: +30.8% (vs expected central +40%)
+
+  >>> AXSM RECOMMENDATION:
+  May $220C has the BEST spread quality of all options: $0.45 spread!
+  OI=34, volume=4 — moderate but workable for small $1k positions.
+  Fill target: $1.28 mid, should fill near $1.20-1.30.
+  At $225 success price, intrinsic is only $5, giving ~3x.
+  For higher multiple, $220C is optimal since it's just $5 below target.
+  Risk: April 30 catalyst with May 15 expiry = only 15 days buffer.
+
+================================================================================
+TICKER: RGNX (REGENXBIO)
+Stock Price: $7.77
+Catalyst: Gene therapy data early Q2 2026
+Expected Success Move: +150% → ~$19.40
+Available May 15 Strikes: $10 (ONLY 1 STRIKE)
+================================================================================
+  --- May $10C (PRIMARY — only strike) ---
+  Strike/Expiry: $10C 2026-05-15
+  Days to Expiry: 46
+  Bid: $0.00 | Ask: $4.90 | Mid: $1.35 | Last: $1.35
+  IV: 284.6% | OI: 1 | Volume: 1
+  ⚠ NO BID — using last price as estimate
+  Spread: $4.90 — WIDE ($4.90)
+  Realistic fill (decoy target): $1.35 (mid) to $1.15 (mid - $0.05)
+  Contracts for $1k: 7 contracts at $1.35 = $945
+  ON SUCCESS (+150% stock to ~$19):
+    Intrinsic value: $9.40 | Time value est: $0.18 | Total: ~$9.58
+    $1k → ~$6,704 = ~7.1x multiple
+  ON FAILURE (stock flat or down):
+    Option value: ~$0.00 | $1k → ~$0 (near-total loss)
+  Break-even move needed: +28.7% (vs expected central +150%)
+
+  --- Apr $10C (ALT — better pricing) ---
+  Strike/Expiry: $10C 2026-04-17
+  Days to Expiry: 18
+  Bid: $0.00 | Ask: $1.05 | Mid: $1.00 | Last: $1.00
+  IV: 169.9% | OI: 355 | Volume: 1
+  ⚠ NO BID — using last price as estimate
+  Spread: $1.05 — WIDE ($1.05)
+  Realistic fill (decoy target): $1.00 (mid) to $0.85 (mid - $0.05)
+  Contracts for $1k: 10 contracts at $1.00 = $1000
+  ON SUCCESS (+150% stock to ~$19):
+    Intrinsic value: $9.40 | Time value est: $0.00 | Total: ~$9.40
+    $1k → ~$9,405 = ~9.4x multiple
+  ON FAILURE (stock flat or down):
+    Option value: ~$0.00 | $1k → ~$0 (near-total loss)
+  Break-even move needed: +28.7% (vs expected central +150%)
+
+  --- Jul $10C (BEST LIQUIDITY) ---
+  Strike/Expiry: $10C 2026-07-17
+  Days to Expiry: 109
+  Bid: $1.50 | Ask: $3.50 | Mid: $2.50 | Last: $2.00
+  IV: 189.1% | OI: 1,509 | Volume: 1
+  Spread: $2.00 — WIDE ($2.00)
+  Realistic fill (decoy target): $2.50 (mid) to $2.45 (mid - $0.05)
+  Contracts for $1k: 4 contracts at $2.50 = $1000
+  ON SUCCESS (+150% stock to ~$19):
+    Intrinsic value: $9.40 | Time value est: $0.35 | Total: ~$9.75
+    $1k → ~$3,901 = ~3.9x multiple
+  ON FAILURE (stock flat or down):
+    Option value: ~$0.05 | $1k → ~$20 (near-total loss)
+  Break-even move needed: +28.7% (vs expected central +150%)
+
+  >>> RGNX RECOMMENDATION:
+  RGNX options are EXTREMELY ILLIQUID across all expiries.
+  May chain has literally 1 strike with 1 OI and $4.90 spread. UNTRADEABLE.
+  April 17 $10C: 355 OI but no bid. Last trade was $1.00.
+  July 17 $10C: Best option with 1,509 OI but $2.00 spread.
+  RECOMMENDED: July $10C — place limit at $2.00 (last trade price).
+  Alternative: April $10C limit at $0.50-0.80.
+  WARNING: All RGNX options have terrible liquidity. Fill will be difficult.
+  Consider: buying common stock instead ($7.77 → $19.40 = +150% = 2.5x).
+
+================================================================================
+SUMMARY: RECOMMENDED POSITIONS FOR $1K EACH
+================================================================================
+Ticker  Option        Expiry      Fill    Ctrs  Cost    Succ Val  $1k→        Mult    OI      Spread
+----------------------------------------------------------------------------------------------------
+IDYA    Apr $35C      2026-04-17  $1.38   7     700     ~$28      ~$19,600    ~28x    5,146   MODERATE
+IDYA    May $45C      2026-05-15  $2.75   3     825     ~$18.5    ~$5,550     ~6.7x   74      WIDE
+TVTX    Apr $35C      2026-04-17  $2.73   3     819     ~$9       ~$2,700     ~3.3x   7,607   GOOD
+AXSM    May $220C     2026-05-15  $1.28   7     896     ~$5.6     ~$3,920     ~4.4x   34      GOOD
+RGNX    Jul $10C      2026-07-17  $2.50   4     1000    ~$10.3    ~$4,120     ~4.1x   1,509   WIDE
+
+================================================================================
+KEY FILL NOTES FOR DECOY LADDER
+================================================================================
+
+IDYA (Apr $35C — RECOMMENDED):
+  Spread: $0.65 - $2.10 ($1.45 wide)
+  Decoy ladder: Start at $0.90, walk up $0.15 every 5 min → $0.90, $1.05, $1.20, $1.35, $1.50
+  Likely fill: $1.20-1.40 range. Good volume (135/day) supports fills.
+  Alt May $45C: Start at $1.00, walk up $0.25 → $1.00, $1.25, $1.50, $1.75, $2.00, $2.50
+  Likely fill: Hard to predict with no volume. May need to pay up to $2.50+.
+
+TVTX (Apr $35C):
+  Spread: $2.50 - $2.95 ($0.45 — TIGHTEST biotech spread)
+  Decoy ladder: Start at $2.55, walk up $0.05 → $2.55, $2.60, $2.65, $2.70, $2.75
+  Likely fill: $2.60-2.75 range. Excellent volume (870/day).
+  This is the EASIEST fill of the batch.
+
+AXSM (May $220C):
+  Spread: $1.05 - $1.50 ($0.45 — GOOD)
+  Decoy ladder: Start at $1.10, walk up $0.05 → $1.10, $1.15, $1.20, $1.25, $1.30
+  Likely fill: $1.20-1.30 range. Low volume (4/day) but tight spread helps.
+  May need patience — check daily for fills.
+
+RGNX (Jul $10C — RECOMMENDED over May):
+  Spread: $1.50 - $3.50 ($2.00 — VERY WIDE)
+  Decoy ladder: Start at $1.60, walk up $0.20 → $1.60, $1.80, $2.00, $2.20, $2.40
+  Likely fill: $1.80-2.20 range. Last trade was $2.00.
+  WARNING: May take multiple days. Set GTC limit orders.
+  Alternative: Consider common stock at $7.77 for guaranteed fill, +150% upside.
+
+================================================================================
+LIQUIDITY RANKING (best to worst)
+================================================================================
+1. TVTX Apr $35C — OI 7,607 | Vol 870 | Spread $0.45 ★★★★★
+2. IDYA Apr $35C — OI 5,146 | Vol 135 | Spread $1.45 ★★★★
+3. RGNX Jul $10C — OI 1,509 | Vol 1  | Spread $2.00 ★★
+4. AXSM May $220C — OI 34   | Vol 4  | Spread $0.45 ★★★
+5. IDYA May $45C — OI 74   | Vol 0  | Spread $4.50 ★
+6. RGNX May $10C — OI 1    | Vol 1  | Spread $4.90 (UNTRADEABLE)
+
+================================================================================
+RAW DATA APPENDIX
+================================================================================
+
+IDYA May 15, 2026 Full Chain (Calls):
+Strike | Bid    | Ask    | Last   | IV      | OI  | Vol
+$20    | $11.00 | $15.90 | $14.60 | 170.7%  | 5   | 0
+$25    | $8.00  | $11.90 | $10.45 | 156.1%  | 5   | 5
+$35    | $3.00  | $7.90  | $5.83  | 150.9%  | 72  | 0
+$40    | $1.50  | $4.50  | $3.50  | 126.5%  | 35  | 0
+$45    | $0.50  | $5.00  | $2.53  | 143.8%  | 74  | 0
+
+IDYA April 17, 2026 Full Chain (Calls):
+Strike  | Bid    | Ask    | Last   | IV      | OI    | Vol
+$12.50  | $16.50 | $21.50 | $22.80 | 189.8%  | 1     | 1
+$20     | $9.50  | $14.00 | $11.09 | 142.4%  | 15    | 3
+$22.50  | $7.00  | $11.50 | $9.80  | 111.9%  | 58    | 2
+$25     | $5.00  | $9.10  | $10.80 | 104.8%  | 163   | 2
+$30     | $2.90  | $4.00  | $2.80  | 95.4%   | 292   | 20
+$35     | $0.65  | $2.10  | $1.98  | 92.8%   | 5,146 | 135
+$40     | $0.35  | $0.60  | $0.50  | 92.6%   | 1,468 | 16
+$45     | $0.00  | $0.40  | $0.33  | 98.6%   | 5,236 | 10
+$50     | $0.00  | $2.20  | $0.20  | 183.1%  | 1,485 | 80
+
+TVTX May 15, 2026 Full Chain (Calls):
+Strike  | Bid   | Ask   | Last  | IV      | OI | Vol
+$25     | $5.70 | $9.20 | $6.88 | 162.3%  | 3  | 3
+$27.50  | $5.60 | $8.10 | $6.75 | 174.3%  | 2  | 0
+$32.50  | $3.50 | $4.80 | $4.18 | 147.8%  | 1  | 0
+$35     | $2.50 | $3.80 | $2.91 | 138.8%  | 4  | 3
+$37.50  | $1.30 | $4.80 | $2.75 | 150.4%  | 2  | 0
+
+TVTX April 17, 2026 Full Chain (Calls) — KEY STRIKES:
+Strike  | Bid   | Ask   | Last  | IV      | OI    | Vol
+$30     | $3.70 | $4.70 | $4.30 | 203.4%  | 485   | 87
+$32.50  | $3.10 | $3.80 | $3.40 | 204.5%  | 385   | 84
+$35     | $2.50 | $2.95 | $2.80 | 200.9%  | 7,607 | 870
+$37.50  | $1.05 | $2.50 | $2.00 | 181.5%  | 200   | 13
+$40     | $1.05 | $2.75 | $1.30 | 206.1%  | 401   | 31
+$42.50  | $0.10 | $1.40 | $1.25 | 161.4%  | 1,268 | 2,148
+$45     | $0.05 | $0.95 | $0.75 | 156.8%  | 3,102 | 192
+$50     | $0.05 | $0.40 | $0.37 | 151.6%  | 7,244 | 35
+
+AXSM May 15, 2026 Full Chain (Calls) — KEY STRIKES:
+Strike  | Bid    | Ask    | Last   | IV     | OI  | Vol
+$165    | $12.40 | $15.70 | $12.70 | 69.7%  | 207 | 11
+$170    | $10.10 | $13.20 | $10.65 | 67.6%  | 551 | 4
+$175    | $8.10  | $12.00 | $10.50 | 68.0%  | 30  | 2
+$180    | $6.80  | $9.30  | $7.40  | 65.6%  | 313 | 1
+$185    | $5.40  | $7.30  | $6.10  | 63.5%  | 38  | 2
+$190    | $5.00  | $7.40  | $5.00  | 68.2%  | 382 | 1
+$195    | $2.55  | $4.90  | $4.40  | 59.7%  | 2   | 1
+$200    | $2.35  | $4.90  | $3.40  | 63.6%  | 535 | 3
+$210    | $1.50  | $4.10  | $2.60  | 66.2%  | 2   | 1
+$220    | $1.05  | $1.50  | $1.50  | 59.9%  | 34  | 4
+$230    | $0.75  | $1.55  | $1.00  | 64.6%  | 31  | 10
+
+RGNX — All Expiries, $10 Strike:
+Expiry     | Bid   | Ask   | Last  | IV      | OI    | Vol
+Apr 17     | $0.00 | $1.05 | $1.00 | 169.9%  | 355   | 1
+May 15     | $0.00 | $4.90 | $1.35 | 284.6%  | 1     | 1
+Jul 17     | $1.50 | $3.50 | $2.00 | 189.1%  | 1,509 | 1
+
+RGNX April 17, 2026 Full Chain (Calls) — KEY STRIKES:
+Strike  | Bid   | Ask   | Last  | IV      | OI  | Vol
+$9      | $0.05 | $2.20 | $0.85 | 221.3%  | 92  | 1
+$10     | $0.00 | $1.05 | $1.00 | 169.9%  | 355 | 1
+$11     | $0.00 | $2.00 | $2.00 | 271.1%  | 57  | 32
+$12.50  | $0.10 | $1.60 | $0.50 | 286.1%  | 341 | 1
+$15     | $0.00 | $0.70 | $0.40 | 245.7%  | 689 | 5
+$20     | $0.00 | $0.65 | $0.55 | 303.1%  | 169 | 5
+
+================================================================================
+NOTES
+================================================================================
+1. All data pulled via yfinance API on March 30, 2026 during market hours.
+2. IDYA and RGNX May chains have extremely poor liquidity — consider April expiry.
+3. TVTX April $35C is the standout option: tight spread, massive OI, high volume.
+4. AXSM $220C is well-positioned but OI is thin — fill patiently.
+5. RGNX is the most challenging — consider July for any reasonable fill.
+6. IV levels are elevated across all names (90-285%), consistent with pre-catalyst.
+7. Decoy ladder fill prices assume mid-market targeting with $0.05-0.25 increments.
+8. 'Expected success price' assumes central case from prior catalyst analysis.
+9. Time value estimates use B-S with 50% post-catalyst IV crush assumption.
+10. Break-even calculations assume hold to expiry; early exercise may differ.

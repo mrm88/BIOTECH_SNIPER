@@ -1,0 +1,263 @@
+{
+  "run_date": "2026-03-31",
+  "sectors_run": [
+    "BIOTECH",
+    "CONTRACTS",
+    "ADCOM"
+  ],
+  "all_signals": [
+    {
+      "ticker": "IDYA",
+      "type": "IR_PAGE_CHANGED",
+      "sentiment": "WATCH",
+      "severity": "MODERATE",
+      "icon": "\ud83d\udc41",
+      "detail": "IR events page content changed since last check",
+      "implication": "New event posted. Check manually: https://ir.ideayabio.com/events",
+      "detected_date": "2026-03-31",
+      "sector_tag": "BIOTECH"
+    },
+    {
+      "ticker": "RZLT",
+      "type": "IR_PAGE_CHANGED",
+      "sentiment": "WATCH",
+      "severity": "MODERATE",
+      "icon": "\ud83d\udc41",
+      "detail": "IR events page content changed since last check",
+      "implication": "New event posted. Check manually: https://ir.rezolutebio.com/events",
+      "detected_date": "2026-03-31",
+      "sector_tag": "BIOTECH"
+    },
+    {
+      "ticker": "ARGX",
+      "type": "IR_PAGE_CHANGED",
+      "sentiment": "WATCH",
+      "severity": "MODERATE",
+      "icon": "\ud83d\udc41",
+      "detail": "IR events page content changed since last check",
+      "implication": "New event posted. Check manually: https://www.argenx.com/investors/events",
+      "detected_date": "2026-03-31",
+      "sector_tag": "BIOTECH"
+    },
+    {
+      "ticker": "VRDN",
+      "type": "IR_PAGE_CHANGED",
+      "sentiment": "WATCH",
+      "severity": "MODERATE",
+      "icon": "\ud83d\udc41",
+      "detail": "IR events page content changed since last check",
+      "implication": "New event posted. Check manually: https://www.viridiantherapeutics.com/investors",
+      "detected_date": "2026-03-31",
+      "sector_tag": "BIOTECH"
+    }
+  ],
+  "critical": [],
+  "high": [],
+  "total_signals": 4,
+  "needs_dual_model_scoring": [],
+  "active_plays": [
+    {
+      "ticker": "IDYA",
+      "days_out": 10,
+      "p_success": 96,
+      "direction": "LONG_CALLS",
+      "announcement": "late April - early May 2026",
+      "certainty": "ESTIMATED",
+      "option": "$40C 2026-05-15"
+    },
+    {
+      "ticker": "TVTX",
+      "days_out": 13,
+      "p_success": 77,
+      "direction": "LONG_CALLS",
+      "announcement": "April 13 2026",
+      "certainty": "CERTAIN",
+      "option": "$35C 2026-04-17"
+    },
+    {
+      "ticker": "RGNX",
+      "days_out": 15,
+      "p_success": 68,
+      "direction": "LONG_CALLS",
+      "announcement": "April - May 2026",
+      "certainty": "ESTIMATED",
+      "option": "$10C 2026-07-17"
+    },
+    {
+      "ticker": "AXSM",
+      "days_out": 30,
+      "p_success": 85,
+      "direction": "LONG_CALLS",
+      "announcement": "April 30 2026",
+      "certainty": "CERTAIN",
+      "option": "$200C 2026-05-15"
+    },
+    {
+      "ticker": "ARGX",
+      "days_out": 40,
+      "p_success": 87,
+      "direction": "CALL_SPREAD",
+      "announcement": "May 10 2026",
+      "certainty": "CERTAIN",
+      "option": "CALL_SPREAD"
+    },
+    {
+      "ticker": "RVMD",
+      "days_out": 45,
+      "p_success": 61,
+      "direction": "LONG_CALLS",
+      "announcement": "May - June 2026",
+      "certainty": "ESTIMATED",
+      "option": "$55C 2026-07-17"
+    },
+    {
+      "ticker": "AGIO",
+      "days_out": 45,
+      "p_success": 6,
+      "direction": "LONG_PUTS",
+      "announcement": "May - June 2026",
+      "certainty": "ESTIMATED",
+      "option": "$17.5P 2026-08-21"
+    },
+    {
+      "ticker": "NTLA",
+      "days_out": 45,
+      "p_success": 82,
+      "direction": "LONG_CALLS",
+      "announcement": "May - June 2026",
+      "certainty": "ESTIMATED",
+      "option": "$15C 2026-07-17"
+    },
+    {
+      "ticker": "VRDN",
+      "days_out": 45,
+      "p_success": 80,
+      "direction": "LONG_CALLS",
+      "announcement": "Q2 2026",
+      "certainty": "ESTIMATED",
+      "option": "$25C 2026-07-17"
+    },
+    {
+      "ticker": "LPCN",
+      "days_out": 45,
+      "p_success": 62,
+      "direction": "EQUITY_ONLY",
+      "announcement": "Q2 2026",
+      "certainty": "ESTIMATED",
+      "option": "EQUITY_ONLY"
+    }
+  ],
+  "sector_results": {
+    "biotech": {
+      "signals": 4,
+      "active_plays": 10,
+      "removed": [],
+      "graduated": [],
+      "active_plays_ordered": [
+        {
+          "ticker": "IDYA",
+          "days_out": 10,
+          "p_success": 96,
+          "direction": "LONG_CALLS",
+          "announcement": "late April - early May 2026",
+          "certainty": "ESTIMATED",
+          "option": "$40C 2026-05-15"
+        },
+        {
+          "ticker": "TVTX",
+          "days_out": 13,
+          "p_success": 77,
+          "direction": "LONG_CALLS",
+          "announcement": "April 13 2026",
+          "certainty": "CERTAIN",
+          "option": "$35C 2026-04-17"
+        },
+        {
+          "ticker": "RGNX",
+          "days_out": 15,
+          "p_success": 68,
+          "direction": "LONG_CALLS",
+          "announcement": "April - May 2026",
+          "certainty": "ESTIMATED",
+          "option": "$10C 2026-07-17"
+        },
+        {
+          "ticker": "AXSM",
+          "days_out": 30,
+          "p_success": 85,
+          "direction": "LONG_CALLS",
+          "announcement": "April 30 2026",
+          "certainty": "CERTAIN",
+          "option": "$200C 2026-05-15"
+        },
+        {
+          "ticker": "ARGX",
+          "days_out": 40,
+          "p_success": 87,
+          "direction": "CALL_SPREAD",
+          "announcement": "May 10 2026",
+          "certainty": "CERTAIN",
+          "option": "CALL_SPREAD"
+        },
+        {
+          "ticker": "RVMD",
+          "days_out": 45,
+          "p_success": 61,
+          "direction": "LONG_CALLS",
+          "announcement": "May - June 2026",
+          "certainty": "ESTIMATED",
+          "option": "$55C 2026-07-17"
+        },
+        {
+          "ticker": "AGIO",
+          "days_out": 45,
+          "p_success": 6,
+          "direction": "LONG_PUTS",
+          "announcement": "May - June 2026",
+          "certainty": "ESTIMATED",
+          "option": "$17.5P 2026-08-21"
+        },
+        {
+          "ticker": "NTLA",
+          "days_out": 45,
+          "p_success": 82,
+          "direction": "LONG_CALLS",
+          "announcement": "May - June 2026",
+          "certainty": "ESTIMATED",
+          "option": "$15C 2026-07-17"
+        },
+        {
+          "ticker": "VRDN",
+          "days_out": 45,
+          "p_success": 80,
+          "direction": "LONG_CALLS",
+          "announcement": "Q2 2026",
+          "certainty": "ESTIMATED",
+          "option": "$25C 2026-07-17"
+        },
+        {
+          "ticker": "LPCN",
+          "days_out": 45,
+          "p_success": 62,
+          "direction": "EQUITY_ONLY",
+          "announcement": "Q2 2026",
+          "certainty": "ESTIMATED",
+          "option": "EQUITY_ONLY"
+        }
+      ]
+    },
+    "contracts": {
+      "signals": 0,
+      "critical": 0,
+      "high": 0,
+      "needs_scoring": []
+    },
+    "adcom": {
+      "signals": 0,
+      "upcoming_count": 0,
+      "briefing_alerts": [],
+      "needs_scoring": []
+    }
+  },
+  "summary_for_email": "=================================================================\nINTELLIGENCE SIGNALS \u2014 ALL SECTORS\n=================================================================\n\nSECTOR STATUS:\n  BIOTECH: 4 signals\n  CONTRACTS: 0 signals\n  ADCOM: 0 signals"
+}

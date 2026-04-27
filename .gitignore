@@ -53,7 +53,3 @@ Thumbs.db
 .coverage
 htmlcov/
 .tox/
-
-# M1 bootstrap: the unzipped reference project is staged here for the
-# paths.py refactor in the next feature; do not commit it as-is.
-/biotech_sniper/

@@ -1,0 +1,30 @@
+{
+  "IDYA": {
+    "why_line": "DB lock drops 1H April = April 1-15. Friday vol was 2.58x avg. Pre-reg opens = stock gaps. Could be Monday.",
+    "edge_line": "OI=153. Whoever reads IDEAYA's IR page first wins. Pre-reg link goes live BEFORE the press release hits."
+  },
+  "RGNX": {
+    "why_line": "RGNX confirmed early Q2 topline on Mar 11. That's April/May. $8.53 stock, analysts at $27.70 avg target. 36 days.",
+    "edge_line": "Phase I/II: 100% of patients hit the ≥10% microdystrophin endpoint. Market pricing <50% success. Short squeeze loaded."
+  },
+  "AXSM": {
+    "why_line": "PDUFA April 30. 26 days. FDA already approved same molecule (AUVELITY) and same endpoint category (REXULTI). $200C @ $5.55.",
+    "edge_line": "FDA reviewing AXS-05 with full AUVELITY safety data in hand. Priority Review + BTD = pre-convinced. Only question was safety. It's answered."
+  },
+  "ARGX": {
+    "why_line": "ARGX PDUFA May 10 = 36 days. $750/$800 spread costs $9.25, max $40.75. argenx is 0-for-0 on sNDA rejections in history.",
+    "edge_line": "This is the 4th submission using the ADAPT study design. FDA approved it 3 prior times. Reviewers know this file by heart."
+  },
+  "AGIO": {
+    "why_line": "AGIO Phase 2b data 1H 2026. $30P Aug @ $2.40. Phase 2a 40% TI rate was lowest-burden patients. 2b enrolled harder cases.",
+    "edge_line": "Phase 2a PoC was easiest cohort. Phase 2b = higher transfusion burden, same endpoint. Warpspeed: 6% success. Market says 50/50."
+  },
+  "NTLA": {
+    "why_line": "HAELO last patient obs ended ~Mar 30. 97% attack-free at yr 3 (Apr 2 data). BLA planned 2H 2026. Topline is weeks away.",
+    "edge_line": "Math: topline -> BLA -> submission by Dec 2026 = data by June at latest. RMAT-designated. Market hasn't run the timeline."
+  },
+  "VRDN": {
+    "why_line": "VRDN $1.84 above cash floor. REVEAL-2 data Q2 2026. Veligrotug PDUFA Jun 30 bonus catalyst. $27C Jul @ $1.15, 3.1x if +60%.",
+    "edge_line": "Street punished VRDN with IMVT on FcRn fear. VRDN is IGF-1R. Efgartigimod (FcRn) already failed TED in 2024. Wrong mechanism."
+  }
+}

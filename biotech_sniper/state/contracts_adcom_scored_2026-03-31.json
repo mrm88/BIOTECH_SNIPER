@@ -1,0 +1,75 @@
+{
+  "contract_plays": [
+    {
+      "ticker": "AJRD",
+      "amount": 3414747874.31,
+      "note": "$3.2B = 137% of mkt cap. Meaningful.",
+      "signal": "Material new award"
+    },
+    {
+      "ticker": "BAH",
+      "amount": 2597214989.74,
+      "note": "$1.1B = 19% of mkt cap. Meaningful.",
+      "signal": "Material new award"
+    },
+    {
+      "ticker": "LUNR",
+      "amount": 134863292.0,
+      "note": "CLPS program awards ~quarterly. Pattern signals more coming. Options play = anticipate next award.",
+      "signal": "CLPS task order \u2014 signals NASA relationship ongoing"
+    },
+    {
+      "ticker": "RKLB",
+      "amount": 32322522.0,
+      "note": "VADR umbrella = Rocket Lab is on approved launch manifest. Binary options play = future J&A/contract win.",
+      "signal": "NASA VADR launch order"
+    }
+  ],
+  "adcom_plays": [
+    {
+      "date": "2026-06-03",
+      "drug": "Aficamten (MYQORZO)",
+      "company": "Cytokinetics",
+      "ticker": "CYTK",
+      "indication": "Obstructive HCM",
+      "committee": "AdCom (cardiovascular)",
+      "note": "CYTK is ~$2.5B market cap. AdCom June 3, PDUFA likely Aug/Sep. Competing with mavacamten (CAMZYOS) already approved. Key question: differentiation.",
+      "mkt_cap": 2500000000.0,
+      "est_win": 30,
+      "est_loss": 25,
+      "days_out": 63
+    },
+    {
+      "date": "2026-08-20",
+      "drug": "Donidalorsen",
+      "company": "KalVista",
+      "ticker": "KALV",
+      "indication": "HAE on-demand oral",
+      "committee": "AdCom (TBD)",
+      "pdufa": "2026-10-20",
+      "note": "KALV is tiny ~$400M mkt cap. HAE market, competing vs Berinert/Firazyr. Oral on-demand = differentiated. AdCom Aug 20.",
+      "mkt_cap": 400000000.0,
+      "est_win": 60,
+      "est_loss": 40,
+      "days_out": 141
+    }
+  ],
+  "adcom_options": [
+    {
+      "ticker": "KALV",
+      "strike": 17.5,
+      "expiry": "2026-09-18",
+      "fill": 5.95,
+      "oi": 3153,
+      "multiple": 2.8,
+      "price": 20.1299991607666,
+      "win_pct": 60,
+      "adcom_date": "2026-08-20",
+      "days_out": 141,
+      "company": "KalVista",
+      "drug": "Donidalorsen",
+      "indication": "HAE on-demand oral",
+      "note": "KALV is tiny ~$400M mkt cap. HAE market, competing vs Berinert/Firazyr. Oral on-demand = differentiated. AdCom Aug 20."
+    }
+  ]
+}

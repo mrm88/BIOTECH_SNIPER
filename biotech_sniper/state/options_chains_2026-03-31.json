@@ -1,0 +1,102 @@
+{
+  "IDYA": {
+    "price": 31.45,
+    "strike": 40,
+    "type": "C",
+    "expiry": "2026-05-15",
+    "last": 3.5,
+    "oi": 35,
+    "iv": 13,
+    "note": "Low OI on May15 - Apr17 has OI=1,468 (consider Apr17 $40C @ $0.50 speculative)"
+  },
+  "TVTX": {
+    "price": 27.66,
+    "strike": 35,
+    "type": "C",
+    "expiry": "2026-04-17",
+    "last": 2.8,
+    "oi": 8438,
+    "iv": 25,
+    "note": "PDUFA Apr 13. Very tight 4-day buffer. High OI."
+  },
+  "RGNX": {
+    "price": 7.77,
+    "strike": 10,
+    "type": "C",
+    "expiry": "2026-07-17",
+    "last": 2.0,
+    "oi": 1509,
+    "iv": 13,
+    "note": "Good OI. Stock at $7.77, $10C = 29% OTM."
+  },
+  "AXSM": {
+    "price": 160.5,
+    "strike": 200,
+    "type": "C",
+    "expiry": "2026-05-15",
+    "last": 3.4,
+    "oi": 538,
+    "iv": 13,
+    "note": "PDUFA Apr 30. $200C = 25% OTM. Solid OI."
+  },
+  "ARGX": {
+    "price": 704.31,
+    "strike": "750/800",
+    "type": "CS",
+    "expiry": "2026-05-15",
+    "last": 9.25,
+    "oi": "N/A",
+    "iv": "N/A",
+    "note": "$750C @ $19.95, $800C @ $10.70, net debit $9.25, max profit $40.75"
+  },
+  "RVMD": {
+    "price": 92.71,
+    "strike": 125,
+    "type": "C",
+    "expiry": "2026-06-18",
+    "last": 8.7,
+    "oi": 59,
+    "iv": 0,
+    "note": "UPDATED: stock 2.4x since entry. Old $55C now deep ITM. $125C Jun18 = 35% OTM. Low OI."
+  },
+  "AGIO": {
+    "price": 29.61,
+    "strike": 17.5,
+    "type": "P",
+    "expiry": "2026-08-21",
+    "last": 1.35,
+    "oi": 98,
+    "iv": 25,
+    "note": "Puts - $17.5P Aug21. OI thin. Patient limit only."
+  },
+  "NTLA": {
+    "price": 11.65,
+    "strike": 15,
+    "type": "C",
+    "expiry": "2026-07-17",
+    "last": 1.75,
+    "oi": 1748,
+    "iv": 13,
+    "note": "Good OI 1,748. $15C = 29% OTM. Best liquid name."
+  },
+  "VRDN": {
+    "price": 18.53,
+    "strike": 25,
+    "type": "C",
+    "expiry": "2026-07-17",
+    "last": 1.86,
+    "oi": 858,
+    "iv": 13,
+    "note": "Solid OI 858. $25C = 35% OTM. Good spread."
+  },
+  "LPCN": {
+    "price": 7.58,
+    "strike": null,
+    "type": "EQ",
+    "expiry": null,
+    "last": null,
+    "oi": 0,
+    "iv": 0,
+    "note": "No options market. Equity only."
+  }
+}

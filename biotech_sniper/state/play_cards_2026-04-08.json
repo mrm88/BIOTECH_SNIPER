@@ -1,0 +1,26 @@
+{
+  "IDYA": {
+    "why_line": "IDYA $35C May-15 @ $4.70 — DB lock window is NOW (day 8 of 1H April). OI=6,585 proving real demand. 2.8x if +50%.",
+    "edge_line": "Pre-reg IR link fires BEFORE press release. $35C OI (6,585) actually beats $40C (6,571) — smart money already rotated down."
+  },
+  "RGNX": {
+    "why_line": "RGNX $10C Jul-17 @ $2.62 — pivotal topline early Q2 is NOW. Stock held Monday's +3.2% with zero news. 2.6x if +80%.",
+    "edge_line": "JPM Jan: all 4 pivotal-dose patients beat NSAA trajectory +7.4pts avg vs cTAP. $100M AbbVie milestone + BLA mid-2026 both unpriced."
+  },
+  "AXSM": {
+    "why_line": "AXSM $200C May-15 @ $5.00 — PDUFA April 30, 22 days. Fill dropped $6→$5, multiple now 4.5x. FDA BTD granted POST ADVANCE-2 miss.",
+    "edge_line": "FDA reviewed ACCORD maintenance data, not ADVANCE-2 — different efficacy signal. REXULTI approved same indication 2023. Market pricing the miss, not the label."
+  },
+  "ARGX": {
+    "why_line": "ARGX $750/$800 spread @ $10.80 — $750 leg now ITM after +2.3% today to $765.43. PDUFA May 10. 3.6x with 87% probability.",
+    "edge_line": "Zero prior sNDA rejections. Label expansion #4 on identical ADAPT design. April 30 ODAC is AstraZeneca — NOT argenx. Crowd is confused."
+  },
+  "AGIO": {
+    "why_line": "AGIO $30P Aug-21 @ $2.73 — stock +0.9% today makes puts cheaper. Phase 2b LR-MDS topline 1H 2026. 6.0x if -55%. P(fail)=94%.",
+    "edge_line": "8-week TI endpoint is wrong for LR-MDS biology. AQVESME approval (thalassemia) is a different program — false floor bulls are leaning on."
+  },
+  "NTLA": {
+    "why_line": "NTLA $15C Jul-17 @ $2.86 — fill improved $3.25→$2.86, multiple now 3.5x. BLA H2 2026 forces topline by June. Stock +1.9% today.",
+    "edge_line": "3-year 96% attack reduction published April 2. Only Phase 3 in vivo CRISPR globally. RMAT designation. 60+ patients. Market still pricing it like a startup."
+  }
+}

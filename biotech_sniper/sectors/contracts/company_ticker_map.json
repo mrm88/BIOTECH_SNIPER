@@ -1,0 +1,1093 @@
+{
+  "_comment": "Maps company name variations to equity tickers for contract + research grant matching. Aliases cover subsidiary names, legal entity names, shortened contract names. Also includes biotech watchlist so contract scanner catches government research grants.",
+  "companies": {
+    "Rocket Lab": {
+      "ticker": "RKLB",
+      "sec_cik": "0001819989",
+      "options": true,
+      "mkt_cap_tier": "mid",
+      "aliases": [
+        "Rocket Lab USA",
+        "Rocket Lab USA Inc",
+        "Rocket Lab USA, Inc.",
+        "RKLB",
+        "rocket lab usa inc",
+        "rocketlab"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Rocket Lab USA": {
+      "ticker": "RKLB",
+      "sec_cik": "0001819989",
+      "options": true,
+      "mkt_cap_tier": "mid",
+      "aliases": [
+        "Rocket Lab",
+        "Rocket Lab USA Inc",
+        "RKLB",
+        "rocket lab usa inc"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "AST SpaceMobile": {
+      "ticker": "ASTS",
+      "sec_cik": "0001780079",
+      "options": true,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "AST & Science",
+        "AST & Science LLC",
+        "AST SpaceMobile Inc",
+        "AST Science",
+        "ASTS",
+        "ast spacemobile inc"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "AST & Science": {
+      "ticker": "ASTS",
+      "sec_cik": "0001780079",
+      "options": true,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "AST SpaceMobile",
+        "AST SpaceMobile Inc",
+        "ASTS"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Kratos Defense": {
+      "ticker": "KTOS",
+      "sec_cik": "0001069258",
+      "options": true,
+      "mkt_cap_tier": "mid",
+      "aliases": [
+        "Kratos Defense & Security Solutions",
+        "Kratos Defense & Security Solutions Inc",
+        "Kratos S2",
+        "Kratos SRE",
+        "Kratos Unmanned Systems",
+        "Kratos Government Solutions",
+        "Kratos Technology & Training Solutions",
+        "Kratos National Security Solutions",
+        "KTOS",
+        "kratos defense security",
+        "kratos defense & security"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Kratos Defense & Security": {
+      "ticker": "KTOS",
+      "sec_cik": "0001069258",
+      "options": true,
+      "mkt_cap_tier": "mid",
+      "aliases": [
+        "Kratos Defense",
+        "Kratos Defense & Security Solutions",
+        "KTOS"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Intuitive Machines": {
+      "ticker": "LUNR",
+      "sec_cik": "0001874173",
+      "options": true,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "Intuitive Machines LLC",
+        "Intuitive Machines Inc",
+        "LUNR",
+        "intuitive machines llc",
+        "IM-1",
+        "IM-2"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "BWX Technologies": {
+      "ticker": "BWXT",
+      "sec_cik": "0001109189",
+      "options": true,
+      "mkt_cap_tier": "mid",
+      "aliases": [
+        "BWXT",
+        "BWX Technologies Inc",
+        "B&W Nuclear Operations",
+        "Babcock & Wilcox Nuclear",
+        "BWX"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Joby Aviation": {
+      "ticker": "JOBY",
+      "sec_cik": "0001801368",
+      "options": true,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "Joby Aero Inc",
+        "Joby Aviation Inc",
+        "Joby",
+        "JOBY",
+        "joby aviation inc"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Archer Aviation": {
+      "ticker": "ACHR",
+      "sec_cik": "0001828937",
+      "options": true,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "Archer Aviation Inc",
+        "ACHR",
+        "archer aviation inc",
+        "Archer Midnight"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Palantir": {
+      "ticker": "PLTR",
+      "sec_cik": "0001321655",
+      "options": true,
+      "mkt_cap_tier": "large",
+      "aliases": [
+        "Palantir Technologies",
+        "Palantir Technologies Inc",
+        "PLTR",
+        "palantir technologies inc",
+        "Palantir AIP",
+        "Palantir TITAN"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Palantir Technologies": {
+      "ticker": "PLTR",
+      "sec_cik": "0001321655",
+      "options": true,
+      "mkt_cap_tier": "large",
+      "aliases": [
+        "Palantir",
+        "Palantir Technologies Inc",
+        "PLTR"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Shield AI": {
+      "ticker": null,
+      "sec_cik": null,
+      "options": false,
+      "mkt_cap_tier": "private",
+      "aliases": [
+        "Shield AI Inc",
+        "Hivemind",
+        "V-BAT"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Anduril": {
+      "ticker": null,
+      "sec_cik": null,
+      "options": false,
+      "mkt_cap_tier": "private",
+      "aliases": [
+        "Anduril Industries",
+        "Anduril Industries Inc",
+        "Lattice OS",
+        "Roadrunner",
+        "Fury UAV"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Voyager Space": {
+      "ticker": null,
+      "sec_cik": null,
+      "options": false,
+      "mkt_cap_tier": "private",
+      "aliases": [
+        "Voyager Space Holdings",
+        "Starlab Space",
+        "Nanoracks",
+        "Nanoracks LLC"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Aerojet Rocketdyne": {
+      "ticker": "AJRD",
+      "sec_cik": "0000796343",
+      "options": true,
+      "mkt_cap_tier": "mid",
+      "aliases": [
+        "Aerojet Rocketdyne Holdings",
+        "Aerojet Rocketdyne Inc",
+        "Aerojet",
+        "Rocketdyne",
+        "AJRD",
+        "aerojet rocketdyne inc",
+        "aerojet rocketdyne holdings"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "L3Harris": {
+      "ticker": "LHX",
+      "sec_cik": "0001039101",
+      "options": true,
+      "mkt_cap_tier": "large",
+      "aliases": [
+        "L3Harris Technologies",
+        "L3Harris Technologies Inc",
+        "LHX",
+        "Harris Corporation",
+        "L3 Technologies",
+        "L-3 Communications",
+        "l3harris technologies inc"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Maxar Technologies": {
+      "ticker": null,
+      "sec_cik": null,
+      "options": false,
+      "mkt_cap_tier": "private",
+      "aliases": [
+        "Maxar Intelligence",
+        "Maxar Space",
+        "DigitalGlobe",
+        "SSL",
+        "MDA"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Planet Labs": {
+      "ticker": "PL",
+      "sec_cik": "0001836935",
+      "options": true,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "Planet Labs PBC",
+        "Planet Labs Inc",
+        "PL",
+        "planet labs pbc"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Spire Global": {
+      "ticker": "SPIR",
+      "sec_cik": "0001816090",
+      "options": false,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "Spire Global Inc",
+        "SPIR",
+        "spire global inc"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Terran Orbital": {
+      "ticker": "LLAP",
+      "sec_cik": "0001722684",
+      "options": false,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "Terran Orbital Corporation",
+        "LLAP",
+        "terran orbital corporation"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Redwire": {
+      "ticker": "RDW",
+      "sec_cik": "0001819989",
+      "options": false,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "Redwire Space",
+        "Redwire Corporation",
+        "RDW",
+        "redwire space",
+        "redwire corporation"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "York Space": {
+      "ticker": null,
+      "sec_cik": null,
+      "options": false,
+      "mkt_cap_tier": "private",
+      "aliases": [
+        "York Space Systems",
+        "York Space Inc"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Leidos": {
+      "ticker": "LDOS",
+      "sec_cik": "0001336920",
+      "options": true,
+      "mkt_cap_tier": "large",
+      "aliases": [
+        "Leidos Inc",
+        "Leidos Holdings",
+        "Leidos Holdings Inc",
+        "LDOS",
+        "Leidos Innovations",
+        "leidos inc"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "SAIC": {
+      "ticker": "SAIC",
+      "sec_cik": "0001336920",
+      "options": true,
+      "mkt_cap_tier": "large",
+      "aliases": [
+        "Science Applications International",
+        "Science Applications International Corporation",
+        "SAIC Inc",
+        "saic inc"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Science Applications International": {
+      "ticker": "SAIC",
+      "sec_cik": "0001336920",
+      "options": true,
+      "mkt_cap_tier": "large",
+      "aliases": [
+        "SAIC",
+        "SAIC Inc",
+        "Science Applications International Corporation"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "CACI International": {
+      "ticker": "CACI",
+      "sec_cik": "0000016058",
+      "options": true,
+      "mkt_cap_tier": "mid",
+      "aliases": [
+        "CACI International Inc",
+        "CACI Inc-Federal",
+        "CACI Technologies",
+        "CACI",
+        "caci international inc"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Booz Allen Hamilton": {
+      "ticker": "BAH",
+      "sec_cik": "0001443646",
+      "options": true,
+      "mkt_cap_tier": "large",
+      "aliases": [
+        "Booz Allen Hamilton Inc",
+        "Booz Allen & Hamilton",
+        "BAH",
+        "booz allen hamilton inc"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Parsons Corporation": {
+      "ticker": "PSN",
+      "sec_cik": "0000275880",
+      "options": true,
+      "mkt_cap_tier": "mid",
+      "aliases": [
+        "Parsons Corp",
+        "Parsons",
+        "PSN",
+        "parsons corporation"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "HEICO": {
+      "ticker": "HEI",
+      "sec_cik": "0000046619",
+      "options": true,
+      "mkt_cap_tier": "mid",
+      "aliases": [
+        "HEICO Corporation",
+        "HEICO Electronic Technologies",
+        "HEI",
+        "heico corporation"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "TransDigm": {
+      "ticker": "TDG",
+      "sec_cik": "0001260221",
+      "options": true,
+      "mkt_cap_tier": "large",
+      "aliases": [
+        "TransDigm Group",
+        "TransDigm Group Inc",
+        "TDG",
+        "Extant Aerospace",
+        "Palomar Products",
+        "transdigm group"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Mercury Systems": {
+      "ticker": "MRCY",
+      "sec_cik": "0000867460",
+      "options": true,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "Mercury Systems Inc",
+        "Mercury Defense Systems",
+        "MRCY",
+        "mercury systems inc",
+        "Mercury Computer Systems"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Curtiss-Wright": {
+      "ticker": "CW",
+      "sec_cik": "0001673139",
+      "options": true,
+      "mkt_cap_tier": "mid",
+      "aliases": [
+        "Curtiss-Wright Corporation",
+        "CW",
+        "curtiss-wright corporation",
+        "Curtiss Wright",
+        "CW Defense"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Virgin Galactic": {
+      "ticker": "SPCE",
+      "sec_cik": "0001706946",
+      "options": true,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "Virgin Galactic Holdings",
+        "SPCE",
+        "virgin galactic holdings"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Iridium Communications": {
+      "ticker": "IRDM",
+      "sec_cik": "0001418819",
+      "options": true,
+      "mkt_cap_tier": "mid",
+      "aliases": [
+        "Iridium",
+        "Iridium Communications Inc",
+        "IRDM",
+        "iridium communications inc"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Viasat": {
+      "ticker": "VSAT",
+      "sec_cik": "0000797721",
+      "options": true,
+      "mkt_cap_tier": "mid",
+      "aliases": [
+        "Viasat Inc",
+        "ViaSat",
+        "VSAT",
+        "viasat inc",
+        "Viasat Government Systems"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "EchoStar": {
+      "ticker": "SATS",
+      "sec_cik": "0001001082",
+      "options": false,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "EchoStar Corporation",
+        "Hughes Network Systems",
+        "SATS",
+        "echostar corporation"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Telesat": {
+      "ticker": "TSAT",
+      "sec_cik": "0001832191",
+      "options": false,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "Telesat Holdings",
+        "Telesat Canada",
+        "TSAT",
+        "telesat holdings"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "SES": {
+      "ticker": null,
+      "sec_cik": null,
+      "options": false,
+      "mkt_cap_tier": "private",
+      "aliases": [
+        "SES S.A.",
+        "SES Global",
+        "SES Satellites",
+        "O3b Networks"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Northrop Grumman": {
+      "ticker": "NOC",
+      "sec_cik": "0001133421",
+      "options": true,
+      "mkt_cap_tier": "large",
+      "aliases": [
+        "Northrop Grumman Corporation",
+        "Northrop Grumman Systems",
+        "NOC",
+        "northrop grumman corporation",
+        "NGC",
+        "Grumman"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Lockheed Martin": {
+      "ticker": "LMT",
+      "sec_cik": "0000936468",
+      "options": true,
+      "mkt_cap_tier": "large",
+      "aliases": [
+        "Lockheed Martin Corporation",
+        "LMT",
+        "lockheed martin corporation",
+        "Sikorsky Aircraft",
+        "Skunk Works",
+        "LM Aeronautics"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Raytheon": {
+      "ticker": "RTX",
+      "sec_cik": "0000101830",
+      "options": true,
+      "mkt_cap_tier": "large",
+      "aliases": [
+        "Raytheon Technologies",
+        "RTX Corporation",
+        "RTX",
+        "Raytheon Missiles & Defense",
+        "Pratt & Whitney",
+        "Collins Aerospace",
+        "raytheon technologies",
+        "rtx corporation"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "General Dynamics": {
+      "ticker": "GD",
+      "sec_cik": "0000040533",
+      "options": true,
+      "mkt_cap_tier": "large",
+      "aliases": [
+        "General Dynamics Corporation",
+        "GD",
+        "general dynamics corporation",
+        "General Dynamics Mission Systems",
+        "General Dynamics Land Systems",
+        "Bath Iron Works",
+        "Gulfstream"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Boeing": {
+      "ticker": "BA",
+      "sec_cik": "0000012927",
+      "options": true,
+      "mkt_cap_tier": "large",
+      "aliases": [
+        "The Boeing Company",
+        "Boeing Company",
+        "BA",
+        "Boeing Defense",
+        "Boeing Space",
+        "the boeing company"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "SpaceX": {
+      "ticker": null,
+      "sec_cik": null,
+      "options": false,
+      "mkt_cap_tier": "private",
+      "aliases": [
+        "Space Exploration Technologies",
+        "Space Exploration Technologies Corp",
+        "Starlink",
+        "Starship"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Blue Origin": {
+      "ticker": null,
+      "sec_cik": null,
+      "options": false,
+      "mkt_cap_tier": "private",
+      "aliases": [
+        "Blue Origin LLC",
+        "New Glenn",
+        "New Shepard",
+        "Blue Ring"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Textron": {
+      "ticker": "TXT",
+      "sec_cik": "0000217346",
+      "options": true,
+      "mkt_cap_tier": "large",
+      "aliases": [
+        "Textron Inc",
+        "Bell Textron",
+        "Textron Aviation",
+        "Bell Flight",
+        "TXT",
+        "textron inc",
+        "Bell Boeing"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Elbit Systems of America": {
+      "ticker": "ESLT",
+      "sec_cik": "0000720116",
+      "options": true,
+      "mkt_cap_tier": "large",
+      "aliases": [
+        "Elbit Systems",
+        "ESLT",
+        "Elbit Systems of America LLC",
+        "elbit systems of america"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Sarcos Technology": {
+      "ticker": "ROBO",
+      "sec_cik": null,
+      "options": false,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "Sarcos Robotics",
+        "Sarcos"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "AeroVironment": {
+      "ticker": "AVAV",
+      "sec_cik": "0001122994",
+      "options": true,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "AeroVironment Inc",
+        "AVAV",
+        "aerovironment inc",
+        "Puma",
+        "Raven",
+        "Switchblade",
+        "Blackwing"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Teledyne Technologies": {
+      "ticker": "TDY",
+      "sec_cik": "0001094285",
+      "options": true,
+      "mkt_cap_tier": "large",
+      "aliases": [
+        "Teledyne Technologies Inc",
+        "TDY",
+        "teledyne technologies inc",
+        "Teledyne FLIR",
+        "Teledyne Scientific",
+        "Teledyne Brown Engineering"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "FLIR Systems": {
+      "ticker": "TDY",
+      "sec_cik": "0001094285",
+      "options": true,
+      "mkt_cap_tier": "large",
+      "aliases": [
+        "FLIR",
+        "Teledyne FLIR",
+        "flir systems"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Kaman Aerospace": {
+      "ticker": "KAMN",
+      "sec_cik": "0000054381",
+      "options": false,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "Kaman Corporation",
+        "KAMN",
+        "kaman corporation",
+        "kaman aerospace"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "DXC Technology": {
+      "ticker": "DXC",
+      "sec_cik": "0001688568",
+      "options": true,
+      "mkt_cap_tier": "mid",
+      "aliases": [
+        "DXC Technology Company",
+        "DXC",
+        "dxc technology"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Accenture Federal": {
+      "ticker": "ACN",
+      "sec_cik": "0001467373",
+      "options": true,
+      "mkt_cap_tier": "large",
+      "aliases": [
+        "Accenture",
+        "Accenture Federal Services",
+        "ACN",
+        "accenture federal services"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "ManTech International": {
+      "ticker": null,
+      "sec_cik": null,
+      "options": false,
+      "mkt_cap_tier": "private",
+      "aliases": [
+        "ManTech",
+        "mantech international"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Peraton": {
+      "ticker": null,
+      "sec_cik": null,
+      "options": false,
+      "mkt_cap_tier": "private",
+      "aliases": [
+        "Peraton Inc",
+        "Peraton Holdings",
+        "peraton inc"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "SNC": {
+      "ticker": null,
+      "sec_cik": null,
+      "options": false,
+      "mkt_cap_tier": "private",
+      "aliases": [
+        "Sierra Nevada Corporation",
+        "Sierra Space",
+        "Dream Chaser",
+        "sierra nevada corporation"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Wisk Aero": {
+      "ticker": null,
+      "sec_cik": null,
+      "options": false,
+      "mkt_cap_tier": "private",
+      "aliases": [
+        "Wisk",
+        "Boeing Wisk",
+        "wisk aero llc"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Overair": {
+      "ticker": null,
+      "sec_cik": null,
+      "options": false,
+      "mkt_cap_tier": "private",
+      "aliases": [
+        "Overair Inc"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Lilium": {
+      "ticker": null,
+      "sec_cik": null,
+      "options": false,
+      "mkt_cap_tier": "private",
+      "aliases": [
+        "Lilium GmbH",
+        "Lilium Aviation"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "IDEAYA Biosciences": {
+      "ticker": "IDYA",
+      "sec_cik": "0001722482",
+      "options": true,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "IDEAYA",
+        "IDYA",
+        "ideaya biosciences"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Agios Pharmaceuticals": {
+      "ticker": "AGIO",
+      "sec_cik": "0001559053",
+      "options": true,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "Agios",
+        "AGIO",
+        "agios pharmaceuticals"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "MoonLake Immunotherapeutics": {
+      "ticker": "MLTX",
+      "sec_cik": "0001851112",
+      "options": true,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "MoonLake",
+        "MLTX",
+        "moonlake immunotherapeutics"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Rezolute": {
+      "ticker": "RZLT",
+      "sec_cik": "0001346830",
+      "options": true,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "Rezolute Inc",
+        "RZLT",
+        "rezolute inc"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Revolution Medicines": {
+      "ticker": "RVMD",
+      "sec_cik": "0001628171",
+      "options": true,
+      "mkt_cap_tier": "mid",
+      "aliases": [
+        "Revolution Medicines Inc",
+        "RVMD",
+        "revolution medicines inc"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Travere Therapeutics": {
+      "ticker": "TVTX",
+      "sec_cik": "0001372514",
+      "options": true,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "Travere",
+        "TVTX",
+        "travere therapeutics",
+        "Retrophin"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Axsome Therapeutics": {
+      "ticker": "AXSM",
+      "sec_cik": "0001638287",
+      "options": true,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "Axsome",
+        "AXSM",
+        "axsome therapeutics inc"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "REGENXBIO": {
+      "ticker": "RGNX",
+      "sec_cik": "0001608249",
+      "options": true,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "RegenxBio",
+        "RGNX",
+        "regenxbio inc"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "argenx": {
+      "ticker": "ARGX",
+      "sec_cik": "0001655050",
+      "options": true,
+      "mkt_cap_tier": "large",
+      "aliases": [
+        "argenx SE",
+        "ARGX",
+        "argenx se"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Intellia Therapeutics": {
+      "ticker": "NTLA",
+      "sec_cik": "0001652130",
+      "options": true,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "Intellia",
+        "NTLA",
+        "intellia therapeutics inc"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Viridian Therapeutics": {
+      "ticker": "VRDN",
+      "sec_cik": "0001597033",
+      "options": true,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "Viridian",
+        "VRDN",
+        "viridian therapeutics inc"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "NewAmsterdam Pharma": {
+      "ticker": "NAMS",
+      "sec_cik": "0001907982",
+      "options": true,
+      "mkt_cap_tier": "small",
+      "aliases": [
+        "NewAmsterdam Pharma N.V.",
+        "NAMS",
+        "new amsterdam pharma",
+        "newamsterdam pharma n.v."
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    },
+    "Amgen": {
+      "ticker": "AMGN",
+      "sec_cik": "0000814547",
+      "options": true,
+      "mkt_cap_tier": "large",
+      "aliases": [
+        "Amgen Inc",
+        "AMGN",
+        "amgen inc"
+      ],
+      "is_biotech": false,
+      "sector_tag": "CONTRACT"
+    }
+  },
+  "_focus_tickers": [
+    "RKLB",
+    "ASTS",
+    "KTOS",
+    "LUNR",
+    "BWXT",
+    "JOBY",
+    "ACHR",
+    "PL",
+    "MRCY",
+    "PSN",
+    "CACI",
+    "RDW",
+    "AVAV",
+    "TDY",
+    "PLTR",
+    "IDYA",
+    "AGIO",
+    "MLTX",
+    "RZLT",
+    "RVMD",
+    "TVTX",
+    "AXSM",
+    "RGNX",
+    "ARGX",
+    "NTLA",
+    "VRDN",
+    "NAMS"
+  ],
+  "_note": "Focus on small/mid-cap with options. Large-cap contracts (LMT, NOC, RTX, BA) move less on individual awards but are tracked for context. Biotech companies added so contract scanner catches government research grants (NIH, BARDA, etc.).",
+  "_last_updated": "2026-03-30"
+}

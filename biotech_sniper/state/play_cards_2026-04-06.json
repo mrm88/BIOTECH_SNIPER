@@ -1,0 +1,26 @@
+{
+  "IDYA": {
+    "why_line": "DB lock window is April 1-15. Today is April 6 — you're inside it NOW. IR calendar empty, no pre-reg yet. $40C May-15 @ $4.25, 2.5x if +50%.",
+    "edge_line": "Pre-reg at ir.ideayabio.com fires BEFORE the press release. +7-15% on IR events historically. 2.58x vol Friday = smart money loading. OI=158, move is unpriced."
+  },
+  "AXSM": {
+    "why_line": "PDUFA April 30 — 24 days. Stock dipped Friday on macro, not AXSM news. $200C May-15 @ $6.00, 3.7x if +30%. Priority Review + Breakthrough Therapy in hand.",
+    "edge_line": "AXS-05 IS AUVELITY — already FDA-approved for MDD, same molecule. FDA blessed agitation endpoint via REXULTI 2023. This isn't a new mechanism; it's a label expansion dressed as NDA risk."
+  },
+  "ARGX": {
+    "why_line": "PDUFA May 10, 34 days. Spread debit $10.80, max payout $39.20 — 3.6x. $750 leg is ATM right now at $746.42. Maximum leverage entry point today.",
+    "edge_line": "0-for-0 prior sNDA rejections. This is label expansion #4 using the identical ADAPT trial design FDA approved 3 prior times. Traders pricing this like a binary — it's closer to a certainty."
+  },
+  "AGIO": {
+    "why_line": "Phase 2b LR-MDS readout ~May-Jun 2026, confirmed at JPM January. $30P Aug-21 @ $2.73, 6.0x if stock drops 55%. AQVESME approval already in stock — this trial isn't.",
+    "edge_line": "Phase 2b enrolled harder cases than Phase 2a (which only hit 40% TI in lowest-burden patients). Warpspeed Phase 2 oncology success rate: 6%. Market is treating the approved thalassemia drug as a floor — LR-MDS failure isn't priced in the puts."
+  },
+  "NTLA": {
+    "why_line": "HAELO Phase 3 topline data mid-2026, BLA H2 2026. 98% reduction in monthly attack rates at 3-year follow-up published April 2 — 4 days ago. $15C Jul-17 @ $3.00, 3.1x if +75%.",
+    "edge_line": "Only Phase 3 in vivo CRISPR program globally. 60+ patients enrolled, RMAT designation. April 2 data drop went unnoticed in macro selloff — 3-year durability at 98% efficacy is the cleanest gene-editing Phase 3 dataset in existence."
+  },
+  "VRDN": {
+    "why_line": "Dual Q2 catalysts: REVEAL-2 topline data + veligrotug PDUFA June 30 — both confirmed in March 30 corporate deck. Stock at $18.84, cash floor $17.16. $27C Jul-17 @ $1.10, 3.3x if +60%.",
+    "edge_line": "IMVT failed on FcRn mechanism — VRDN is IGF-1R, entirely different. REVEAL-1 hit 54% proptosis responder vs 18% placebo. Traders conflating the mechanism failure; the $1.68 downside vs $3.63 upside at cash floor is mispriced asymmetry."
+  }
+}

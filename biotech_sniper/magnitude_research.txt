@@ -1,0 +1,523 @@
+BIOTECH CATALYST MOVE MAGNITUDE RESEARCH
+Generated: March 30, 2026
+Research by: Milan @ Mantis VC
+
+METHODOLOGY NOTE: Prices sourced from market data as of ~March 27-30, 2026. Analyst targets from
+stockanalysis.com, public.com, marketbeat.com, and direct analyst reports. Historical comparables drawn
+from equivalent indication/event-type precedents. Options implied moves from available data; noted where
+not available. VRDN REVEAL-1 data just released today (March 30) — stock down ~38-40% as of writing,
+reflecting live event; REVEAL-2 is the remaining future catalyst.
+
+====================================================================================
+TICKER: TVTX
+Current price: ~$27 (closed $27.25 on Mar 27; note: stock traded as high as $34 before Jan sNDA extension)
+Market cap: ~$2.5B
+Catalyst weight: HIGH — sparsentan (FILSPARI) IS the company. IgAN already approved and generating
+~$410M/year in revenue. FSGS is a label expansion, not a survival event, but unlocks a second large
+indication estimated at $2B peak U.S. sales with ZERO currently approved therapies. Without FSGS, the
+company is a growing kidney drug with IgAN momentum. With FSGS, it becomes the standard of care across
+two major proteinuric kidney diseases. Estimate ~50-60% of current stock value attributable to FSGS
+approval probability.
+
+Historical comparable moves:
+1. Calliditas CBST (IgAN accelerated approval, Nov 2021): +38% on initial approval
+2. TVTX own initial accelerated IgAN approval (Dec 2023): +22%
+3. Travere itself on Jan 13, 2026 PDUFA extension announcement: stock fell from ~$34 to ~$27 (~-20%)
+   showing the market had priced in ~70% approval probability
+4. Typical mid-cap sNDA label expansion approval for orphan/rare indication: +20% to +40%
+5. Typical sNDA rejection (CRL) for mid-cap with existing revenue: -35% to -55%
+   (Stifel noted CRL scenario = "low-teens" stock price from $34 level = ~-60%)
+
+Options implied move: ~20-25% (based on TVTX April 17 straddle data; prior earnings-window implied
+moves tracked at ~20-21% at comparable market caps)
+
+Analyst success target: ~$45 (+67%) [Seeking Alpha analysis: $45-50 / $4-4.5B mkt cap on approval;
+JP Morgan $41 Overweight maintained; HC Wainwright $47 Strong Buy]
+Analyst failure target: ~$12-14 (-50% to -55%) [Stifel: CRL scenario drives stock to "low-teens";
+from current $27 level this implies ~-50 to -55%]
+
+Expected SUCCESS move: +40% to +65% | Bull case: +75%
+[Drug is first-ever FSGS therapy, proteinuria data strong, major amendment ≠ CRL, market has partially
+de-risked from the $34 high — meaningful re-rating on approval]
+Expected FAILURE move: -45% to -55% | Bear case: -65%
+[CRL would trigger removal of ~$1-1.5B FSGS NPV from valuation; IgAN business still intact as floor but
+stock would re-rate to ~$11-14]
+
+Asymmetry score: 5/10
+[Moderate asymmetry: upside is large but downside is also large. Stock has already partially de-risked
+from $34 high. Upside/downside ratio roughly 1.2:1 given current de-rated entry point at $27]
+
+Key magnitude driver: First-ever FDA-approved therapy in FSGS is a commercially and symbolically
+significant label — the market has significantly discounted approval odds after the January major
+amendment, meaning a surprise approval would cause outsized re-rating relative to the downside that is
+partially priced in.
+
+====================================================================================
+TICKER: AXSM
+Current price: ~$158-160 (traded ~$158.75 on March 25; Yahoo shows $159.16 on March 30)
+Market cap: ~$8.0-8.2B (was $8.13B on Mar 24; down ~13% from Dec 2025 high of $9.2B)
+Catalyst weight: SIGNIFICANT — AXS-05 (Auvelity) is already approved for MDD and generating strong
+sales (+73% YoY). The Alzheimer's agitation indication (PDUFA April 30) would be a transformational
+expansion into a multi-billion dollar market with NO currently approved pharmacotherapy. The company
+has multiple other pipeline assets (AXS-12 for narcolepsy, etc.) but Alzheimer's agitation is the
+single largest near-term value-creation event. Estimate ~40-50% of current stock price is attributable
+to the AD agitation catalyst probability.
+
+Historical comparable moves:
+1. Acadia ACAD (pimavanserin for Alzheimer's psychosis, June 2021): +40% on approval
+2. Avanir (NUEDEXTA for PBA in Alzheimer's, Oct 2010): +35%
+3. Axsome own AXS-05 MDD approval (Aug 2022): +25%
+4. Intra-Cellular ITCI (lumateperone for bipolar, Dec 2019): +28% on approval
+5. Neuropsychiatric indication FDA rejection (CRL) comparables: -30% to -50%
+   (ACAD pimavanserin CRL for ADP in 2021: -15% on first CRL, then -50% follow-on drop)
+
+Options implied move: ~15-18% (AXSM options IV was 53.49% as of March 30 per optioncharts.io;
+April expiration straddle pricing implies ~18% move; prior earnings implied moves averaged ~8.8%)
+
+Analyst success target: ~$200-210 (+25-32%) [Guggenheim: FDA approval drives stock "above $200,"
+representing ~30% gain from ~$159; RBC $222 OP; UBS $251; Wolfe $230; consensus $220.27]
+Analyst failure target: ~$120-125 (-24 to -25%) [Guggenheim explicitly: "rejection presents potential
+downside to the $120-125 range" from ~$159 level]
+
+Expected SUCCESS move: +20% to +35% | Bull case: +50%
+[Already partially priced in at 65-70% street consensus PoA (Guggenheim recently raised to 85%). Approval
+of a first-in-class Alzheimer's agitation drug with blockbuster potential would likely drive stock to
+$190-220 range. More muted than small-cap because size/market cap caps the re-rating math]
+Expected FAILURE move: -25% to -38% | Bear case: -45%
+[CRL would wipe out Alzheimer's NPV (~$3-4B) but MDD franchise (~$500M annual sales run-rate) provides
+floor. Stock should find support ~$95-110 range in failure scenario]
+
+Asymmetry score: 4/10
+[Moderate-low asymmetry. Street has high PoA (~70-85%), limiting upside surprise potential. The
+success/failure move sizes are somewhat comparable (~30% up vs ~30% down), though the approval scenario
+has a longer tail given peak sales potential. Not a great asymmetric bet at current levels]
+
+Key magnitude driver: The FDA's prior willingness to approve Auvelity for MDD (same mechanism) and the
+company's significant commercial infrastructure de-risk the regulatory pathway, but high street consensus
+approval probability (~70-85%) means most good news is priced in — making the failure case a more
+meaningful surprise.
+
+====================================================================================
+TICKER: VRDN
+Current price: ~$17 (opened at $17.00 on March 30 after -38-40% gap down on REVEAL-1 data;
+prior close was $27.39 on Mar 27)
+Market cap: ~$875M-$1.0B (company had $875M cash at end of Q4 2025; stock now trades near cash value)
+Catalyst weight: CRITICAL — REVEAL-2 is the second of two Phase 3 pivotal trials for elegrobart (sc
+TED). REVEAL-1 just hit positive primary endpoints today but the stock crashed -38-40% because the
+proptosis responder rate (54%) was below investor expectations, diplopia and CAS responder rates were
+weaker than expected, and competitive concern vs. Tepezza (Amgen, ~$2B revenue) dominated. REVEAL-2
+data (Q2 2026) is now the make-or-break catalyst: will it show a stronger effect in chronic TED and
+recover investor confidence? Company also has veligrotug BLA with PDUFA June 30, 2026.
+Catalyst weight ~70-80% of enterprise value (stock trades near cash).
+
+Historical comparable moves:
+1. Immunovant IMVT (batoclimab Phase 2 TED, positive): +40% on Phase 2 positive data
+2. Viridian own THRIVE-1 positive: +35% (but market then sold off on broader TED competition fears)
+3. Tepezza (Horizon-Amgen) original Phase 3 TED data: massive because it was first-in-class
+4. Viridian REVEAL-1 today (March 30, 2026): -38% on "positive but lackluster" data
+5. VRDN THRIVE-2 positive (chronic TED data for veligrotug): prior positive reaction +15-20%
+
+Options implied move: ~25-35% for REVEAL-2 (estimated; elevated IV post-REVEAL-1 crash)
+[No current specific REVEAL-2 options data retrieved, but post-crash volatility implies elevated IV]
+
+Analyst success target: ~$35-45 (+105-165% from current ~$17) [Post-REVEAL-1: Jefferies raised PT to
+$45 (Buy); pre-crash analysts had PTs of $40-50; Wedbush $44 Outperform; Stifel $48 Buy; now
+post-crash consensus pending revision — likely to range $25-40]
+Analyst failure target: ~$8-10 (-50-55%) [Company has $875M cash / ~51M shares = ~$17/share in cash,
+so failure scenario likely floors near cash, ~$8-12]
+
+Expected SUCCESS move: +60% to +100% | Bull case: +150%
+[Stock has been severely de-rated by REVEAL-1 disappointment. Strong REVEAL-2 chronic TED data
+could demonstrate the broader market opportunity. A clean win with better CAS reduction data
+could be a major positive surprise given current beaten-down setup]
+Expected FAILURE move: -35% to -50% | Bear case: -65%
+[Failure after a positive REVEAL-1 would essentially eliminate the commercial elegrobart story and
+raise questions about the veligrotug franchise. Cash value (~$17/share) provides a partial floor but
+significant additional selling pressure is likely]
+
+Asymmetry score: 8/10
+[Compelling asymmetric setup: stock has already been crushed -38% on REVEAL-1 "disappointment."
+Base now near cash value ($875M). Strong REVEAL-2 data could re-rate significantly upward, while
+additional downside from the current beaten-down level is more limited. Asymmetry shifted materially
+today in favor of bulls willing to buy the dip]
+
+Key magnitude driver: The magnitude of the REVEAL-1 selloff (stock near cash value despite positive
+Phase 3 data) creates an unusual asymmetric setup for REVEAL-2 — the bear case is largely priced in,
+and a clean win in chronic TED would be a meaningful surprise vs. current expectations.
+
+====================================================================================
+TICKER: ARGX
+Current price: ~$690-700 (ARGX closed ~$691 per CNN data; $697 per MarketChameleon March 25)
+Market cap: ~$43-45B (companiesmarketcap.com: $45.05B as of March 2026; stockanalysis: $43.43B)
+Catalyst weight: LOW-MODERATE — argenx is a large, diversified immunology platform. Efgartigimod
+(VYVGART) is already approved for seropositive gMG, CIDP, ITP, and PV. The seronegative gMG sBLA
+(PDUFA May 10) would be an important label expansion (seronegative ~15-20% of gMG population), but
+this is NOT a company-making event. The seronegative population is smaller, harder to diagnose, and
+less commercially impactful than the seropositive label. Estimate ~10-15% of current stock value
+attributable specifically to this catalyst.
+
+Historical comparable moves:
+1. argenx own seropositive gMG approval (Dec 2021): +8%
+2. argenx CIDP approval (Jun 2023): +6%
+3. UCB RYSTIGGO gMG approval (Jun 2023): +4% (already mostly priced in)
+4. UCB ZILBRYSQ gMG approval (Oct 2023): +3%
+5. Large-cap label expansion sNDA approval in already-approved indication: +3% to +10%
+   Large-cap sBLA rejection: -5% to -15%
+
+Options implied move: ~5-8% (estimated based on large-cap IV patterns for label expansion PDUFAs;
+not a high-IV event at this market cap)
+
+Analyst success target: ~$750-800 (+7-15%) [Analyst consensus PT ~$1,010 per public.com (17 analysts);
+individual targets range $830-$1,070+; this PT spread reflects the full pipeline, not just seroneg gMG]
+Analyst failure target: ~$640-660 (-5 to -9%) [Analysts (Zacks): avg $1,026 with Low $850; for this
+specific catalyst, rejection likely takes $30-50 off the ADS price]
+
+Expected SUCCESS move: +5% to +12% | Bull case: +18%
+[The seroneg gMG label is incrementally positive but already partially priced in given consensus "High
+PoA" given seropositive approval precedent and ADAPT SERON trial success. Large-cap muting effect]
+Expected FAILURE move: -8% to -15% | Bear case: -20%
+[A CRL on seronegative gMG would be a regulatory setback signal — more important for what it says about
+the franchise than the commercial impact. Could trigger broader de-rating of FcRn franchise confidence]
+
+Asymmetry score: 3/10
+[Low asymmetry: large-cap with diversified pipeline, smaller relative catalyst weight. The move size
+is inherently muted by market cap. A clean approval is expected; failure would be a larger surprise
+but the magnitude is still capped by the diversified franchise value]
+
+Key magnitude driver: At ~$44B market cap, even a clean approval is muted in percentage terms because
+seronegative gMG is a relatively small label expansion — the real argenx risk/reward for 2026 lies in
+the broader CIDP/ITP/SC formulation pipeline, not this specific sBLA.
+
+====================================================================================
+TICKER: LPCN
+Current price: ~$7.15-7.50 (Yahoo Finance/Investing.com: $7.15-7.49 range on March 27-30, 2026)
+Market cap: ~$52-55M (Yahoo Finance market cap ~$52-54M as of late March 2026)
+Catalyst weight: EXTREME / EXISTENTIAL — LPCN 1154 is essentially the company's only meaningful
+near-term asset. The company has $24.7M cash (barely >4 months of runway), 90 patients enrolled in
+Phase 3 PPD trial, and last patient visit completed in February 2026. Topline results expected early
+April 2026 (potentially within days). Success/failure is essentially a binary company-defining event.
+Estimate 80-90% of enterprise value depends on this single readout.
+
+Historical comparable moves:
+1. Sage Therapeutics SAGE (brexanolone Zulresso PPD IV approval, 2019): +50% on approval
+2. Biogen-Sage zuranolone (PPD + MDD NDA, Aug 2023): SAGE -54% because MDD was REJECTED despite
+   PPD being approved (mixed outcome)
+3. Small-cap single-asset biotech Phase 3 success: typically +100% to +400%
+4. Small-cap single-asset biotech Phase 3 failure: typically -60% to -90%
+5. LPCN own prior LPCN 1107 testosterone failure (2016): -62% on single Phase 3 rejection
+   LPCN prior testosterone enanthate failure (2019): -40%
+
+Options implied move: Not available (very low liquidity in LPCN options given micro-cap size;
+no meaningful options market)
+
+Analyst success target: ~$17-20 (+140-180%) [MarketBeat consensus PT $8.00 with only 2 analysts
+covering; limited coverage; HC Wainwright (1 analyst) has Buy with $8 PT — this is pre-Phase 3 data
+and conservative; real success scenario likely $15-25 given comparables]
+Analyst failure target: ~$1.50-2.50 (-65 to -80%) [With $24.7M cash / ~7.3M shares = ~$3.40/share
+cash per share as floor; but failure = cash burn + dilution risk, implying floor ~$1.50-2.50]
+
+Expected SUCCESS move: +100% to +200% | Bull case: +400%
+[This is a 505(b)(2) NDA pathway leveraging established brexanolone safety/efficacy data. The unmet
+need for oral PPD treatment is clear (Zurzuvae only PPD competitor; LPCN 1154 would be second oral).
+With only 90 patients enrolled, a "positive" result would trigger NDA filing and likely partnership
+activity, potentially driving 2x-4x move]
+Expected FAILURE move: -65% to -80% | Bear case: -90%
+[With ~$24.7M cash and <$55M market cap, failure means near-immediate dilutive financing or company
+wind-down. The $3.40/share cash value provides some floor but financing risk would drive stock to
+$1.50-2.50 range]
+
+Asymmetry score: 7/10
+[High asymmetry on paper — micro-cap binary event with defined floor (cash). However, poor historical
+track record (two prior Phase 3 failures) and very small patient cohort (n=90) create genuine
+uncertainty about statistical power. The upside/downside ratio is ~2:1 in dollar terms ($7 to $14-21
+up vs. $7 to $1.50-2 down), but only if you believe the readout is credible. Comparable to LPCN's own
+prior Phase 3 history suggests caution]
+
+Key magnitude driver: Single-asset micro-cap with results weeks away, trading near cash value, and
+negligible analyst following — this is a pure binary lottery ticket where outcome quality determines
+whether it doubles or gets wiped out.
+
+====================================================================================
+TICKER: NTLA
+Current price: ~$12.22-13.26 (Yahoo Finance $12.22 on March 30; Investing.com ~$13 range Mar 2026;
+Ticker Nerd shows $13.26 current; TickerNerd consensus $19 median PT from 37 analysts)
+Market cap: ~$1.5-1.6B (TickerNerd $1.57B market cap; Morningstar ~$1.57B)
+Catalyst weight: HIGH — lonvo-z (NTLA-2002) for HAE is the company's lead asset post the
+MAGNITUDE (nexiguran ziclumeran/nex-z) crisis (patient death in TTR study, Oct-Nov 2025 caused -70%+
+total crash from ~$25 to ~$8.75 before partial recovery to ~$13). The HAE program (HAELO Phase 3,
+80 patients fully enrolled since Sep 2025, topline data expected mid-2026) is now the primary
+company-defining catalyst. Phase 1/2 data is exceptional (96% attack reduction, 31/32 patients
+attack-free at 3 years). Estimate ~60-70% of current equity value is attributable to lonvo-z HAE.
+MAGNITUDE (TTR) program still under clinical hold as of last check; HAE is now primary value driver.
+
+Historical comparable moves:
+1. Intellia own Phase 2 HAE data (2022): +20% on strong durability data
+2. Alnylam ALNY fitusiran HAE Phase 3 (2022): +18% on positive data
+3. CSL ANDEMBRY (garadacimab HAE) FDA approval (Jun 2025): CSL is large-cap, muted but positive
+4. Beam Therapeutics BEAM ESCAPE Phase 1/2 gene editing positive (2023): +35%
+5. NTLA own MAGNITUDE crash: -70% on patient death (nex-z) Oct-Nov 2025
+   Restoration: stock went from ~$8.75 to ~$13 (+50%) on clinical hold lifting and Phase 3 completion
+
+Options implied move: ~25-35% (estimated; NTLA options exist but limited; elevated IV given
+prior volatility from nex-z crisis; HAE data is a genuine Phase 3 readout event)
+
+Analyst success target: ~$25-35 (+90-165%) [Citizens JMP $28 Market Outperform; HC Wainwright $30;
+Leerink $29 Outperform; Jones Trading $29 Buy; Canaccord $48 Buy. Consensus ~$18-20 given several
+hold-rated analysts drag the average. Bulls at $25-48 range for HAE success]
+Analyst failure target: ~$5-8 (-38-62%) [RBC $15 Sector Perform; Wells Fargo $15 Equal Weight are
+the conservative voices; Evercore previously cut to $8 In-Line after patient death. HAE failure
+would re-test ~$8-10 lows]
+
+Expected SUCCESS move: +50% to +100% | Bull case: +150%
+[The Phase 1/2 data is among the strongest ever seen in HAE (96% attack reduction, single dose).
+With 80 patients enrolled (well-powered), a clean positive HAELO readout would likely:
+(a) trigger BLA filing, (b) remove the nex-z safety cloud from the story, (c) re-rate toward $25-30.
+From $13, this is a 2x opportunity on success]
+Expected FAILURE move: -40% to -60% | Bear case: -70%
+[A Phase 3 failure after exceptional Phase 1/2 data would be devastating for CRISPR investor confidence.
+With nex-z already sidelined, a lonvo-z failure would leave NTLA with no near-term commercial path,
+driving stock back toward $5-8 range — near cash levels]
+
+Asymmetry score: 7/10
+[Compelling asymmetry: stock already crashed -70% from prior highs, trades at ~$13 vs. $50+ analyst
+bull-case targets. Exceptional Phase 1/2 data gives high PoS. The main overhang is the nex-z patient
+death safety signal — but lonvo-z is a different mechanism/target. If HAE data is clean, the re-rating
+potential is substantial from the beaten-down entry point]
+
+Key magnitude driver: Stock has been severely de-rated by nex-z safety events but lonvo-z has
+category-leading Phase 1/2 efficacy data — a clean HAELO readout would force a full franchise
+re-evaluation and could be one of the more asymmetric catalyst events in the 2026 biotech calendar.
+
+====================================================================================
+TICKER: RGNX
+Current price: ~$7.76-8.00 (Yahoo Finance: $7.76 on March 30; MarketWatch $7.75-7.89 range;
+Kavout: $8.57 as of March 13, declining since)
+Market cap: ~$400M (MarketWatch: $400.52M; Kavout: $442M as of March 13; declining to ~$400M)
+Catalyst weight: CRITICAL — RGX-202 (DMD gene therapy, AFFINITY DUCHENNE Phase 3) is RGNX's primary
+value catalyst after the company was severely de-rated by FDA clinical holds on RGX-111 and RGX-121
+(announced Jan 28, 2026), which caused the stock to fall from ~$13-16 range to ~$8-9 range (-30-40%).
+A CNS tumor finding in an AAV gene therapy (RGX-111 for Hurler) has cast a shadow over the entire
+AAV platform, but RGX-202 uses a different AAV and a different gene/target. Topline AFFINITY DUCHENNE
+Phase 3 data expected early Q2 2026 (likely April-May). Pre-BLA meeting mid-2026 if successful.
+Estimate ~70-80% of current enterprise value depends on RGX-202 outcome.
+
+Historical comparable moves:
+1. Sarepta SRPT ELEVIDYS Phase 3 EMBARK positive (Jan 2026): +10% (already partially priced in;
+   drug already approved; this was supportive data for label expansion)
+2. Sarepta SRPT first accelerated DMD approval (2023): +40% initial reaction
+3. RGNX own clinical hold announcement (Jan 28, 2026): -17.8% to -30% over following weeks
+4. Gene therapy Phase 3 positive topline (small-mid cap): typical range +30% to +100%
+5. Gene therapy Phase 3 failure (small-mid cap): typical range -50% to -80%
+   (Solid Biosciences SLDB prior DMD gene therapy failures: -60 to -80% comparable)
+
+Options implied move: ~30-50% (estimated; elevated IV given AAV safety overhang and high binary
+nature; limited options liquidity at $400M market cap)
+
+Analyst success target: ~$25-30 (+213-275%) [Stockanalysis consensus $30 Strong Buy (+126%);
+Morgan Stanley $17 Overweight (lowest bull); HC Wainwright $30 Buy; range $12-50; consensus ~$26-30.
+Note: these targets were set BEFORE the Jan 28 AAV clinical hold, so actual post-revision consensus
+likely $17-23 for success scenario]
+Analyst failure target: ~$3-5 (-38-62%) [With ~$170M in 2025 revenue (mostly licensing) and $400M
+market cap, failure of RGX-202 plus ongoing AAV safety cloud would drive stock to $3-5 range;
+company would need to reposition its business model]
+
+Expected SUCCESS move: +80% to +150% | Bull case: +250%
+[RGX-202 has exceptional Phase I/II data (7 patients at pivotal dose showing improvement vs external
+controls on NSAA and all timed function tests). The microdystrophin construct has a CT domain
+that no other approved DMD gene therapy has. Clean Phase 3 win would:
+(a) validate RGX-202 as potentially best-in-class vs. ELEVIDYS, (b) lift AAV platform cloud,
+(c) enable accelerated BLA pathway; re-rating from $8 toward $20-25 on strong data]
+Expected FAILURE move: -50% to -70% | Bear case: -80%
+[Failure of RGX-202 combined with the AAV safety overhang would be close to an existential event.
+Company has licensing revenue (~$170M/year from NAV Technology platform) providing a floor ~$3-4,
+but the gene therapy commercial story would be largely over]
+
+Asymmetry score: 8/10
+[Strong asymmetry: stock is trading at ~$8 against analyst bull targets of $25-50, has been
+de-rated by unrelated AAV safety signal (CNS tumor in RGX-111, different disease, different target
+than RGX-202's DMD construct), and has exceptional Ph1/2 efficacy data. The asymmetry is significant:
+upside ~2-3x on success vs. ~-60% on failure, with an unrelated safety event having already done
+most of the de-rating work. Key risk is the AAV class safety signal]
+
+Key magnitude driver: The convergence of exceptional Phase I/II data, severe de-rating from the
+(potentially unrelated) CNS tumor safety signal in RGX-111, and the stock near a 3-year low creates
+one of the most compelling asymmetric setups in this cohort — if RGX-202 data is clean, the
+re-rating math is very favorable from current levels.
+
+====================================================================================
+TICKER: IDYA
+Current price: ~$30-33 (IDEAYA IR site: $30.46-32.75 range in March; $32.75 per Investing.com on
+March 22; ir.ideayabio.com: $30.46 most recent; $2.7-2.9B market cap)
+Market cap: ~$2.7-2.9B (IDEAYA IR: $2.7B; Yahoo Finance Mar 27: $2.67B)
+Catalyst weight: HIGH — darovasertib + crizotinib (combination) in first-line HLA-A2-negative
+metastatic uveal melanoma (mUM) is the primary near-term catalyst. Darovasertib is the lead clinical
+asset. The company also has IDE397 (MTAP deletion) and IDE849 in development, but darovasertib
+Phase 2/3 OptimUM-02 is the headline catalyst. The company has $1.1B cash and no revenue, so
+approval/failure is crucial to sustaining commercial operations. Database lock expected first half
+of April; investor webcast to follow; IDYA is "binary" in the near-term on this readout.
+Estimate ~60-70% of market cap attributable to the darovasertib program outcome.
+
+Historical comparable moves:
+1. Immunomedics sacituzumab govitecan mTNBC accelerated approval (Apr 2020): +28%
+2. Deciphera ripretinib GIST Phase 3 (Apr 2020): +40% on positive data
+3. Blueprint Medicine pralsetinib RET fusion Phase 2/3 (Aug 2020): +25%
+4. Bristol Myers tebentafusp mUM Phase 3 (Jan 2021): +10% for BMY (large cap)
+5. Prior IDYA darovasertib data presentation (Sep 2025): stock moved +15.32% on one update,
+   -1.52% on another, showing sensitivity to data quality nuance
+   IDYA is down from $46 high (Nov 2025) to ~$31 after MDS/pipeline concerns, providing entry
+
+Options implied move: ~30-50% (BowTiedBiotech estimated "+/- 30-50%" for this binary event;
+elevated IV given the database lock imminent timeline; no specific straddle price retrieved)
+
+Analyst success target: ~$55-70 (+68-130%) [Public.com consensus $51.21 (14 analysts, Buy); Truist $60
+Buy; Cantor Overweight; Stifel prior target $66-68; Goldman $48; high end ~$70. Most bulls at $55-70
+pre-data given the Phase 2 data showed exceptional OS ~21 months vs. historical ~5-6 months]
+Analyst failure target: ~$12-18 (-45-60%) [With $1.1B cash and ~90M shares, cash value ~$12/share;
+failure would drive stock toward cash value; a clear PFS miss means accelerated approval pathway closed]
+
+Expected SUCCESS move: +40% to +80% | Bull case: +120%
+[Phase 2 data was transformative (21.1 month median OS vs. ~5-6 month historical benchmark in mUM).
+The accelerated approval pathway is clear. A positive Phase 2/3 PFS result would:
+(a) confirm accelerated approval filing, (b) validate darovasertib as the first potentially meaningful
+treatment for 1L mUM, (c) re-rate stock significantly from current de-rated ~$31 level]
+Expected FAILURE move: -50% to -65% | Bear case: -75%
+[A PFS miss would close the accelerated approval pathway and force the company to wait for OS data
+(likely 2027+). The $1.1B cash provides a substantial floor (~$12/share) but the implied "cure story"
+NPV would evaporate, sending stock toward $10-15 range]
+
+Asymmetry score: 7/10
+[Good asymmetry: stock has pulled back ~30% from its $46 November high partly on unrelated mitapivat
+SCD concerns. Darovasertib Phase 2 data was exceptional, mUM is a high-unmet-need niche with no
+standard of care beyond tebentafusp (limited), $1.1B cash provides downside floor. The bull case
+(+40-80%) is materially larger than the bear case from the current entry point given cash support]
+
+Key magnitude driver: Metastatic uveal melanoma has historically had a ~6-month median OS with best
+available therapy — if darovasertib's Phase 2/3 confirms the Phase 2 ~21-month OS signal, this would
+be a landmark result for a disease with no real standard of care, driving significant magnitude in the
+positive direction.
+
+====================================================================================
+TICKER: AGIO
+Current price: ~$29-30 (CNBC: $29.71 current; MarketChameleon: $29.86 on March 30; CNBC 52-week
+range $22.24 to $46.00)
+Market cap: ~$1.7-1.8B (Yahoo Finance Mar 27: $1.72B; MarketChameleon: $1.75B)
+Catalyst weight: MODERATE — tebapivat is a Phase 2b in lower-risk MDS (transfusion independence
+endpoint). This is NOT a Phase 3; it is a Phase 2b proof-of-concept and dose-finding study. Agios
+already has PYRUKYND (mitapivat) approved and launched in PKD and thalassemia (AQVESME recently
+approved). Company has multiple assets: mitapivat SCD regulatory path (pre-sNDA FDA meeting done),
+tebapivat LR-MDS Phase 2b H1 2026, tebapivat SCD Phase 2 H2 2026, AG-236 Phase 1 for PV.
+Tebapivat LR-MDS is an important data point but is a Phase 2b — an intermediate step, not a pivotal
+readout. Estimate ~25-35% of current stock value attributable to tebapivat LR-MDS data.
+
+Historical comparable moves:
+1. Agios own mitapivat SCD Phase 3 FAILURE (Nov 2025): stock fell -49% to ~$23 on RISE UP miss
+   (failed VOC endpoint, though met hemoglobin endpoint)
+2. Imetelstat (Geron) LR-MDS Phase 3 positive (2022): +45% on transfusion independence data
+3. Luspatercept (BMS/Acceleron) LR-MDS Phase 3 positive: +25%
+4. Typical biotech Phase 2b positive data (mid-cap): +15% to +35%
+5. Phase 2b failure (mid-cap, company with existing product): -25% to -40%
+
+Options implied move: ~15-25% (estimated for Phase 2b readout; less than a pivotal Phase 3;
+AGIO beta of 1.87 suggests high sensitivity to biotech sector moves)
+
+Analyst success target: ~$38-46 (+27-54%) [Public.com consensus $40.67 (9 analysts); Citi $46 Buy;
+JPMorgan $25 Neutral (skeptic); average bull target ~$40-46; Citi placed "upside 90-day catalyst
+watch" on AGIO in early March]
+Analyst failure target: ~$20-24 (-20-32%) [Below the mitapivat SCD crash low (~$23); tebapivat
+failure plus ongoing SCD regulatory uncertainty would compound negative sentiment]
+
+Expected SUCCESS move: +20% to +40% | Bull case: +60%
+[LR-MDS has a clear unmet need (transfusion independence is a validated endpoint; REBLOZYL is
+approved but has limitations). Tebapivat is more potent than mitapivat. A strong Phase 2b showing
+meaningful transfusion independence rates would confirm the thesis for a Phase 3 and validate the
+PK activator mechanism in MDS. Stock likely re-rates toward $36-40 on solid data from current ~$29]
+Expected FAILURE move: -25% to -40% | Bear case: -50%
+[Phase 2b failure would eliminate a key pipeline diversification story and add to the shadow from
+the mitapivat SCD VOC miss. Stock already recovered from the -49% SCD crash low; another disappointment
+from tebapivat would likely revisit sub-$22 levels. However, thalassemia/PKD franchise provides floor]
+
+Asymmetry score: 5/10
+[Moderate asymmetry: stock has recovered somewhat from its crash lows, providing decent entry vs.
+52-week low of $22.24. But this is only a Phase 2b (not a pivotal), so the success upside is capped
+(+20-40% vs. a Phase 3 pivotal which might drive +60-100%). The asymmetry is moderate given the
+limited near-term catalytic power of a Phase 2b vs. the downside risk if the field narrative breaks
+down entirely. Mitapivat thalassemia commercial ramp is the floor, limiting the bear case]
+
+Key magnitude driver: The tebapivat LR-MDS Phase 2b is important primarily as a signal for whether
+a Phase 3 pivotal is warranted — it is a proof-of-concept study, not a registration study, meaning the
+market will move primarily based on whether the data justify a larger/longer development commitment,
+rather than on an immediate approval pathway.
+
+====================================================================================
+SUMMARY TABLE (Quick Reference)
+====================================================================================
+
+Ticker | Price | Mkt Cap | Catalyst Wt | Options IM | Succ Target | Fail Target | Succ Move | Fail Move | Asym
+-------|-------|---------|------------|------------|-------------|-------------|-----------|-----------|-----
+TVTX   | ~$27  | $2.5B   | 50-60%     | ~20-25%    | ~$45 (+67%) | ~$13 (-52%) | +40-65%   | -45-55%   | 5/10
+AXSM   | ~$159 | $8.1B   | 40-50%     | ~15-18%    | ~$205 (+29%)| ~$122 (-23%)| +20-35%   | -25-38%   | 4/10
+VRDN   | ~$17  | ~$1.0B  | 70-80%     | ~25-35%*   | ~$40 (+135%)| ~$9 (-47%)  | +60-100%  | -35-50%   | 8/10
+ARGX   | ~$695 | $44B    | 10-15%     | ~5-8%      | ~$780 (+12%)| ~$650 (-6%) | +5-12%    | -8-15%    | 3/10
+LPCN   | ~$7   | $54M    | 80-90%     | N/A        | ~$18 (+157%)| ~$2 (-71%)  | +100-200% | -65-80%   | 7/10
+NTLA   | ~$13  | $1.6B   | 60-70%     | ~25-35%*   | ~$28 (+115%)| ~$7 (-46%)  | +50-100%  | -40-60%   | 7/10
+RGNX   | ~$8   | $400M   | 70-80%     | ~30-50%*   | ~$22 (+175%)| ~$4 (-50%)  | +80-150%  | -50-70%   | 8/10
+IDYA   | ~$31  | $2.8B   | 60-70%     | ~30-50%*   | ~$60 (+94%) | ~$13 (-58%) | +40-80%   | -50-65%   | 7/10
+AGIO   | ~$30  | $1.7B   | 25-35%     | ~15-25%*   | ~$42 (+40%) | ~$20 (-33%) | +20-40%   | -25-40%   | 5/10
+
+(*) = estimated, not directly retrieved from options data
+(!) = VRDN already experienced -38% today on REVEAL-1; REVEAL-2 is the next catalyst (Q2 2026)
+
+====================================================================================
+RANKING BY EXPECTED ASYMMETRIC PAYOFF (Best Setups First)
+====================================================================================
+
+1. VRDN (8/10) — Asymmetry score: highest after today's -38% crash re-sets the base near cash value.
+   REVEAL-2 in chronic TED could generate +60-100% on a clean win; downside limited from current level.
+   IMPORTANT: Stock already down -38% today on REVEAL-1 "disappointment" — REVEAL-2 is Q2 2026.
+
+2. RGNX (8/10) — $400M market cap, $170M revenue platform, exceptional Phase I/II DMD data.
+   De-rated by unrelated AAV safety signal. Clean Phase 3 = major re-rating vs. limited additional downside.
+   Best risk/reward ratio in the group if you believe AAV safety is RGX-111 specific.
+
+3. NTLA (7/10) — CRISPR stock de-rated by nex-z patient death. lonvo-z Phase 1/2 data is exceptional.
+   Already crashed -70%+ from highs. Clean HAELO readout could be a major positive surprise.
+
+4. IDYA (7/10) — $1.1B cash as floor, stock down 30% from high. Phase 2 OS data was transformative.
+   First real treatment opportunity in 1L mUM. Clean Phase 2/3 = accelerated approval pathway confirmed.
+
+5. LPCN (7/10) — Micro-cap with binary outcome imminent (early April). 2x-3x on success; 70% down on
+   failure. True lottery ticket structure. Small position size appropriate given company history.
+
+6. TVTX (5/10) — Already de-rated by January extension. First-ever FSGS therapy is a meaningful label
+   but the $2.5B market cap means the move is bounded. Decent asymmetry given current discounting.
+
+7. AGIO (5/10) — Phase 2b = limited catalytic power. Multiple assets buffer downside. Moderate setup.
+
+8. AXSM (4/10) — High street PoA already priced in. Limited upside surprise; failure is bigger surprise.
+   Better short risk/reward setup than long if you think street's 70-85% PoA is too optimistic.
+
+9. ARGX (3/10) — Large-cap, small catalyst weight. Muted move regardless of outcome. Not a
+   compelling event-driven play given 10-15% of value riding on this specific sBLA.
+
+====================================================================================
+DATA SOURCES
+====================================================================================
+- StockAnalysis.com (TVTX, AXSM, ARGX, RGNX current prices and analyst data)
+- Public.com (AGIO, ARGX, RGNX, IDYA analyst consensus and price targets)
+- Kavout.com (AXSM bull run analysis, RGNX de-rating analysis — March 2026)
+- Investing.com (Guggenheim AXSM note, IDYA delay announcement, RGNX analyst notes)
+- Stock Titan (VRDN REVEAL-1 data release, RGNX Phase I/II data, LPCN enrollment)
+- Seeking Alpha (TVTX FSGS approval analysis, RGNX Q4 2025 transcript)
+- MarketChameleon.com (ARGX, AGIO options/summary data)
+- Yahoo Finance (LPCN, ARGX, AXSM historical data)
+- ir.ideayabio.com (IDYA database lock timing update, March 22, 2026)
+- Tickernerd.com (NTLA analyst ratings aggregation)
+- clinicaltrialsarena.com (VRDN REVEAL-1 analysis, March 30, 2026)
+- StockInvest.us (VRDN historical prices)
+- BowTiedBiotech Substack (IDYA binary event magnitude estimate)
+- FirstWordPharma (NTLA HAELO Phase 3 timeline, Feb 2026)
+- NephCure.org (TVTX PDUFA extension explanation)
+- CompaniesMarketCap.com (ARGX, TVTX market cap data)
+- CNBC Markets (AGIO current price data)
+- optioncharts.io (AXSM IV data March 30, 2026)
+- AInvest.com (IDYA binary event analysis)

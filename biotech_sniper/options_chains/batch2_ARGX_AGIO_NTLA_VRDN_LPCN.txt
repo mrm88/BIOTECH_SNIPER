@@ -1,0 +1,415 @@
+================================================================================
+BATCH 2 OPTIONS CHAIN DATA — LIVE PULL 3/30/2026 ~1:55 PM PDT (4:55 PM EDT)
+================================================================================
+Sources: Yahoo Finance individual contract quotes, Barchart.com aggregate data,
+         Public.com options chain
+Data: 15-min delayed (OPR delayed quotes)
+================================================================================
+
+NOTES ON AVAILABLE EXPIRIES (from Barchart.com):
+- ARGX: Apr 17, May 15, Jun 18, Jul 17, Aug 21, Nov 20, Dec 18, Jan15'27
+- AGIO: Apr 17, May 15, Aug 21, Nov 20, Dec 18, Jan15'27, Jan21'28
+- NTLA: Apr 17, May 15, Jul 17, Sep 18, Oct 16, Jan15'27, Jan21'28
+- VRDN: Apr 17, May 15, Jul 17, Oct 16
+- LPCN: NO OPTIONS LISTED (confirmed — see below)
+
+NOTE: No "Jun 20" standard expiry exists for any of these. Closest:
+  - ARGX: May 15 or Jun 18
+  - AGIO: May 15 or Aug 21
+  - NTLA: May 15 or Jul 17
+  - VRDN: May 15 or Jul 17
+
+================================================================================
+1. ARGX — argenx SE | Stock: $704.31 | Catalyst: May 10 | Need May 15 expiry
+================================================================================
+Target: $920-$940C May 15, 2026 (~30-33% OTM)
+ATM IV: 43.37% (May 15) | IV Rank: 78.56% | HV: 31.69%
+
+CONTRACT DATA (Yahoo Finance individual quotes):
+┌─────────────────────┬─────────┬────────┬────────┬────────┬─────────┬────────┐
+│ Contract            │ Strike  │ Bid    │ Ask    │ Last   │ Volume  │ OI     │
+├─────────────────────┼─────────┼────────┼────────┼────────┼─────────┼────────┤
+│ ARGX260515C00920000 │ $920.00 │ $0.20  │ $5.00  │ $7.46  │ 1       │ 5      │
+│ ARGX260515C00940000 │ $940.00 │ $0.00  │ $4.90  │ $6.64  │ 1       │ 18     │
+└─────────────────────┴─────────┴────────┴────────┴────────┴─────────┴────────┘
+Also from initial Yahoo chain fetch (Apr 17 expiry for reference):
+  $900C Apr17: Last $8.80, Bid $0.00, Ask $2.50, Vol 1, OI 7
+  $940C Apr17: Last $4.50, Bid $0.00, Ask $3.70, Vol 4, OI 11
+
+>>> ARGX $920C May15 ANALYSIS:
+  Bid/Ask Spread: $0.20 / $5.00 = $4.80 wide (96% of ask!)
+  Mid: ($0.20 + $5.00) / 2 = $2.60
+  Last: $7.46 (stale — traded Mar 6 when stock was ~$690)
+  OI: 5 | Volume: 1 = VERY ILLIQUID
+
+  ⚠ WARNING: This is an extremely illiquid, wide-spread option.
+  Bid $0.20 is likely a market-maker placeholder.
+  Realistic fill estimate: $2.00-$3.00 range (closer to bid, probe at mid)
+
+  Realistic fill (decoy probe): $2.60 (mid)
+  Realistic fill (bulk ladder):  $2.57 (mid - $0.03)
+  Contracts for $1k @ $2.60: 1000 / (2.60 × 100) = 3.84 → 3 contracts ($780)
+
+  SUCCESS scenario: Stock +8% → $760.65
+  $920C intrinsic @ $760.65: $0 (still OTM — $920 strike > $760.65)
+  ❌ DOES NOT REACH STRIKE ON +8% MOVE
+  Need +30.6% move ($704.31 → $920) just to break even
+  Break-even: stock at $922.60 (+31.0%)
+
+  For the option to be worth anything, need stock > $920.
+  At $920: intrinsic $0 + time value → maybe $2-5
+  At $950: intrinsic $30 → 3 contracts × $30 × 100 = $9,000 → 9.0x on $1k
+  At $1000: intrinsic $80 → 3 contracts × $80 × 100 = $24,000 → 24x on $1k
+
+  >>> +8% move ($760) = TOTAL LOSS. This is a deep OTM lottery ticket.
+  >>> Need ~+35-40% move for meaningful payout
+
+>>> ARGX $940C May15 ANALYSIS:
+  Bid/Ask Spread: $0.00 / $4.90 (no bid!)
+  OI: 18 | Volume: 1
+  Essentially untradeable at current quotes
+
+────────────────────────────────────────────────────────────────────────────────
+ARGX CALL SPREAD ALTERNATIVE (Recommended)
+Buy $730C / Sell $800C May 15, 2026
+────────────────────────────────────────────────────────────────────────────────
+
+SPREAD LEG DATA:
+┌─────────────────────┬─────────┬────────┬────────┬────────┬─────────┬────────┐
+│ Contract            │ Strike  │ Bid    │ Ask    │ Last   │ Volume  │ OI     │
+├─────────────────────┼─────────┼────────┼────────┼────────┼─────────┼────────┤
+│ ARGX260515C00730000 │ $730.00 │ $23.50 │ $27.70 │ $56.20 │ 11      │ 13     │
+│ ARGX260515C00750000 │ $750.00 │ $23.50 │ $27.70 │ $19.95 │ 11      │ 13     │
+│ ARGX260515C00800000 │ $800.00 │ $11.50 │ $15.80 │ $10.70 │ 4       │ 4      │
+└─────────────────────┴─────────┴────────┴────────┴────────┴─────────┴────────┘
+
+Note: $730C and $750C have identical bid/ask ($23.50/$27.70) which suggests
+the quotes may be aggregated or slightly stale. Using $730C for spread.
+
+>>> $730C / $800C BULL CALL SPREAD:
+  Buy $730C @ ask $27.70 (or mid $25.60)
+  Sell $800C @ bid $11.50 (or mid $13.65)
+  
+  At ask/bid (worst case): $27.70 - $11.50 = $16.20 debit
+  At mids (realistic): $25.60 - $13.65 = $11.95 debit
+  Realistic fill estimate: ~$13.00-$14.00 (slight improvement from mid)
+
+  Max spread width: $800 - $730 = $70
+  Max profit: $70 - $13.50 (est fill) = $56.50 per spread
+  Max profit per contract: $56.50 × 100 = $5,650
+
+  Contracts for $1k @ $13.50: 1000 / (13.50 × 100) = 0.74 → CANNOT EVEN BUY 1
+  
+  ⚠ At ~$13.50/contract ($1,350 per spread), $1k budget is INSUFFICIENT.
+  Need ~$1,350 minimum for 1 spread.
+
+  If deploying $1,350 (1 spread):
+    SUCCESS (+8% → $760): Both legs ITM
+      $730C intrinsic: $760 - $730 = $30
+      $800C expires worthless
+      Spread value: $30 × 100 = $3,000
+      Profit: $3,000 - $1,350 = $1,650 → 2.2x on $1,350
+
+    FULL SUCCESS (stock > $800):
+      Spread maxes at $70 × 100 = $7,000
+      Profit: $7,000 - $1,350 = $5,650 → 5.2x on $1,350
+      Stock needs to reach $800 (+13.6%) for max payout
+
+  >>> RECOMMENDED: $730/$800 spread at ~$13.50 debit. 2.2x on +8%, 5.2x on +13.6%
+
+================================================================================
+2. AGIO — Agios Pharmaceuticals | Stock: $29.61 | PUT PLAY (failure scenario)
+================================================================================
+Target: ~$18-20P (30-40% OTM put) | Closest available: Aug 21, 2026
+No "Jun 20" expiry exists. Closest options: May 15 or Aug 21.
+Using Aug 21 for adequate time for catalyst.
+
+CONTRACT DATA:
+┌─────────────────────┬─────────┬────────┬────────┬────────┬─────────┬────────┐
+│ Contract            │ Strike  │ Bid    │ Ask    │ Last   │ Volume  │ OI     │
+├─────────────────────┼─────────┼────────┼────────┼────────┼─────────┼────────┤
+│ AGIO260821P00015000 │ $15.00  │ $0.00  │ $2.20  │ $0.55  │ 1       │ 9      │
+│ AGIO260821P00017500 │ $17.50  │ $0.00  │ $2.50  │ $1.35  │ 2       │ 98     │
+│ AGIO260821P00020000 │ $20.00  │ $0.00  │ $2.95  │ $1.55  │ 1       │ 7      │
+│ AGIO260821P00022500 │ $22.50  │ $0.40  │ $4.20  │ $2.40  │ 1       │ 3      │
+│ AGIO260821P00025000 │ $25.00  │ $0.80  │ $4.80  │ $2.85  │ 1       │ 36     │
+└─────────────────────┴─────────┴────────┴────────┴────────┴─────────┴────────┘
+
+Also from Yahoo screenshot (Apr 17 calls shown — AGIO has listed options):
+  $22.50C Apr17: Last $5.75, Bid $4.80, Ask $9.50, OI 0
+  $25C Apr17: Last $4.16, Bid $2.60, Ask $6.40, OI 7
+  $30C Apr17: Last $1.50, Bid $1.15, Ask $2.20, Vol 10, OI 787
+
+⚠ LIQUIDITY WARNING: All Aug puts show $0.00 bids (except $22.50 and $25).
+No $18 strike exists — closest are $17.50 and $20.
+
+>>> AGIO $20P Aug21 ANALYSIS (PRIMARY TARGET):
+  Bid/Ask: $0.00 / $2.95 = NO BID
+  Last: $1.55 (traded Mar 24)
+  OI: 7 = EXTREMELY ILLIQUID
+  
+  ⚠ This put is essentially untradeable at market. Would need to post
+  a limit order and wait.
+  
+  Estimated realistic fill: $1.00-$1.50 range (patient limit order)
+  Realistic fill (decoy probe): $1.48 (mid of 0 and 2.95)
+  Realistic fill (bulk): $1.45
+
+  Contracts for $1k @ $1.48: 1000 / (1.48 × 100) = 6.76 → 6 contracts ($888)
+
+  FAILURE scenario: Stock -60% → $11.84
+  $20P intrinsic @ $11.84: $20 - $11.84 = $8.16
+  6 contracts × $8.16 × 100 = $4,896
+  Multiple: $4,896 / $888 = 5.5x on ~$888
+
+  Break-even: stock at $20 - $1.48 = $18.52 (-37.5% from $29.61)
+
+>>> BETTER ALTERNATIVE: $17.50P Aug21
+  Bid/Ask: $0.00 / $2.50
+  Last: $1.35 | OI: 98 (best OI of the bunch)
+  Estimated fill: $1.00-$1.25
+
+  Contracts for $1k @ $1.25: 1000 / (1.25 × 100) = 8 contracts ($1,000)
+
+  FAILURE scenario: Stock -60% → $11.84
+  $17.50P intrinsic @ $11.84: $17.50 - $11.84 = $5.66
+  8 contracts × $5.66 × 100 = $4,528
+  Multiple: $4,528 / $1,000 = 4.5x
+
+  Break-even: stock at $17.50 - $1.25 = $16.25 (-45.1%)
+
+>>> AGIO SUMMARY: $20P Aug21 preferred (5.5x potential, -37.5% BE)
+   but EXTREME illiquidity — $0 bids, OI <10. May need to post and wait.
+   $17.50P has better OI (98) but lower multiple (4.5x)
+
+================================================================================
+3. NTLA — Intellia Therapeutics | Stock: $11.65 | Catalyst: May-Jun
+================================================================================
+Target: $15-$16C | No Jun 20 expiry → Use Jul 17, 2026
+ATM IV: 89.58% | IV Rank: 36.07% | HV: 71.56%
+
+CONTRACT DATA:
+┌─────────────────────┬─────────┬────────┬────────┬────────┬─────────┬────────┐
+│ Contract            │ Strike  │ Bid    │ Ask    │ Last   │ Volume  │ OI     │
+├─────────────────────┼─────────┼────────┼────────┼────────┼─────────┼────────┤
+│ NTLA260417C00015000 │ $15.00  │ $0.10  │ $0.20  │ $0.10  │ 77      │ 3,780  │
+│ (Apr 17 — too soon)                                                         │
+├─────────────────────┼─────────┼────────┼────────┼────────┼─────────┼────────┤
+│ NTLA260717C00015000 │ $15.00  │ $1.50  │ $1.80  │ $1.90  │ 20      │ 1,730  │
+│ NTLA260717C00016000 │ $16.00  │ $1.40  │ $2.10  │ $2.25  │ 1       │ 537    │
+└─────────────────────┴─────────┴────────┴────────┴────────┴─────────┴────────┘
+
+Also from Public.com (Apr 17 data, for reference):
+  $15C Apr17: Ask $0.30, OI 3,810
+  $16C Apr17: Ask $0.20, OI 1,131
+  $14C Apr17: Ask $0.50, OI 1,389
+
+>>> NTLA $15C Jul17 ANALYSIS (PRIMARY):
+  Bid/Ask: $1.50 / $1.80 = $0.30 spread (16.7% — decent for small biotech!)
+  Mid: ($1.50 + $1.80) / 2 = $1.65
+  Realistic fill (decoy probe): $1.65 (mid)
+  Realistic fill (bulk ladder): $1.62 (mid - $0.03)
+  OI: 1,730 | Vol: 20 = REASONABLE LIQUIDITY ✓
+
+  Contracts for $1k @ $1.65: 1000 / (1.65 × 100) = 6.06 → 6 contracts ($990)
+
+  SUCCESS scenario: Stock +75% → $20.39
+  $15C intrinsic @ $20.39: $20.39 - $15 = $5.39
+  6 contracts × $5.39 × 100 = $3,234
+  Multiple: $3,234 / $990 = 3.3x on $990
+
+  Break-even: stock at $15 + $1.65 = $16.65 (+42.9%)
+  
+  At $25 (extreme bull): intrinsic $10 → 6 × $10 × 100 = $6,000 → 6.1x
+  At $30: intrinsic $15 → 6 × $15 × 100 = $9,000 → 9.1x
+
+>>> NTLA $16C Jul17 ANALYSIS:
+  Bid/Ask: $1.40 / $2.10 = $0.70 spread (33% — wider)
+  Mid: $1.75 | OI: 537 | Vol: 1 = LESS LIQUID
+  Realistic fill: $1.55-$1.65
+
+  At fill $1.60: contracts = 6 ($960)
+  SUCCESS (+75% → $20.39): intrinsic $4.39
+  6 × $4.39 × 100 = $2,634 → 2.7x
+
+>>> NTLA RECOMMENDATION: $15C Jul17 @ $1.65. 3.3x on success. 
+    BEST LIQUIDITY in this batch. Tight spread, good OI.
+
+================================================================================
+4. VRDN — Viridian Therapeutics | Stock: $18.53 (-32.35% TODAY) | Catalyst: Q2
+================================================================================
+Target: $24-$25C | No Jun 20 expiry → Use Jul 17, 2026
+ATM IV: 100.06% (Apr) | HV: 116.32% | ⚠ EXTREME VOLATILITY POST-CRASH
+
+CONTRACT DATA:
+┌─────────────────────┬─────────┬────────┬────────┬────────┬─────────┬────────┐
+│ Contract            │ Strike  │ Bid    │ Ask    │ Last   │ Volume  │ OI     │
+├─────────────────────┼─────────┼────────┼────────┼────────┼─────────┼────────┤
+│ VRDN260717C00024000 │ $24.00  │ $0.80  │ $3.60  │ $10.65*│ 1       │ 1      │
+│ VRDN260717C00025000 │ $25.00  │ $1.35  │ $2.20  │ $1.86  │ 94      │ 856    │
+├─────────────────────┼─────────┼────────┼────────┼────────┼─────────┼────────┤
+│ Apr 17 chain (for reference from full Yahoo data):                           │
+│ VRDN260417C00024000 │ $24.00  │ $0.15  │ $1.50  │ $0.25  │ 3       │ 1      │
+│ VRDN260417C00025000 │ $25.00  │ $0.00  │ $1.75  │ $0.15  │ 5       │ 3      │
+└─────────────────────┴─────────┴────────┴────────┴────────┴─────────┴────────┘
+
+*$24C last $10.65 = pre-crash price (previous close). Today's trade at $0.75 (open).
+
+VRDN Jul 17 chain context from Yahoo (Apr 17 full chain retrieved):
+  - $17.5C: Bid $1.30, Ask $2.70 (crashed from $2.52 last → -$10.53 change)
+  - $20C: Bid $0.70, Ask $1.25
+  - $22.5C: Bid $0.30, Ask $0.80
+  - $25C: Bid $1.35, Ask $2.20 (Jul 17)
+  - $30C Apr17: Bid $0.05, Ask $0.50, OI 734
+
+⚠ CRASH DAY ANALYSIS:
+  - Stock crashed -32% from $27.39 to $18.53 TODAY
+  - IV is extreme: ATM IV 100%+ (vs. HV 116%)
+  - Spreads are $1-3 wide on most strikes
+  - $24C Jul17 spread: $0.80/$3.60 = $2.80 wide (78% of ask) — TOXIC
+  - $25C Jul17 spread: $1.35/$2.20 = $0.85 wide (39% of ask) — WORKABLE
+
+>>> VRDN $25C Jul17 ANALYSIS (PRIMARY — best liquidity):
+  Bid/Ask: $1.35 / $2.20 = $0.85 spread
+  Mid: ($1.35 + $2.20) / 2 = $1.775
+  Last: $1.86 (traded today, down -$7.14 / -79% from prev close of $9.00)
+  OI: 856 | Vol: 94 = GOOD LIQUIDITY FOR CRASH DAY ✓
+
+  Realistic fill (decoy probe): $1.78 (mid)
+  Realistic fill (bulk ladder): $1.75 (mid - $0.03)
+
+  Contracts for $1k @ $1.78: 1000 / (1.78 × 100) = 5.62 → 5 contracts ($890)
+
+  SUCCESS scenario: Stock +80% from $18.53 → $33.35
+  $25C intrinsic @ $33.35: $33.35 - $25 = $8.35
+  5 contracts × $8.35 × 100 = $4,175
+  Multiple: $4,175 / $890 = 4.7x on $890
+
+  Break-even: stock at $25 + $1.78 = $26.78 (+44.5%)
+  Note: Pre-crash stock was $27.39, so break-even is BELOW pre-crash price!
+
+  At $35 (recovery + catalyst): intrinsic $10 → 5 × $10 × 100 = $5,000 → 5.6x
+  At $40: intrinsic $15 → 5 × $15 × 100 = $7,500 → 8.4x
+
+>>> VRDN $24C Jul17 ANALYSIS (WIDER SPREAD):
+  Bid/Ask: $0.80 / $3.60 = $2.80 spread — ⛔ UNTRADEABLE
+  OI: 1 = DEAD CONTRACT
+  SKIP
+
+>>> VRDN ENTRY NOTE: Post-crash day entry is HIGH RISK but potentially
+    EXCELLENT value. IV is elevated but spreads on $25C are manageable.
+    The $25C is already well-traded (94 volume today, 856 OI).
+    Buying on crash day = buying when everyone else is selling.
+    Key risk: stock may not recover. VRDN was already beaten down.
+
+================================================================================
+5. LPCN — Lipocine Inc. | Stock: $7.58 | Micro-cap
+================================================================================
+
+>>> NO VIABLE OPTIONS MARKET — EQUITY ONLY OR SKIP <<<
+
+CONFIRMED: Yahoo Finance shows "There are no calls." and no expiry date
+dropdown on the LPCN options page. Barchart.com returned a 404 for LPCN options.
+
+WHY: Lipocine (LPCN) is a micro-cap stock (~$90M market cap at $7.58).
+Options exchanges require minimum thresholds for listing (typically need
+adequate daily volume, share price history, market cap, and market-maker
+interest). LPCN likely fails one or more of these:
+- Very low average daily volume
+- Small market cap
+- Insufficient institutional interest
+- Not enough market-maker demand to support options listing
+
+ALTERNATIVE: If bullish on LPCN, must use equity. $1,000 buys ~131 shares.
+At +150% ($18.95): $1,000 → $2,500 = 2.5x (much lower multiple than options
+would provide, but the only option available).
+
+================================================================================
+SUMMARY TABLE — BATCH 2 PRIMARY POSITIONS
+================================================================================
+
+┌────────┬──────────────────┬─────────┬────────┬────────┬────────┬──────┬───────┐
+│ Ticker │ Contract         │ Strike  │ Bid    │ Ask    │ Fill   │ Ctrs │ $1k   │
+│        │                  │         │        │        │ Est.   │ @$1k │ Multi │
+├────────┼──────────────────┼─────────┼────────┼────────┼────────┼──────┼───────┤
+│ ARGX   │ $730/$800 spread │ $730/800│ —      │ —      │~$13.50 │ 0*   │ 5.2x† │
+│ ARGX   │ $920C May15      │ $920    │ $0.20  │ $5.00  │ $2.60  │ 3    │ 0x‡   │
+│ AGIO   │ $20P Aug21       │ $20     │ $0.00  │ $2.95  │ $1.48  │ 6    │ 5.5x  │
+│ AGIO   │ $17.50P Aug21    │ $17.50  │ $0.00  │ $2.50  │ $1.25  │ 8    │ 4.5x  │
+│ NTLA   │ $15C Jul17       │ $15     │ $1.50  │ $1.80  │ $1.65  │ 6    │ 3.3x  │
+│ NTLA   │ $16C Jul17       │ $16     │ $1.40  │ $2.10  │ $1.60  │ 6    │ 2.7x  │
+│ VRDN   │ $25C Jul17       │ $25     │ $1.35  │ $2.20  │ $1.78  │ 5    │ 4.7x  │
+│ LPCN   │ NO OPTIONS       │ —       │ —      │ —      │ —      │ —    │ —     │
+└────────┴──────────────────┴─────────┴────────┴────────┴────────┴──────┴───────┘
+
+* ARGX spread costs ~$1,350 per spread; $1k insufficient for 1 contract
+† ARGX spread max multiple = 5.2x at stock > $800 (+13.6% from $704.31)
+  At +8% ($760): spread = 2.2x
+‡ ARGX $920C = $0 on +8% move. Need +31% for break-even. LOTTERY TICKET.
+
+RECOMMENDED PRIMARY PLAYS:
+1. NTLA $15C Jul17 @ $1.65 — BEST: tight spread, good OI, 3.3x on +75%
+2. VRDN $25C Jul17 @ $1.78 — GOOD: crash-day entry, 4.7x on +80% recovery
+3. AGIO $20P Aug21 @ $1.48 — OK: illiquid but 5.5x on -60% (failure play)
+4. ARGX $730/$800 spread — NEEDS $1,350+, but 2.2-5.2x on modest move
+
+LIQUIDITY RANKING:
+1. NTLA $15C Jul17  — OI: 1,730 | Vol: 20 | Spread: 17%  ✅ TRADEABLE
+2. VRDN $25C Jul17  — OI: 856  | Vol: 94 | Spread: 39%  ✅ TRADEABLE
+3. ARGX $730C May15 — OI: 13   | Vol: 11 | Spread: 16%  ⚠ LOW OI
+4. AGIO $20P Aug21  — OI: 7    | Vol: 1  | Spread: 100% ❌ POST LIMIT ONLY
+5. ARGX $920C May15 — OI: 5    | Vol: 1  | Spread: 96%  ❌ ILLIQUID
+6. LPCN — NO OPTIONS MARKET
+
+================================================================================
+DETAILED BREAK-EVEN ANALYSIS
+================================================================================
+
+ARGX $920C May15:
+  Fill: $2.60 | BE: $922.60 | Move needed: +31.0% | ⛔ Unreachable on +8%
+
+ARGX $730/$800 spread:
+  Fill: ~$13.50 | BE: $743.50 | Move needed: +5.6% | ✅ Very achievable
+
+AGIO $20P Aug21:
+  Fill: $1.48 | BE: $18.52 | Move needed: -37.4% (stock must DROP 37.4%)
+
+AGIO $17.50P Aug21:
+  Fill: $1.25 | BE: $16.25 | Move needed: -45.1%
+
+NTLA $15C Jul17:
+  Fill: $1.65 | BE: $16.65 | Move needed: +42.9%
+
+NTLA $16C Jul17:
+  Fill: $1.60 | BE: $17.60 | Move needed: +51.1%
+
+VRDN $25C Jul17:
+  Fill: $1.78 | BE: $26.78 | Move needed: +44.5% (but was $27.39 pre-crash!)
+
+================================================================================
+DATA SOURCES & TIMESTAMPS
+================================================================================
+- Yahoo Finance individual contract quotes (OPR 15-min delayed)
+  ARGX260515C00920000: Last trade Mar 6, 1:18 PM EST
+  ARGX260515C00940000: Bid/Ask as of close 3/30
+  ARGX260515C00730000: Last trade Mar 9, 3:24 PM EST
+  ARGX260515C00750000: Live bid/ask $23.50/$27.70
+  ARGX260515C00800000: Last trade Mar 20, 10:36 AM EST; Bid/Ask $11.50/$15.80
+  AGIO260821P00020000: Last trade Mar 24, 9:30 AM EST
+  AGIO260821P00017500: Bid/Ask as of close 3/30
+  AGIO260821P00015000: Bid/Ask as of close 3/30
+  AGIO260821P00022500: Last trade Mar 17; Bid/Ask $0.40/$4.20
+  AGIO260821P00025000: Bid/Ask $0.80/$4.80
+  NTLA260717C00015000: Live bid/ask $1.50/$1.80
+  NTLA260717C00016000: Open $1.47; Bid/Ask $1.40/$2.10
+  NTLA260417C00015000: Live bid/ask $0.10/$0.20, Vol 77, OI 3,780
+  VRDN260717C00025000: Last $1.86 (today); Bid/Ask $1.35/$2.20, Vol 94, OI 856
+  VRDN260717C00024000: Open $0.75; Bid/Ask $0.80/$3.60
+  VRDN full Apr 17 chain: Retrieved via Yahoo Finance
+- Barchart.com: Expiry dates, ATM IV, IV Rank, HV, aggregate OI/volume
+- Public.com: NTLA Apr 17 options chain cross-reference
+- LPCN: Yahoo Finance confirms no options listed
+
+================================================================================
+END OF BATCH 2
+================================================================================

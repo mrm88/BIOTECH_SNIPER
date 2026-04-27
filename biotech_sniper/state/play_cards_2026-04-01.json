@@ -1,0 +1,30 @@
+{
+  "IDYA": {
+    "why_line": "IDYA $40C May-15: topline webcast confirmed May 12 (BofA). 9 days to DB lock. Ph1/2: 7.1mo PFS vs ~3mo historical. Stock +6% this week.",
+    "edge_line": "BofA May 12 = exact webcast date. Company named it \u2014 most traders don't know. OI=101; limit orders only, fills possible pre-market."
+  },
+  "RGNX": {
+    "why_line": "RGNX $10C Jul-17: AFFINITY Ph3 readout Apr-May. Endpoint: dystrophin >=10% \u2014 a floor, not functional score. Stock pulled back to $8.38.",
+    "edge_line": ">=10% dystrophin floor cleared easily in Ph1. Street benchmarks to NSAA functional score \u2014 wrong ruler. OI=30, use limit orders only."
+  },
+  "AXSM": {
+    "why_line": "AXSM $200C May-15: PDUFA April 30 CERTAIN. Alzheimer's agitation. BT+Priority Review. Same molecule as approved AUVELITY \u2014 safety file done.",
+    "edge_line": "REXULTI approved Alzheimer's agitation 2023 \u2014 FDA blessed this endpoint. AXS-05 is #2 in a validated category. Street pricing phantom risk."
+  },
+  "ARGX": {
+    "why_line": "ARGX $750/$800 spread May-15: PDUFA May 10. Label expansion #4 for efgartigimod. FDA has approved every prior argenx sNDA. 4.4x max profit.",
+    "edge_line": "argenx sNDA record: 0 rejections. Three prior approvals (gMG, ITP, CIDP), same ADAPT design. Fourth rep of an undefeated playbook."
+  },
+  "AGIO": {
+    "why_line": "AGIO $30P Aug-21 BEARISH: tebapivat Ph2b LR-MDS readout May-Jun. Warpspeed 6% success = 94% failure odds. $30P only $3.83 OTM. OI=691.",
+    "edge_line": "8-wk TI window is biologically implausible \u2014 bone marrow takes months. Ph2 ~20% vs 40% target. Wrong endpoint design for this drug class."
+  },
+  "NTLA": {
+    "why_line": "NTLA $15C Jul-17: HAELO last-patient window closed ~Mar 30. DB lock ~May, topline May-Jun. Only Ph3 in vivo CRISPR trial globally. RMAT.",
+    "edge_line": "Ph1/2: 95% attack rate reduction (NEJM). Same endpoint. 60-pt trial likely overpowered. Stock $12.82 barely recovered despite de-risking."
+  },
+  "VRDN": {
+    "why_line": "VRDN $27C Jul-17: REVEAL-2 chronic TED readout Q2, pre-reg confirmed. Cash floor ~$17. $0.75 entry = 6.6x if +60%. Dual catalysts Q2.",
+    "edge_line": "REVEAL-1 signal: active TED, high dose. REVEAL-2: chronic, lower dose \u2014 distinct risk. Street sold both the same. Veligrotug PDUFA Jun 30."
+  }
+}

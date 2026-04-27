@@ -1,0 +1,352 @@
+{
+  "watchlist": {
+    "IDYA": {
+      "ticker": "IDYA",
+      "company": "IDEAYA Biosciences",
+      "drug": "Darovasertib + Crizotinib",
+      "trial": "OptimUM-02 (NCT05987332)",
+      "nct_id": "NCT05987332",
+      "ir_events_url": "https://ir.ideayabio.com/events",
+      "sec_cik": "0001722482",
+      "announcement_certainty": "ESTIMATED",
+      "estimated_announcement": "late April - early May 2026",
+      "p_success": 96,
+      "direction": "LONG_CALLS",
+      "quiet_period_start": "unknown",
+      "needs_ir_url_refresh": false,
+      "sec_edgar_8k_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001722482&type=8-K&dateb=&owner=include&count=10"
+    },
+    "AGIO": {
+      "ticker": "AGIO",
+      "company": "Agios Pharmaceuticals",
+      "drug": "Tebapivat",
+      "trial": "Phase 2b LR-MDS (NCT05490446)",
+      "nct_id": "NCT05490446",
+      "ir_events_url": "https://investor.agios.com/events",
+      "sec_cik": "0001559053",
+      "announcement_certainty": "ESTIMATED",
+      "estimated_announcement": "May - June 2026",
+      "p_success": 6,
+      "direction": "LONG_PUTS",
+      "ir_browser_required": true,
+      "needs_ir_url_refresh": false,
+      "sec_edgar_8k_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001559053&type=8-K&dateb=&owner=include&count=10"
+    },
+    "MLTX": {
+      "ticker": "MLTX",
+      "company": "MoonLake Immunotherapeutics",
+      "drug": "Sonelokimab",
+      "trial": "IZAR-1 Phase 3 PsA (NCT05640245)",
+      "nct_id": "NCT05640245",
+      "ir_events_url": "https://www.moonlaketx.com/investors/events",
+      "sec_cik": "0001851112",
+      "announcement_certainty": "ESTIMATED",
+      "estimated_announcement": "Mid 2026",
+      "p_success": 100,
+      "direction": "LONG_CALLS",
+      "ir_browser_required": true,
+      "needs_ir_url_refresh": false,
+      "sec_edgar_8k_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001851112&type=8-K&dateb=&owner=include&count=10"
+    },
+    "RZLT": {
+      "ticker": "RZLT",
+      "company": "Rezolute",
+      "drug": "Ersodetug",
+      "trial": "upLIFT Phase 3 (NCT06881992)",
+      "nct_id": "NCT06881992",
+      "ir_events_url": "https://ir.rezolutebio.com/events",
+      "sec_cik": "0001346830",
+      "announcement_certainty": "ESTIMATED",
+      "estimated_announcement": "H2 2026",
+      "p_success": 72,
+      "direction": "LONG_CALLS",
+      "needs_ir_url_refresh": false,
+      "sec_edgar_8k_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001346830&type=8-K&dateb=&owner=include&count=10"
+    },
+    "RVMD": {
+      "ticker": "RVMD",
+      "company": "Revolution Medicines",
+      "drug": "Daraxonrasib (RMC-6236)",
+      "trial": "RASolute 302 (NCT06625320)",
+      "nct_id": "NCT06625320",
+      "ir_events_url": "https://www.revmed.com/investors",
+      "sec_cik": "0001628171",
+      "announcement_certainty": "ESTIMATED",
+      "estimated_announcement": "May - June 2026",
+      "p_success": 61,
+      "direction": "LONG_CALLS",
+      "needs_ir_url_refresh": false,
+      "sec_edgar_8k_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001628171&type=8-K&dateb=&owner=include&count=10"
+    },
+    "TVTX": {
+      "ticker": "TVTX",
+      "company": "Travere Therapeutics",
+      "drug": "Sparsentan (FILSPARI)",
+      "trial": "DUPLEX FSGS sNDA (PDUFA)",
+      "nct_id": "NCT03493685",
+      "ir_events_url": "https://ir.travere.com",
+      "sec_cik": "0001372514",
+      "announcement_certainty": "CERTAIN",
+      "estimated_announcement": "April 13 2026 (PDUFA)",
+      "p_success": 77,
+      "direction": "LONG_CALLS",
+      "ir_browser_required": true,
+      "needs_ir_url_refresh": false,
+      "sec_edgar_8k_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001372514&type=8-K&dateb=&owner=include&count=10"
+    },
+    "AXSM": {
+      "ticker": "AXSM",
+      "company": "Axsome Therapeutics",
+      "drug": "AXS-05 (dextromethorphan/bupropion)",
+      "trial": "ACCORD maintenance Phase 3 AAD (NCT04797715)",
+      "nct_id": "NCT04797715",
+      "ir_events_url": "https://www.axsome.com/investors/events",
+      "sec_cik": "0001638287",
+      "announcement_certainty": "CERTAIN",
+      "estimated_announcement": "April 30 2026 (PDUFA)",
+      "p_success": 85,
+      "direction": "LONG_CALLS",
+      "ir_browser_required": true,
+      "needs_ir_url_refresh": false,
+      "sec_edgar_8k_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001638287&type=8-K&dateb=&owner=include&count=10"
+    },
+    "RGNX": {
+      "ticker": "RGNX",
+      "company": "REGENXBIO",
+      "drug": "RGX-202",
+      "trial": "AFFINITY DUCHENNE Phase 3 (NCT05693142)",
+      "nct_id": "NCT05693142",
+      "ir_events_url": "https://www.regenxbio.com/investors/events",
+      "sec_cik": "0001608249",
+      "announcement_certainty": "ESTIMATED",
+      "estimated_announcement": "April - May 2026",
+      "p_success": 68,
+      "direction": "LONG_CALLS",
+      "ir_browser_required": true,
+      "needs_ir_url_refresh": false,
+      "sec_edgar_8k_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001608249&type=8-K&dateb=&owner=include&count=10"
+    },
+    "ARGX": {
+      "ticker": "ARGX",
+      "company": "argenx SE",
+      "drug": "Efgartigimod alfa (VYVGART)",
+      "trial": "ADAPT-SC+ seroneg gMG sBLA (PDUFA)",
+      "nct_id": "NCT04980495",
+      "ir_events_url": "https://www.argenx.com/investors/events",
+      "sec_cik": "0001655050",
+      "announcement_certainty": "CERTAIN",
+      "estimated_announcement": "May 10 2026 (PDUFA)",
+      "p_success": 87,
+      "direction": "CALL_SPREAD",
+      "needs_ir_url_refresh": false,
+      "sec_edgar_8k_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001655050&type=8-K&dateb=&owner=include&count=10"
+    },
+    "NTLA": {
+      "ticker": "NTLA",
+      "company": "Intellia Therapeutics",
+      "drug": "onvo-z (NTLA-2002)",
+      "trial": "HAELO Phase 3 (NCT06634420)",
+      "nct_id": "NCT06634420",
+      "ir_events_url": "https://www.intelliatx.com/investors/events",
+      "sec_cik": "0001652130",
+      "announcement_certainty": "ESTIMATED",
+      "estimated_announcement": "May - June 2026",
+      "p_success": 82,
+      "direction": "LONG_CALLS",
+      "ir_browser_required": true,
+      "needs_ir_url_refresh": false,
+      "sec_edgar_8k_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001652130&type=8-K&dateb=&owner=include&count=10"
+    },
+    "VRDN": {
+      "ticker": "VRDN",
+      "company": "Viridian Therapeutics",
+      "drug": "Elegrobart",
+      "trial": "REVEAL-2 Phase 3 chronic TED (NCT06625398)",
+      "nct_id": "NCT06625398",
+      "ir_events_url": "https://www.viridiantherapeutics.com/investors",
+      "sec_cik": "0001597033",
+      "announcement_certainty": "ESTIMATED",
+      "estimated_announcement": "Q2 2026",
+      "p_success": 80,
+      "direction": "LONG_CALLS",
+      "needs_ir_url_refresh": false,
+      "sec_edgar_8k_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001597033&type=8-K&dateb=&owner=include&count=10"
+    },
+    "NAMS": {
+      "ticker": "NAMS",
+      "company": "NewAmsterdam Pharma",
+      "drug": "Obicetrapib",
+      "trial": "PREVAIL Phase 3 (NCT05202509)",
+      "nct_id": "NCT05202509",
+      "ir_events_url": "https://ir.newamsterdampharma.com/investor-relations",
+      "sec_cik": "0001907982",
+      "announcement_certainty": "ESTIMATED",
+      "estimated_announcement": "2026-2027",
+      "p_success": 37,
+      "direction": "LONG_PUTS",
+      "needs_ir_url_refresh": false,
+      "sec_edgar_8k_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001907982&type=8-K&dateb=&owner=include&count=10"
+    },
+    "TECX": {
+      "ticker": "TECX",
+      "drug": "TX45",
+      "trial": "APEX",
+      "ir_search_fallback": "SEARCH:TECX investor relations events calendar",
+      "sec_cik": "0001681087",
+      "has_options": true,
+      "current_price": 28.87,
+      "available_expiries": [
+        "2026-04-17",
+        "2026-05-15",
+        "2026-07-17",
+        "2026-09-18",
+        "2026-10-16",
+        "2026-12-18"
+      ],
+      "resolved_date": "2026-03-31",
+      "needs_ir_url_refresh": true
+    },
+    "NVS": {
+      "ticker": "NVS",
+      "drug": "Pelacarsen in Cardiovascular Disease",
+      "trial": "HORIZON",
+      "ir_search_fallback": "SEARCH:NVS investor relations events calendar",
+      "sec_cik": "0001114448",
+      "has_options": true,
+      "current_price": 150.36,
+      "available_expiries": [
+        "2026-04-17",
+        "2026-05-15",
+        "2026-06-18",
+        "2026-07-17",
+        "2026-10-16",
+        "2026-12-18"
+      ],
+      "resolved_date": "2026-03-31",
+      "needs_ir_url_refresh": true
+    },
+    "CELC": {
+      "ticker": "CELC",
+      "drug": "Gedatolisib in PIK3CA-Mutant HR+/HER2- mBC",
+      "trial": "VIKTORIA-1",
+      "ir_search_fallback": "SEARCH:CELC investor relations events calendar site",
+      "sec_cik": "0001603454",
+      "has_options": true,
+      "current_price": 108.27,
+      "available_expiries": [
+        "2026-04-17",
+        "2026-05-15",
+        "2026-06-18",
+        "2026-09-18",
+        "2027-01-15",
+        "2028-01-21"
+      ],
+      "resolved_date": "2026-03-31",
+      "needs_ir_url_refresh": false,
+      "ir_events_url": "https://ir.celc.com/events"
+    },
+    "GOSS": {
+      "ticker": "GOSS",
+      "drug": "Seralutinib in Pulmonary Arterial Hypertension",
+      "trial": "PROSERA",
+      "ir_search_fallback": "SEARCH:GOSS investor relations events calendar",
+      "sec_cik": "0001728117",
+      "has_options": true,
+      "current_price": 0.32,
+      "available_expiries": [
+        "2026-04-17",
+        "2026-05-15",
+        "2026-08-21",
+        "2026-11-20",
+        "2027-01-15",
+        "2028-01-21"
+      ],
+      "resolved_date": "2026-03-31",
+      "needs_ir_url_refresh": true
+    },
+    "CYBN": {
+      "ticker": "CYBN",
+      "drug": "CYB004",
+      "trial": "CYB004-002",
+      "ir_search_fallback": "SEARCH:CYBN investor relations events calendar",
+      "resolved_date": "2026-03-31",
+      "needs_ir_url_refresh": true
+    },
+    "XENE": {
+      "ticker": "XENE",
+      "drug": "Azetukalner in Drug-Resistant Focal Epilepsy",
+      "trial": "X-TOLE2",
+      "ir_search_fallback": "SEARCH:XENE investor relations events calendar",
+      "sec_cik": "0001582313",
+      "has_options": true,
+      "current_price": 55.55,
+      "available_expiries": [
+        "2026-04-17",
+        "2026-05-15",
+        "2026-07-17",
+        "2026-10-16",
+        "2026-12-18",
+        "2027-01-15"
+      ],
+      "resolved_date": "2026-03-31",
+      "needs_ir_url_refresh": true
+    },
+    "VRTX": {
+      "ticker": "VRTX",
+      "drug": "Povetacicept in IgA Nephropathy",
+      "trial": "RAINIER",
+      "ir_search_fallback": "SEARCH:VRTX investor relations events calendar",
+      "sec_cik": "0000875320",
+      "has_options": true,
+      "current_price": 443.16,
+      "available_expiries": [
+        "2026-04-02",
+        "2026-04-10",
+        "2026-04-17",
+        "2026-04-24",
+        "2026-05-01",
+        "2026-05-08"
+      ],
+      "resolved_date": "2026-03-31",
+      "needs_ir_url_refresh": true
+    },
+    "APGE": {
+      "ticker": "APGE",
+      "drug": "Zumilokibart in Atopic Dermatitis",
+      "trial": "APEX",
+      "ir_search_fallback": "SEARCH:APGE investor relations events calendar",
+      "sec_cik": "0001974640",
+      "has_options": true,
+      "current_price": 78.72,
+      "available_expiries": [
+        "2026-04-17",
+        "2026-05-15",
+        "2026-07-17",
+        "2026-10-16",
+        "2027-01-15"
+      ],
+      "resolved_date": "2026-03-31",
+      "needs_ir_url_refresh": true
+    }
+  },
+  "twitter_accounts": [
+    {
+      "handle": "BioPharmCatalyst",
+      "focus": "PDUFA dates and FDA calendar - posts every new date"
+    },
+    {
+      "handle": "adamfeuerstein",
+      "focus": "breaks clinical data before 8-Ks file"
+    },
+    {
+      "handle": "bradloncar",
+      "focus": "biotech catalyst calendar maintained in real time"
+    },
+    {
+      "handle": "ohsnapitsjuliee",
+      "focus": "options flow biotech events - smart money positioning"
+    }
+  ],
+  "sec_edgar_rss": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-K&dateb=&owner=include&count=40&search_text=&output=atom",
+  "last_updated": "2026-03-30"
+}

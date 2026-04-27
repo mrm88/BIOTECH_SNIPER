@@ -1,0 +1,211 @@
+WARPSPEED v2 ALETHEIA-STYLE FRAMEWORK: BIOTECH CLINICAL/REGULATORY SCORING
+Date: March 30, 2026
+Analyst: System
+================================================================================
+
+CANDIDATE 1: TVTX — sparsentan PDUFA April 13 (~14 days)
+Indication: sNDA label expansion to FSGS
+
+1. BASE RATES
+- Historical phase success rate (sNDA for already approved drug, new nephrology indication): ~75-80% success.
+- Analogs (5+):
+  1) TARPEYO (Calliditas) - Accelerated approval in IgAN.
+  2) FILSPARI (Travere) - Accelerated approval in IgAN.
+  3) KEVZARA (Sanofi/Regeneron) - sNDA label expansion successes.
+  4) REZUROCK (Kadmon) - sNDA expansion history.
+  5) LUPKYNIS (Aurinia) - LN approval.
+  6) OCALIVA (Intercept) - PBC accelerated approval, CRL in NASH (liver safety).
+
+2. FACTOR ANALYSIS
+- Efficacy/Primary Endpoint [Weight: 40%]: 9/10 (Highly stat sig, -49.8% vs -18.5% active control).
+- Safety Profile [Weight: 20%]: 7/10 (REMS already in place for liver toxicity/birth defects in IgAN; FDA is comfortable managing this).
+- Regulatory Path [Weight: 25%]: 9/10 (Priority Review accepted, NO AdCom. Massive de-risking signals).
+- Unmet Need [Weight: 15%]: 8/10 (FSGS has high unmet need, few targeted options).
+
+3. MONTE CARLO SCENARIOS
+- Bull (70%): Clean approval with broad FSGS label, manageable REMS.
+- Base (20%): Approval with strict biopsy requirements or tighter REMS/liver monitoring.
+- Bear (10%): CRL citing long-term eGFR slope attenuation or new safety signals.
+(Sum: 1.0)
+
+4. OUTPUT
+- P(success): 90% [80% CI: 82% - 95%]
+- Confidence: High
+- Top 3 Upside Drivers: 1) Lack of AdCom indicates FDA internal consensus. 2) Massive delta vs active control (irbesartan). 3) Priority review shows FDA urgency.
+- Top 3 Downside Risks: 1) eGFR slope data could show long-term attenuation vs primary proteinuria endpoint. 2) Off-label use concerns. 3) Unexpected liver tox signals in broader FSGS population.
+- Simulated Effect Size: Peak sales add >$400M. Stock +20-30% on clean label.
+- Trading Note: Not a degen play. High-probability, structural fundamental long.
+
+================================================================================
+
+CANDIDATE 2: AXSM — AXS-05 PDUFA April 30 (~31 days)
+Indication: sNDA for Alzheimer's agitation
+
+1. BASE RATES
+- Historical phase success rate (Neuro/Psych sNDA): ~70% success. Alzheimer's Agitation Approval historically ~40% but regulatory path recently cleared.
+- Analogs (5+):
+  1) REXULTI (Otsuka/Lundbeck) - Approved for Alzheimer's agitation.
+  2) NUPLAZID (Acadia) - CRL in dementia-related psychosis.
+  3) AVP-786 (Avanir) - Failed Alzheimer's agitation Phase 3.
+  4) AUVELITY (Axsome) - Approved for MDD (same compound).
+  5) SUVOREXANT (Belsomra) - Mixed results in Alzheimer's insomnia.
+  6) ESCITALOPRAM (Lexapro) - Often used off-label, mixed historical trial data.
+
+2. FACTOR ANALYSIS
+- Efficacy/Primary Hit [Weight: 35%]: 8.5/10 (CMAI -27.0 vs -17.3 is extremely robust for this space).
+- Safety/Tolerability [Weight: 30%]: 8/10 (DXM/bupropion combo well-tolerated, Auvelity safety database is large).
+- Regulatory Precedent [Weight: 20%]: 7/10 (Rexulti approval shows FDA willingness to approve, clear endpoint).
+- Trial Design [Weight: 15%]: 8/10 (ACCORD relapse prevention design is strongly preferred by FDA for chronic psych).
+
+3. MONTE CARLO SCENARIOS
+- Bull (65%): Clean approval, broad AD agitation label.
+- Base (20%): Approval with severe restrictions or black box warnings for elderly mortality.
+- Bear (15%): CRL asking for more safety data specific to frail elderly polypharmacy.
+(Sum: 1.0)
+
+4. OUTPUT
+- P(success): 85% [80% CI: 75% - 92%]
+- Confidence: High
+- Top 3 Upside Drivers: 1) ACCORD trial halted early for overwhelming efficacy. 2) REXULTI established the exact regulatory roadmap. 3) Known safety of Auvelity components in broader populations.
+- Top 3 Downside Risks: 1) Fall risk/dizziness in elderly dementia patients. 2) FDA sudden shifting of goalposts for neuro-psych. 3) Drug-drug interactions in polypharmacy.
+- Simulated Effect Size: Adds >$1B to peak sales estimates. Stock +15-25%.
+- Trading Note: Moderate degen play. (High P(succ), but "sell the news" risk is elevated due to run-up).
+
+================================================================================
+
+CANDIDATE 3: VRDN — elegrobart REVEAL-2 Phase 3 Q2 2026 (~45-75 days)
+Indication: Chronic TED (Thyroid Eye Disease)
+
+1. BASE RATES
+- Historical phase success rate (Follow-on asset in validated mechanistic class for orphan endo/ophtho): ~80%.
+- Analogs (5+):
+  1) TEPEZZA (Horizon/Amgen) - Approved, blockbuster in active TED.
+  2) Veligrotug THRIVE-2 (Viridian) - Chronic TED Phase 3 success.
+  3) Elegrobart REVEAL-1 (Viridian) - Active TED Phase 3 success today.
+  4) Batoclimab (Immunovant) - TED trials (different mechanism, mixed/delayed).
+  5) Secukinumab (Novartis) - Different autoimmune indications, follow-on success.
+  6) Teprotumumab chronic trial data - Demonstrated efficacy in chronic disease.
+
+2. FACTOR ANALYSIS
+- Mechanism Validation [Weight: 40%]: 9.5/10 (Anti-IGF-1R is definitively proven in TED).
+- Read-through from Sister/Prior [Weight: 30%]: 9/10 (Veligrotug worked in chronic; REVEAL-1 just hit active TED massively today).
+- Trial Design/Endpoint [Weight: 20%]: 8/10 (Standard proptosis response endpoint, zero ambiguity).
+- Safety Profile [Weight: 10%]: 6/10 (Hearing loss remains a lingering class-effect risk).
+
+3. MONTE CARLO SCENARIOS
+- Bull (75%): Smashes primary (>50% PRR), clean safety, best-in-class SC profile.
+- Base (15%): Hits primary (~35-40% PRR), but hearing loss signals emerge.
+- Bear (10%): Misses primary due to fibrotic nature of chronic disease or high placebo.
+(Sum: 1.0)
+
+4. OUTPUT
+- P(success): 90% [80% CI: 85% - 95%]
+- Confidence: Very High
+- Top 3 Upside Drivers: 1) Near-perfect biological read-through from Tepezza and Veligrotug. 2) Subcutaneous administration advantage. 3) REVEAL-1 de-risked the molecule.
+- Top 3 Downside Risks: 1) Chronic TED is highly fibrotic and harder to treat. 2) Hearing impairment rates (class effect). 3) Site-specific high placebo response.
+- Simulated Effect Size: Validates multi-billion franchise. Takes >40% share from Tepezza.
+- Trading Note: Not a degen play. Structural long, incredibly high floor.
+
+================================================================================
+
+CANDIDATE 4: TBPH — ampreloxetine CYPRESS Phase 3 H1 2026 (~30-60 days)
+Indication: Neurogenic orthostatic hypotension (nOH)
+
+1. BASE RATES
+- Historical phase success rate (Neurology Phase 3, non-orphan/symptom-based): ~45%. nOH specifically: ~25-35%.
+- Analogs (5+):
+  1) NORTHERA (droxidopa) - Approved for nOH after difficult regulatory path.
+  2) PROAMATINE (midodrine) - Approved for orthostatic hypotension.
+  3) Ampreloxetine MSA trials (Theravance) - Failed in broader MSA indication.
+  4) TD-9855 Phase 2 - Mixed earlier signals.
+  5) Vatiquinone (PTC) - Failed in related mitochondrial disease endpoints.
+  6) Florinef (fludrocortisone) - Off-label historical benchmark.
+
+2. FACTOR ANALYSIS
+- Prior Clinical Data [Weight: 35%]: 5/10 (Mixed history. Failed in broad MSA but showed signal in pure nOH).
+- Indication Difficulty [Weight: 25%]: 3/10 (nOH endpoints are subjective, prone to massive placebo creep).
+- Mechanism/Class [Weight: 20%]: 6/10 (NRI makes mechanistic sense for sympathetic failure).
+- Trial Design [Weight: 20%]: 6/10 (CYPRESS focuses only on targeted phenotype, better than past trials).
+
+3. MONTE CARLO SCENARIOS
+- Bull (30%): Clear stat sig on symptom score, clean safety.
+- Base (35%): Marginal hit, debatable clinical relevance, FDA headache/AdCom required.
+- Bear (35%): Outright failure on primary endpoint.
+(Sum: 1.0)
+
+4. OUTPUT
+- P(success): 45% [80% CI: 25% - 60%]
+- Confidence: Low
+- Top 3 Upside Drivers: 1) Trial heavily enriched for responders based on prior data. 2) High unmet need could lead to regulatory leniency. 3) Orphan-like pricing power if approved.
+- Top 3 Downside Risks: 1) Historically high placebo response in OHSA endpoints. 2) Single-asset binary risk. 3) Supine hypertension safety risks.
+- Simulated Effect Size: Binary event. +150% on success, -80% on failure.
+- Trading Note: Maximum degen play. Pure binary, single asset, coin-flip odds.
+
+================================================================================
+
+CANDIDATE 5: ARGX — efgartigimod seronegative gMG sBLA PDUFA May 10 (~41 days)
+Indication: Label expansion to seronegative gMG
+
+1. BASE RATES
+- Historical phase success rate (Autoimmune sBLA label expansion, same drug): ~85%. Seronegative subsets: ~60%.
+- Analogs (5+):
+  1) SOLIRIS (Alexion) - Failed in seronegative gMG.
+  2) ULTOMIRIS (Alexion) - Focused heavily on AChR+ (seropositive).
+  3) VYVGART (Argenx) - Blockbuster success in seropositive gMG.
+  4) RYSTIGGO (UCB) - Approved for both AChR+ and MuSK+ gMG.
+  5) ZILBRYSQ (UCB) - Approved for AChR+ gMG.
+  6) ROZANOLIXIZUMAB - Investigated broadly in autoimmune subsets.
+
+2. FACTOR ANALYSIS
+- Clinical Efficacy in Subgroup [Weight: 40%]: 8/10 (ADAPT-SC+ showed clinically meaningful benefit in seronegatives).
+- Mechanism [Weight: 30%]: 9/10 (FcRn broadly lowers IgG, driving efficacy irrespective of identified autoantibody).
+- Regulatory Flexibility [Weight: 30%]: 7/10 (FDA can be a stickler on "seronegative" diagnostic definitions).
+
+3. MONTE CARLO SCENARIOS
+- Bull (75%): Clean approval for broad seronegative population.
+- Base (15%): Approval restricted to highly specific diagnostic criteria / refractory patients.
+- Bear (10%): CRL asking for larger, dedicated seronegative-only trial.
+(Sum: 1.0)
+
+4. OUTPUT
+- P(success): 90% [80% CI: 80% - 96%]
+- Confidence: High
+- Top 3 Upside Drivers: 1) Mechanistic certainty (IgG reduction works). 2) Strong existing relationship with neurology division. 3) ADAPT-SC+ bridging data was robust.
+- Top 3 Downside Risks: 1) FDA argues seronegative cohort was too small. 2) Heterogeneity of "seronegative" disease confounding label language. 3) Pushback on clinical meaningfulness scale.
+- Simulated Effect Size: Incremental $300-$500M TAM expansion. Low stock volatility impact given large cap valuation.
+- Trading Note: Not a degen play. Large cap, incremental catalyst, safe hold.
+
+================================================================================
+
+CANDIDATE 6: LPCN — LPCN 1154 PPD Phase 3 Q2 2026 (~45-75 days)
+Indication: Postpartum depression (PPD)
+
+1. BASE RATES
+- Historical phase success rate (Psychiatry Phase 3): ~40%. PPD trials specifically: ~65% success recently due to established endpoints.
+- Analogs (5+):
+  1) ZURZUVAE (Sage/Biogen) - Approved oral for PPD and MDD.
+  2) ZULRESSO (Sage) - Approved IV for PPD.
+  3) SAGE-324 - Failed in essential tremor, mixed psych signals.
+  4) PRAX-114 (Praxis) - Failed in MDD Phase 2.
+  5) ALKS-5461 (Alkermes) - Failed in MDD (AdCom rejection).
+  6) SPRAVATO (J&J) - Successful in TRD but tight REMS.
+
+2. FACTOR ANALYSIS
+- Drug Profile vs Competitors [Weight: 35%]: 6/10 (Oral bioidentical progesterone is good, but Zurzuvae is already oral and approved).
+- Efficacy Signal [Weight: 30%]: 7/10 (Phase 2 positive, fast onset of action).
+- Safety/Tolerability [Weight: 20%]: 8/10 (Bioidentical might avoid synthetic neurosteroid somnolence issues).
+- Trial Execution/Placebo [Weight: 15%]: 5/10 (Psych trials frequently derailed by placebo response).
+
+3. MONTE CARLO SCENARIOS
+- Bull (40%): Hits primary with superior safety/less sedation than Zurzuvae.
+- Base (30%): Hits primary, but looks clinically undifferentiated from Zurzuvae.
+- Bear (30%): Fails primary due to high placebo response.
+(Sum: 1.0)
+
+4. OUTPUT
+- P(success): 65% [80% CI: 50% - 80%]
+- Confidence: Moderate
+- Top 3 Upside Drivers: 1) Bioidentical nature may avoid black box warnings. 2) Established HAM-D endpoint is highly validated. 3) Rapid onset of action (days).
+- Top 3 Downside Risks: 1) Rampant placebo response in depression trials. 2) Commercial viability even if approved (Zurzuvae launch has been slow). 3) Small cap funding risks.
+- Simulated Effect Size: If differentiated, massive upside (+100%). If failed, -70%.
+- Trading Note: Degen play. Highly binary, crowded commercial space, small cap volatility.

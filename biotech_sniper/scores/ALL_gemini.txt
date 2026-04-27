@@ -1,0 +1,84 @@
+TRIAL 1: NKTR
+P(success): 68% [80% CI: 52%–81%]
+Confidence: Medium
+Bull scenario (P=25%): Massive Treg expansion translates to >40% SALT50 response, rivaling JAKs on efficacy but with a vastly superior safety profile.
+Base scenario (P=55%): Moderate SALT50 response (~25-30%), beats placebo and shows proof-of-concept, but falls short of JAK efficacy; path forward requires combination or safety-first positioning.
+Bear scenario (P=20%): Significant Treg expansion fails to translate to meaningful hair regrowth; misses SALT50 primary endpoint entirely.
+Top upside drivers:
+- Unprecedented Phase 1/2 Treg expansion validation
+- Late-breaking oral at AAD heavily telegraphs positive, practice-changing data
+- First-in-class mechanism offers massive differentiation from black-box JAKs
+Top downside risks:
+- IL-2 pathway has a history of promising biomarkers but clinical endpoint failures
+- SALT50 is a very high bar (dupilumab missed primary in this indication)
+- Alopecia is highly heterogeneous; small sample sizes can skew results
+Simulated effect size: 31.5% SALT50 response rate
+TRADING NOTE: DEGEN PLAY YES — LONG — Quiet period + late breaker oral at a major conference is classic biotech telegraphing of a major hit. Market is underpricing the probability of success given the ~70% base rate for Phase 2->3 in this space.
+
+TRIAL 2: ALLO
+P(success): 46% [80% CI: 31%–59%]
+Confidence: Low
+Bull scenario (P=15%): Short allo-CAR-T persistence is sufficient for deep MRD clearance in the consolidation setting; hits >40% absolute improvement over observation.
+Base scenario (P=45%): Narrowly passes futility with ~25-30% clearance, but cell persistence remains an issue, leaving the street highly skeptical of the final durability readout.
+Bear scenario (P=40%): Fails futility entirely due to rapid allogeneic cell rejection; minimal disease outpaces the short-lived cema-cel therapy.
+Top upside drivers:
+- Zero high-grade CRS/ICANS allows for safe consolidation usage
+- Patient enrichment (MRD+ post-R-CHOP) significantly increases event rate probability
+- Minimal disease setting requires less cell persistence than bulky r/r disease
+Top downside risks:
+- Fundamental allogeneic biology limit: 2-4 weeks persistence vs months for autologous
+- Multiple historical failures in the ALLO pipeline for similar persistence reasons
+- High MRD clearance bar (25-30% improvement) for an interim futility look
+Simulated effect size: 22% improvement in MRD clearance vs observation
+TRADING NOTE: DEGEN PLAY NO — AVOID — The biological headwind of allo persistence is too strong. Even if it narrowly passes futility, the market will heavily discount the durability. Risk/reward is deeply skewed to the downside.
+
+TRIAL 3: RGNX
+P(success): 65% [80% CI: 51%–78%]
+Confidence: Medium
+Bull scenario (P=30%): Clean, statistically significant NSAA beat (p<0.01) showing clear superiority to ELEVIDYS, validating the C-terminal domain addition.
+Base scenario (P=45%): Narrow hit (p~0.04) or slight miss on NSAA, but strong biomarker expression supports a complex, highly debated path to approval.
+Bear scenario (P=25%): Outright miss on NSAA primary due to disease heterogeneity in a small N~65 sample, with placebo arm overperforming historicals.
+Top upside drivers:
+- Phase 1/2 showed highly consistent microdystrophin expression levels
+- Differentiated construct design (includes C-terminal domain) theoretically improves function
+- Precedent set by Sarepta's ELEVIDYS lowers the regulatory floor
+Top downside risks:
+- NSAA is a notoriously noisy and highly variable endpoint
+- Small sample size (N~65) severely limits statistical power
+- Placebo group stabilization (the "Sarepta curse") can ruin the delta
+Simulated effect size: 1.8 point improvement on NSAA at 52 weeks
+TRADING NOTE: DEGEN PLAY YES — LONG (via options) — The regulatory environment for DMD is exceptionally lenient right now (see Sarepta). A mere non-inferiority trend on NSAA coupled with strong expression will likely be enough for approval, giving this a structurally higher floor.
+
+TRIAL 4: REPL
+P(success): 79% [80% CI: 66%–89%]
+Confidence: High
+Bull scenario (P=60%): Clean FDA approval with a broad label for anti-PD1 failed melanoma; CRL issues (CMC/formatting) fully resolved with no lingering safety concerns.
+Base scenario (P=25%): FDA approval granted but with a heavily restricted label or significant Phase 4 confirmatory trial commitments required.
+Bear scenario (P=15%): Shock second CRL due to unresolved manufacturing (CMC) deficiencies or FDA demanding a randomized trial prior to market entry.
+Top upside drivers:
+- Class 2 CRL was for "additional information", implicitly clearing the clinical safety/efficacy data
+- Extreme unmet medical need in anti-PD-1 failed melanoma (no approved therapies)
+- Strong historical base rate (~70%) for approval following a non-safety Class 2 CRL
+Top downside risks:
+- CMC and manufacturing issues for viral therapies can be remarkably sticky and recursive
+- Single-arm trial design is facing increasing FDA scrutiny across oncology
+- Potential for a highly restrictive label that severely limits the TAM
+Simulated effect size: 33.6% ORR confirmed
+TRADING NOTE: DEGEN PLAY NO — CORE HOLD — This is a classic CRL-resolution play. High probability of success, but the market has likely priced in the approval. The play is to hold for the commercial launch, not a binary data pop.
+
+TRIAL 5: NTLA
+P(success): 84% [80% CI: 73%–92%]
+Confidence: High
+Bull scenario (P=65%): Flawlessly replicates Phase 1/2 data with >90% attack reduction, confirming a functional, permanent one-time cure for HAE.
+Base scenario (P=25%): Slight efficacy degradation in the larger Phase 3 cohort (~80% reduction), but still clinically transformative and easily approvable.
+Bear scenario (P=10%): A rare but severe safety event (e.g., off-target edit, severe liver toxicity) halts the trial or results in a clinical hold, destroying the thesis.
+Top upside drivers:
+- Phase 1/2 effect size (95% reduction) leaves a massive margin for error to hit the primary
+- KLKB1 knockout mechanism is biologically validated and target engagement is clear
+- Attack rate is a clean, binary, and highly reliable clinical endpoint
+Top downside risks:
+- First-ever in vivo CRISPR Phase 3 readout carries unprecedented regulatory novelty
+- Any idiosyncratic safety signal will be amplified due to the permanent nature of the edit
+- Long-term durability remains a theoretical, if unlikely, tail risk
+Simulated effect size: 88% reduction in monthly HAE attack rate
+TRADING NOTE: DEGEN PLAY YES — LONG — The biology here is practically solved. The >90% reduction in early phases provides a massive buffer. Market is still slightly discounting in vivo CRISPR regulatory risks, creating an upside dislocation.

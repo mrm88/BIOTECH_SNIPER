@@ -1,0 +1,1463 @@
+{
+  "ct_NCT05987332": {
+    "fetched_date": "2026-04-10",
+    "data": {
+      "nct_id": "NCT05987332",
+      "brief_title": "IDE196 (Darovasertib) in Combination With Crizotinib as First-line Therapy in Metastatic Uveal Melanoma",
+      "official_title": "IDE196 (Darovasertib) in Combination With Crizotinib Versus Investigator's Choice of Treatment as First-line Therapy in HLA-A2 Negative Metastatic Uveal Melanoma (DAR-UM-2)",
+      "primary_completion": "2027-01-15",
+      "allocation": "RANDOMIZED",
+      "masking": "NONE",
+      "model": "SEQUENTIAL",
+      "primary_purpose": "TREATMENT",
+      "has_placebo": false,
+      "has_active_comparator": true,
+      "is_open_label": true,
+      "enrollment_count": 420,
+      "enrollment_type": "ESTIMATED",
+      "n_arms": 3,
+      "primary_outcomes": [
+        {
+          "measure": "Phase 2a: To determine the optimal dose of IDE196 + Crizotinib combination for Phase 2B and Phase 3 by evaluating the following:",
+          "description": "dose exposure response (safety and efficacy) relationship, plasma concentration profiles and pharmacokinetic (PK) parameters, treatment-emergent Adverse Events (TEAEs), laboratory abnormalities, electrocardiogram (ECG), and vital sign changes and study treatment discontinuation due to AEs.",
+          "time_frame": "Approximately 5 months"
+        },
+        {
+          "measure": "Phase 2 Progression-Free Survival (PFS)",
+          "description": "by blinded independent central review (BICR) of IDE196 + Crizotinib compared to investigator's choice of treatment per RECIST v1.1",
+          "time_frame": "Approximately 2 years"
+        },
+        {
+          "measure": "Phase 3 Overall Survival (OS) of IDE196 + Crizotinib compared to investigator's choice of treatment.",
+          "description": "OS from randomization to date of death due to any cause",
+          "time_frame": "Approximately 4 years"
+        }
+      ],
+      "secondary_outcomes": [
+        {
+          "measure": "Safety of IDE196 + Crizotinib: Incidence of Adverse Events",
+          "time_frame": "Approximately 2 years"
+        },
+        {
+          "measure": "Phase 2a: Dose-exposure-response of IDE196 as measured by correlating the concentration of IDE196 in plasma with safety and efficacy.",
+          "time_frame": "Approximately 5 months"
+        },
+        {
+          "measure": "Phase 2a: Dose-exposure-response of Crizotinib measured by correlating the concentration of Crizotinib in plasma with safety and efficacy.",
+          "time_frame": "Approximately 5 months"
+        },
+        {
+          "measure": "Phase 2b + 3: Progression-Free Survival (PFS) per Investigator Assessment of IDE196 + Crizotinib compared to investigator's choice of treatment .",
+          "time_frame": "Approximately 2 years"
+        },
+        {
+          "measure": "Objective Response Rate (ORR) per BICR and Investigator assessment of IDE196 + Crizotinib compared to investigator's choice of treatment",
+          "time_frame": "Approximately 2 years"
+        }
+      ],
+      "drug_names": [
+        "IDE196",
+        "Crizotinib",
+        "Pembrolizumab",
+        "Ipilimumab",
+        "Nivolumab",
+        "Dacarbazine"
+      ],
+      "interventions": [
+        {
+          "name": "IDE196",
+          "type": "DRUG",
+          "description": "Dosed orally, twice daily"
+        },
+        {
+          "name": "Crizotinib",
+          "type": "DRUG",
+          "description": "Dosed orally, twice daily"
+        },
+        {
+          "name": "Pembrolizumab",
+          "type": "DRUG",
+          "description": "IV administration every 3 weeks"
+        },
+        {
+          "name": "Ipilimumab",
+          "type": "DRUG",
+          "description": "IV administration every 3 weeks for 4 Cycles"
+        },
+        {
+          "name": "Nivolumab",
+          "type": "DRUG",
+          "description": "IV administration every 3 Weeks for 4 Cycles, thereafter every 4 Weeks maintenance"
+        },
+        {
+          "name": "Dacarbazine",
+          "type": "DRUG",
+          "description": "IV administration every 3 Weeks"
+        }
+      ],
+      "arms": [
+        {
+          "label": "Phase 2a Dose Optimization of IDE196 + crizotinib",
+          "type": "EXPERIMENTAL",
+          "description": "Multiple doses of IDE196 will be tested in combination with fixed dose of crizotinib to identify the optimal combination dose."
+        },
+        {
+          "label": "Phase 2b / 3 Chosen Combination dose of IDE196 + crizotinib",
+          "type": "EXPERIMENTAL",
+          "description": "Chosen combination dose of IDE196 + crizotinib will be tested in additional participants."
+        },
+        {
+          "label": "Phase 2a / 2b / 3 Comparator Arm",
+          "type": "ACTIVE_COMPARATOR",
+          "description": "Participants will receive investigator's choice of Pembrolizumab, Ipilimumab + Nivolumab, or Dacarbazine."
+        }
+      ],
+      "conditions": [
+        "Metastatic Uveal Melanoma"
+      ],
+      "keywords": [
+        "IDE196",
+        "Darovasertib",
+        "Protein Kinase C",
+        "Metastatic Uveal Melanoma",
+        "Melanoma",
+        "Ocular Oncology",
+        "Ophthalmology",
+        "Crizotinib",
+        "Ocular melanoma"
+      ],
+      "eligibility_summary": "Inclusion Criteria:\n\n* Histological or cytological confirmed Metastatic Uveal Melanoma\n* HLA-A\\*02:01 negative\n* No prior systemic therapy in the metastatic or advanced setting regional or liver-directed therapy. Ablations or surgical resection of oligometastatic disease, and neoadjuvant or adjuvant therapy is allowed\n* Measurable disease per RECIST 1.1\n* Able to be safely administered and absorb study therapy\n* ECOG performance status 0 or 1\n* Life expectancy of \u22653 months\n* Adequate organ function\n\nExclusion Criteria:\n\n* Previous treatment with a PKC inhibitor (including prior treatment with ",
+      "min_age": "18 Years",
+      "max_age": "",
+      "brief_summary": "This is a Phase 2/3, multi-arm, multi-stage, open-label study of human leukocyte antigen (HLA)-A\\*02:01 negative participants with metastatic uveal melanoma (MUM) who will be randomized to receive either IDE196 + crizotinib or investigator's choice of treatment (pembrolizumab, ipilimumab + nivolumab, or dacarbazine).",
+      "detailed_description": "This study is designed as a multi-stage Phase 2 study within a Phase 3 study to evaluate the safety, tolerability, pharmacokinetics, dose-exposure relationship, and anti-tumor activity of IDE196 in combination with crizotinib compared to the comparator arm of investigator's choice of treatment (pembrolizumab, ipilimumab + nivolumab, or dacarbazine).\n\nThe Phase 2a dose optimization stage will evaluate two doses of IDE196 in combination with crizotinib compared to the comparator arm. Participants will be randomized to the three treatment arms. At the point of optimal IDE196 + crizotinib dose selection, the other dose arm will be dropped with discontinuation of enrollment to that arm. Participants receiving the IDE196 dose (in combination with crizotinib) that is not selected, will be offered the choice to remain on the same dose or change to the chosen optimal dose.\n\nThe optimal dose will be chosen to complete the Phase 2b portion. The Phase 2b part of the study will continue to enroll the chosen combination dose of IDE196 + crizotinib compared with the comparator arm. Participants will be randomized to the two treatment arms.\n\nThe Phase 3 part of the study will continue to enroll th",
+      "references": [],
+      "result_pmids": [],
+      "science_flags": {
+        "design_quality": [],
+        "bearish_flags": [
+          "Open-label design (no blinding \u2014 endpoint bias risk)"
+        ],
+        "bullish_flags": [
+          "Hard clinical endpoint (OS/PFS/EFS) \u2014 hardest to fake"
+        ],
+        "endpoint_type": "CLINICAL",
+        "is_well_powered": null,
+        "design_score": 0
+      },
+      "fetched_date": "2026-04-10"
+    }
+  },
+  "ct_NCT03493685": {
+    "fetched_date": "2026-04-10",
+    "data": {
+      "nct_id": "NCT03493685",
+      "brief_title": "Study of Sparsentan in Patients With Primary Focal Segmental Glomerulosclerosis (FSGS)",
+      "official_title": "A Randomized, Multicenter, Double-blind, Parallel, Active-control Study of the Effects of Sparsentan, a Dual Endothelin Receptor and Angiotensin Receptor Blocker, on Renal Outcomes in Patients With Primary FSGS",
+      "primary_completion": "2023-03-20",
+      "allocation": "RANDOMIZED",
+      "masking": "DOUBLE",
+      "model": "PARALLEL",
+      "primary_purpose": "TREATMENT",
+      "has_placebo": false,
+      "has_active_comparator": true,
+      "is_open_label": false,
+      "enrollment_count": 371,
+      "enrollment_type": "ACTUAL",
+      "n_arms": 2,
+      "primary_outcomes": [
+        {
+          "measure": "Slope of Estimated Glomerular Filtration Rate (eGFR)",
+          "description": "The total eGFR slope over 2 years, defined as the slope of eGFR following initiation of randomized treatment (ie, Day 1 to Week 108). Estimates are calculated from a mixed-effects model with treatment, Baseline eGFR, analysis visit, treatment-by-analysis visit, randomization stratification factors as fixed effects, and intercept and slope for each participant as a random effect.",
+          "time_frame": "From Day 1 to Week 108"
+        },
+        {
+          "measure": "Percentage of Participants Achieving FSGS Partial Remission Endpoint (FPRE)",
+          "description": "Percentage of participants achieving FPRE, defined as urine protein-to-creatinine ratio (UP/C) \u22641.5 grams/gram (g/g) (170 milligrams per millimoles \\[mg/mmol\\]) and a \\>40% reduction from Baseline was analyzed using a generalized linear model to model probability of achieving FPRE. Missing responses were imputed prior to analysis using multiple imputation. A generalized linear model with appropria",
+          "time_frame": "Week 36"
+        }
+      ],
+      "secondary_outcomes": [
+        {
+          "measure": "Slope of eGFR Following the Initial Acute Effect of Randomized Treatment",
+          "time_frame": "From Week 6 to Week 108"
+        },
+        {
+          "measure": "Change From Baseline in eGFR to 4 Weeks Post-cessation of Randomized Treatment",
+          "time_frame": "Baseline (Day 1) to Week 112"
+        }
+      ],
+      "drug_names": [
+        "sparsentan",
+        "Irbesartan"
+      ],
+      "interventions": [
+        {
+          "name": "sparsentan",
+          "type": "DRUG",
+          "description": "Double-blind period: target dose of 800 mg daily; Open-label extension: target dose based on dosage from week 114 daily"
+        },
+        {
+          "name": "Irbesartan",
+          "type": "DRUG",
+          "description": "target dose of 300 mg daily"
+        }
+      ],
+      "arms": [
+        {
+          "label": "sparsentan for double-blind and open-label extension",
+          "type": "EXPERIMENTAL",
+          "description": "Sparsentan will be administered as a single oral dose; an initial dose of 400 mg daily titrating up to a target dose of 800 mg, daily"
+        },
+        {
+          "label": "Irbesartan",
+          "type": "ACTIVE_COMPARATOR",
+          "description": "Irbesartan will be administered as a single oral dose; an initial dose of 150 mg daily titrating up to a target dose of 300 mg, daily"
+        }
+      ],
+      "conditions": [
+        "Focal Segmental Glomerulosclerosis"
+      ],
+      "keywords": [],
+      "eligibility_summary": "Key Inclusion Criteria for the Double-blind Period:\n\n* Sites within the US and UK: The patient is male or female aged 8 to 75 years, inclusive, weighing \u226520 kg at screening\n* Sites outside the US and UK: The patient is male or female aged 18 to 75 years, inclusive, weighing \u226520 kg at screening\n* Biopsy-proven focal segmental glomerulosclerosis (FSGS) lesion(s) or documentation of a genetic mutation in a podocyte protein associated with FSGS.\n* Urine protein/creatinine (UP/C) \u22651.5 g/g (170 mg/mmol) at screening\n* eGFR \u226530 mL/min/1.73 m2 at screening.\n* Women of childbearing potential must agree",
+      "min_age": "8 Years",
+      "max_age": "75 Years",
+      "brief_summary": "To determine the long-term nephroprotective potential of treatment with sparsentan as compared to an angiotensin receptor blocker in patients with primary and genetic focal segmental glomerulosclerosis (FSGS).",
+      "detailed_description": "This is a randomized, multicenter, double-blind, parallel, active-control study. Approximately 300 patients aged 8 to 75 years (inclusive) will be enrolled in the study. The study will be conducted in approximately 300 study centers, globally. The investigational drug (sparsentan) is a dual-acting angiotensin receptor blocker and endothelin receptor antagonist. The active control is irbesartan. Patients who meet eligibility criteria will require washout from renin-angiotensin-aldosterone system (RAAS) blockers, if applicable prior to their first dose of study drug.\n\nPatients will be randomly assigned in a 1:1 ratio to receive either sparsentan or active control (irbesartan).\n\nAfter completing the double-blind portion of the study, patients may participate in the open-label extension for treatment with sparsentan if they meet eligibility criteria.\n\nPrimary completion date represents the anticipated completion date of the double-blind portion of the study. Study completion date represents the anticipated completion date of the open-label extension portion of the study.",
+      "references": [
+        {
+          "type": "DERIVED",
+          "citation": "Yee J, Gong W, Inrig J, Rheault MN, Gruber AJ, Bedard PW, Komers R, Trachtman H. Antiproteinuric Effect of Sparsentan in Patients with Genetic-Associated FSGS Enrolled in the DUPLEX Trial. Clin J Am S",
+          "pmid": "41433094"
+        },
+        {
+          "type": "DERIVED",
+          "citation": "Rheault MN. Treatment Approaches for Alport Syndrome. J Am Soc Nephrol. 2026 Jan 1;37(1):172-179. doi: 10.1681/ASN.0000000897. Epub 2025 Sep 12.",
+          "pmid": "40938675"
+        },
+        {
+          "type": "DERIVED",
+          "citation": "Liu ID, Willis NS, Craig JC, Hodson EM. Interventions for idiopathic steroid-resistant nephrotic syndrome in children. Cochrane Database Syst Rev. 2025 May 8;5(5):CD003594. doi: 10.1002/14651858.CD003",
+          "pmid": "40337980"
+        },
+        {
+          "type": "DERIVED",
+          "citation": "Rheault MN, Alpers CE, Barratt J, Bieler S, Canetta P, Chae DW, Coppock G, Diva U, Gesualdo L, Heerspink HJL, Inrig JK, Kirsztajn GM, Kohan D, Komers R, Kooienga LA, Lieberman K, Mercer A, Noronha IL,",
+          "pmid": "37921461"
+        },
+        {
+          "type": "DERIVED",
+          "citation": "Obadina M, Wilson S, Derebail VK, Little J. Emerging Therapies and Advances in Sickle Cell Disease with a Focus on Renal Manifestations. Kidney360. 2023 Jul 1;4(7):997-1005. doi: 10.34067/KID.00000000",
+          "pmid": "37254256"
+        },
+        {
+          "type": "DERIVED",
+          "citation": "Hodson EM, Sinha A, Cooper TE. Interventions for focal segmental glomerulosclerosis in adults. Cochrane Database Syst Rev. 2022 Feb 28;2(2):CD003233. doi: 10.1002/14651858.CD003233.pub3.",
+          "pmid": "35224732"
+        }
+      ],
+      "result_pmids": [],
+      "science_flags": {
+        "design_quality": [],
+        "bearish_flags": [],
+        "bullish_flags": [
+          "Clear mechanistic rationale stated in protocol"
+        ],
+        "endpoint_type": "",
+        "is_well_powered": null,
+        "design_score": 1
+      },
+      "fetched_date": "2026-04-10"
+    }
+  },
+  "ct_NCT05693142": {
+    "fetched_date": "2026-04-10",
+    "data": {
+      "nct_id": "NCT05693142",
+      "brief_title": "AFFINITY DUCHENNE: RGX-202 Gene Therapy in Participants With Duchenne Muscular Dystrophy (DMD)",
+      "official_title": "A Phase 1/2/3 Open-label Study to Evaluate the Safety, Tolerability, Efficacy, Pharmacodynamics, and Pharmacokinetics of Intravenous RGX-202 Gene Therapy in Males With Duchenne Muscular Dystrophy (DMD)",
+      "primary_completion": "2026-02",
+      "allocation": "NON_RANDOMIZED",
+      "masking": "NONE",
+      "model": "PARALLEL",
+      "primary_purpose": "TREATMENT",
+      "has_placebo": false,
+      "has_active_comparator": false,
+      "is_open_label": true,
+      "enrollment_count": 65,
+      "enrollment_type": "ESTIMATED",
+      "n_arms": 2,
+      "primary_outcomes": [
+        {
+          "measure": "Part 1 Safety measured by incidence of Adverse Events and Serious Adverse Events",
+          "description": "Evaluate incidences of AEs and SAEs",
+          "time_frame": "52 weeks"
+        },
+        {
+          "measure": "Part 2 and 3 Pharmacodynamic",
+          "description": "Proportion of participants whose RGX-202 microdystrophin protein expression determined in their muscle biopsy is \u2265 10%",
+          "time_frame": "12 weeks"
+        }
+      ],
+      "secondary_outcomes": [
+        {
+          "measure": "Time to Stand (TTSTAND)",
+          "time_frame": "52 Weeks (Part 1); 52 and 104 Weeks (Part 2 &3)"
+        },
+        {
+          "measure": "Time to Walk/Run 10 meters (TTWR)",
+          "time_frame": "52 Weeks (Part 1) and 104 Weeks (Part 2 &3)"
+        },
+        {
+          "measure": "Time to Climb 4 Stairs (TTCLIMB)",
+          "time_frame": "52 Weeks (Part 1); 52 and 104 Weeks (Part 2 &3)"
+        },
+        {
+          "measure": "North Star Ambulatory Assessment (NSAA)",
+          "time_frame": "52 Weeks (Part 1) and; 52 and 104 Weeks (Part 2 &3)"
+        },
+        {
+          "measure": "Peabody Developmental Motor Scale, Third Edition (PDMS-3); Body Control Subtest",
+          "time_frame": "52 Weeks (Part 1); 52 and 104 Weeks (Part 2 &3)"
+        }
+      ],
+      "drug_names": [
+        "RGX-202"
+      ],
+      "interventions": [
+        {
+          "name": "RGX-202",
+          "type": "GENETIC",
+          "description": "RGX-202 is a recombinant AAV8 containing a transgene encoding a novel microdystrophin"
+        }
+      ],
+      "arms": [
+        {
+          "label": "Part 1: Cohort 1 and 1b: RGX-202 Dose 1",
+          "type": "EXPERIMENTAL",
+          "description": "A single IV infusion of RGX-202 at a dose of 1\u00d710\\^14 GC/kg body weight"
+        },
+        {
+          "label": "Part 1: Cohort 2, 2c;, and Part 2; and Part 3: RGX-202 Dose 2",
+          "type": "EXPERIMENTAL",
+          "description": "A single IV infusion of RGX-202 at a dose of 2x10\\^14 GC/kg body weight"
+        }
+      ],
+      "conditions": [
+        "Duchenne Muscular Dystrophy"
+      ],
+      "keywords": [
+        "Gene therapy",
+        "DMD",
+        "Duchenne Muscular Dystrophy",
+        "Duchenne"
+      ],
+      "eligibility_summary": "Part 1 - Key Inclusion Criteria:\n\n* The participant's legal guardian(s) is (are) willing and able to provide written, signed informed consent prior to any study-related procedures; and, where applicable, the minor participant has provided written or verbal assent according to local requirements.\n* Is a male at least 4 years of age and less than 12 years of age at consent or 1 to \\<4 years of age at the time of dosing and \u2265 10 kg at the time of screening.\n* Must meet any of the following criteria:\n\n  * DMD gene mutation in exons 18 and above, and a clinical picture consistent with typical DMD w",
+      "min_age": "1 Year",
+      "max_age": "",
+      "brief_summary": "RGX-202 is a gene therapy designed to deliver a transgene for a novel microdystrophin that includes functional elements of naturally-occurring dystrophin including the C-Terminal (CT) domain.\n\nThis is a multicenter, open-label dose evaluation clinical study to assess the safety, tolerability, and clinical efficacy of a one-time intravenous (IV) dose of RGX-202 in participants with Duchenne.\n\nFor additional information on how to participate (or be considered for the study), please follow this link: https://mytomorro.ws/affinity-ct-gov",
+      "detailed_description": "Duchenne muscular dystrophy (Duchenne) is a rare genetic disorder, caused by mutations in the gene responsible for making dystrophin, a protein of central importance for muscle cell structure and function. The absence of functional dystrophin protein in individuals with Duchenne results in cell damage during muscle contraction leading to cell death, inflammation, and fibrosis in muscle tissues, and ultimately progressive muscle weakness. RGX-202 is designed to use the AAV8 vector to deliver a transgene to muscle cells that encodes a novel microdystrophin that includes the functional elements of naturally occurring dystrophin including the C-Terminal (CT) domain.\n\nThis is a multicenter, phase I/II/III, open-label study to evaluate the safety, tolerability, pharmacodynamics (microdystrophin protein levels), pharmacokinetic, and clinical efficacy of RGX-202 when administered IV as one-time dose to ambulant male participants with Duchenne. A comprehensive, short-term, prophylactic immunosuppression regimen will be administered during treatment to mitigate a potential immune response. This study is being conducted in three sequential parts: a phase I/II study (Part 1), a phase 3 pivotal",
+      "references": [],
+      "result_pmids": [],
+      "science_flags": {
+        "design_quality": [],
+        "bearish_flags": [
+          "Open-label design (no blinding \u2014 endpoint bias risk)",
+          "NON-RANDOMIZED Phase 3 \u2014 very unusual, high failure risk",
+          "Very small N=65 for Phase 3 (underpowered?)"
+        ],
+        "bullish_flags": [],
+        "endpoint_type": "",
+        "is_well_powered": null,
+        "design_score": -7
+      },
+      "fetched_date": "2026-04-10"
+    }
+  },
+  "ct_NCT04797715": {
+    "fetched_date": "2026-04-10",
+    "data": {
+      "nct_id": "NCT04797715",
+      "brief_title": "Assessing Clinical Outcomes in Alzheimer's Disease Agitation",
+      "official_title": "A Double-blind, Placebo-controlled, Randomized Withdrawal Trial to Assess the Efficacy and Safety of AXS-05 for the Treatment of Agitation in Subjects With Dementia of the Alzheimer's Type",
+      "primary_completion": "2022-11-21",
+      "allocation": "RANDOMIZED",
+      "masking": "TRIPLE",
+      "model": "PARALLEL",
+      "primary_purpose": "TREATMENT",
+      "has_placebo": true,
+      "has_active_comparator": false,
+      "is_open_label": false,
+      "enrollment_count": 178,
+      "enrollment_type": "ACTUAL",
+      "n_arms": 2,
+      "primary_outcomes": [
+        {
+          "measure": "Time from randomization to relapse of agitation symptoms",
+          "description": "",
+          "time_frame": "up to 26 weeks"
+        }
+      ],
+      "secondary_outcomes": [],
+      "drug_names": [
+        "AXS-05",
+        "Placebo"
+      ],
+      "interventions": [
+        {
+          "name": "AXS-05",
+          "type": "DRUG",
+          "description": "AXS-05 tablets, taken twice daily"
+        },
+        {
+          "name": "Placebo",
+          "type": "DRUG",
+          "description": "Placebo tablets, taken twice daily"
+        }
+      ],
+      "arms": [
+        {
+          "label": "AXS-05",
+          "type": "EXPERIMENTAL",
+          "description": "Up to 26 weeks in double-blind period"
+        },
+        {
+          "label": "Placebo",
+          "type": "PLACEBO_COMPARATOR",
+          "description": "Up to 26 weeks in double-blind period"
+        }
+      ],
+      "conditions": [
+        "Agitation in Patients With Dementia of the Alzheimer's Type",
+        "Alzheimer Disease",
+        "Agitation,Psychomotor"
+      ],
+      "keywords": [
+        "AD agitation",
+        "AXS-05",
+        "NMDA receptor antagonist",
+        "dextromethorphan",
+        "bupropion",
+        "Axsome",
+        "ACCORD"
+      ],
+      "eligibility_summary": "Inclusion Criteria:\n\n* Diagnosis of probable Alzheimer's disease (AD) based on the 2011 National Institute on Aging-Alzheimer Association (NIA-AA) criteria.\n* Diagnosis of clinically signification agitation resulting from probable AD according to the International Psychogeriatric Association (IPA) provisional definition of agitation.\n\nExclusion Criteria:\n\n* Patient has dementia predominantly of non-Alzheimer's type.\n* Patient has symptoms of agitation that are not secondary to AD (e.g., pain, other psychiatric disorder or delirium due to a metabolic disorder, systemic infection, or substance-i",
+      "min_age": "65 Years",
+      "max_age": "90 Years",
+      "brief_summary": "This is a multi-center, double-blind, placebo-controlled, randomized withdrawal study to evaluate the efficacy and safety of AXS-05 compared to placebo in the treatment of agitation symptoms in subjects with agitation associated with Alzheimer's disease.",
+      "detailed_description": "Enrolled patients will first enter a 9-week, open-label stabilization period, during which they will be treated with AXS-05 and monitored for a treatment response. Patients who experience a treatment response during the stabilization period will then be randomized into the double-blind treatment period, in a 1:1 ratio, to continue treatment with AXS-05 or to switch to placebo, for up to 26 weeks or until a relapse of agitation occurs.",
+      "references": [],
+      "result_pmids": [],
+      "science_flags": {
+        "design_quality": [],
+        "bearish_flags": [],
+        "bullish_flags": [
+          "Randomized placebo-controlled (gold standard design)"
+        ],
+        "endpoint_type": "",
+        "is_well_powered": null,
+        "design_score": 2
+      },
+      "fetched_date": "2026-04-10"
+    }
+  },
+  "ct_NCT04980495": {
+    "fetched_date": "2026-04-10",
+    "data": {
+      "nct_id": "NCT04980495",
+      "brief_title": "An Open-label Study to Investigate the Clinical Efficacy of Different Dosing Regimens of Efgartigimod IV in Patients With Generalized Myasthenia Gravis",
+      "official_title": "A Phase 3b, Randomized, Open-label, Parallel-Group Study to Evaluate Different Dosing Regimens of Intravenous Efgartigimod to Maximize and Maintain Clinical Benefit in Patients With Generalized Myasthenia Gravis",
+      "primary_completion": "2023-08-24",
+      "allocation": "RANDOMIZED",
+      "masking": "NONE",
+      "model": "PARALLEL",
+      "primary_purpose": "TREATMENT",
+      "has_placebo": false,
+      "has_active_comparator": false,
+      "is_open_label": true,
+      "enrollment_count": 69,
+      "enrollment_type": "ACTUAL",
+      "n_arms": 2,
+      "primary_outcomes": [
+        {
+          "measure": "Mean of the average MG-ADL total score change from baseline during the visit of week 1 through week 21 by regimen arm",
+          "description": "The MG-ADL (Myasthenia Gravis Activities of Daily Living) scale assesses MG symptoms and their effects on daily activities. The total score varies between 0 and 24, with higher total scores indicating more impairment.",
+          "time_frame": "Up to 21 weeks"
+        }
+      ],
+      "secondary_outcomes": [
+        {
+          "measure": "Incidence of AEs, SAEs and AESIs",
+          "time_frame": "Up to 136 weeks"
+        },
+        {
+          "measure": "Change from baseline in the MG-ADL total score over time",
+          "time_frame": "Up to 126 weeks"
+        },
+        {
+          "measure": "Normalized area under the effect curve (AUEC) of MG-ADL total score improvement from baseline",
+          "time_frame": "Up to 21 weeks"
+        },
+        {
+          "measure": "Characterization of MG-ADL total score change from baseline",
+          "time_frame": "Up to 21 weeks"
+        },
+        {
+          "measure": "Percentage of participants who have a \u2265 2, 3, 4, or 5 points improvement in MG-ADL total score from baseline",
+          "time_frame": "Up to 21 weeks"
+        }
+      ],
+      "drug_names": [
+        "Efgartigimod IV"
+      ],
+      "interventions": [
+        {
+          "name": "Efgartigimod IV",
+          "type": "BIOLOGICAL",
+          "description": "Intravenous infusions of efgartigimod"
+        }
+      ],
+      "arms": [
+        {
+          "label": "Efgartigimod IV - continuous regimen",
+          "type": "EXPERIMENTAL",
+          "description": "Participants receiving efgartigimod IV on a continuous regimen"
+        },
+        {
+          "label": "Efgartigimod IV - cyclic regimen",
+          "type": "EXPERIMENTAL",
+          "description": "Participants receiving efgartigimod IV on a cyclic regimen"
+        }
+      ],
+      "conditions": [
+        "Generalized Myasthenia Gravis",
+        "MG - Myasthenia Gravis",
+        "gMG"
+      ],
+      "keywords": [],
+      "eligibility_summary": "Inclusion Criteria:\n\n* At least 18 years of age, at the time of signing the informed consent.\n* Diagnosed with Generalized Myasthenia Gravis (gMG) with confirmed documentation and supported by a physical exam and confirmed seropositivity for anti-acetylcholine receptor antibodies (AChR-Abs).\n* Meets the clinical criteria as defined by the Myasthenia Gravis Foundation of America (MGFA) class II, III, or IV\n\nExclusion Criteria:\n\n* Any other condition that, in the opinion of the investigator, would interfere with an accurate assessment of the clinical symptoms of gMG and/or put the participant at",
+      "min_age": "18 Years",
+      "max_age": "",
+      "brief_summary": "The purpose of this open-label study is to investigate the efficacy, safety, and tolerability of a continuous regimen of efgartigimod compared with a cyclic regimen in participants with Generalized Myasthenia Gravis (gMG).\n\nParticipants will receive efgartigimod throughout the study. The participants will be randomized to the continuous regimen arm or to the cyclic regimen arm. The study consists of a part A (regimen comparison period) where participants will continue the treatment based on the treatment regimen arm they were assigned at randomization. Following part A, participants will enter part B (extension period) where all participants will receive efgartigimod in the continuous regimen. The study duration for participants is up to 138 weeks.",
+      "detailed_description": "",
+      "references": [],
+      "result_pmids": [],
+      "science_flags": {
+        "design_quality": [],
+        "bearish_flags": [
+          "Open-label design (no blinding \u2014 endpoint bias risk)",
+          "Very small N=69 for Phase 3 (underpowered?)"
+        ],
+        "bullish_flags": [
+          "Functional/PRO endpoint (valid but softer than OS)"
+        ],
+        "endpoint_type": "FUNCTIONAL",
+        "is_well_powered": null,
+        "design_score": -3
+      },
+      "fetched_date": "2026-04-10"
+    }
+  },
+  "ct_NCT06625320": {
+    "fetched_date": "2026-04-10",
+    "data": {
+      "nct_id": "NCT06625320",
+      "brief_title": "Phase 3 Study of Daraxonrasib (RMC-6236) in Patients With Previously Treated Metastatic Pancreatic Ductal Adenocarcinoma (PDAC)",
+      "official_title": "RASolute 302: A Phase 3 Multicenter, Open-label, Randomized Study of Daraxonrasib (RMC-6236) Versus Investigator's Choice of Standard of Care Therapy in Patients With Previously Treated Metastatic Pancreatic Ductal Adenocarcinoma (PDAC)",
+      "primary_completion": "2026-06",
+      "allocation": "RANDOMIZED",
+      "masking": "NONE",
+      "model": "PARALLEL",
+      "primary_purpose": "TREATMENT",
+      "has_placebo": false,
+      "has_active_comparator": true,
+      "is_open_label": true,
+      "enrollment_count": 501,
+      "enrollment_type": "ACTUAL",
+      "n_arms": 2,
+      "primary_outcomes": [
+        {
+          "measure": "Progression free survival (PFS) in the RAS G12-mutant population",
+          "description": "PFS is defined as the time from randomization until disease progression or death from any cause, whichever occurs first. Progression is per response evaluation criteria in solid tumors (RECIST) v1.1 and as assessed by blinded independent central review (BICR)",
+          "time_frame": "Up to approximately 3 years"
+        },
+        {
+          "measure": "Overall survival (OS) in the RAS G12-mutant population",
+          "description": "OS is defined as the time from randomization until death from any cause.",
+          "time_frame": "Up to approximately 3 years"
+        }
+      ],
+      "secondary_outcomes": [
+        {
+          "measure": "PFS in the all-patient population",
+          "time_frame": "Up to approximately 3 years"
+        },
+        {
+          "measure": "OS in the all-patient population",
+          "time_frame": "Up to approximately 3 years"
+        },
+        {
+          "measure": "Objective response in the RAS G12 and all-patient populations",
+          "time_frame": "Up to approximately 3 years"
+        },
+        {
+          "measure": "Time to deterioration (TTD) in European Organization for Research and Treatment of Cancer Quality of Life Questionnaire Pancreatic Cancer Module (EORTC QLQ-PAN26) in the RAS G12 and all-patient populations",
+          "time_frame": "Up to approximately 3 years"
+        },
+        {
+          "measure": "Time to deterioration (TTD) in European Organization for Research and Treatment of Cancer Quality of Life Questionnaire Core 30 (EORTC QLQ-C30) in the RAS G12 and all-patient populations",
+          "time_frame": "Up to approximately 3 years"
+        }
+      ],
+      "drug_names": [
+        "RMC-6236",
+        "Gemcitabine",
+        "nab-paclitaxel",
+        "Irinotecan",
+        "Liposomal irinotecan",
+        "5-fluorouracil",
+        "leucovorin",
+        "Oxaliplatin"
+      ],
+      "interventions": [
+        {
+          "name": "RMC-6236",
+          "type": "DRUG",
+          "description": "Oral Tablets"
+        },
+        {
+          "name": "Gemcitabine",
+          "type": "DRUG",
+          "description": "intravenous (IV) infusion"
+        },
+        {
+          "name": "nab-paclitaxel",
+          "type": "DRUG",
+          "description": "IV infusion"
+        },
+        {
+          "name": "Irinotecan",
+          "type": "DRUG",
+          "description": "IV infusion"
+        },
+        {
+          "name": "Liposomal irinotecan",
+          "type": "DRUG",
+          "description": "IV infusion"
+        },
+        {
+          "name": "5-fluorouracil",
+          "type": "DRUG",
+          "description": "IV infusion"
+        },
+        {
+          "name": "leucovorin",
+          "type": "DRUG",
+          "description": "IV infusion"
+        },
+        {
+          "name": "Oxaliplatin",
+          "type": "DRUG",
+          "description": "IV infusion"
+        }
+      ],
+      "arms": [
+        {
+          "label": "RMC-6236",
+          "type": "EXPERIMENTAL",
+          "description": "Study drug"
+        },
+        {
+          "label": "Investigator's choice of standard of care therapy",
+          "type": "ACTIVE_COMPARATOR",
+          "description": "Patients randomized to Investigator's choice of standard of care chemotherapy will receive one of the following four treatments:\n\n* Gemcitabine and nab-paclitaxel (GnP)\n* Oxaliplatin, leucovorin, irinotecan, and 5-FU (Modified FOLFIRINOX: mFOLFIRINOX)\n* Liposomal irinotecan (Nal-IRI + 5-FU/LV)\n* Oxa"
+        }
+      ],
+      "conditions": [
+        "Pancreatic Cancer",
+        "PDAC",
+        "PDAC - Pancreatic Ductal Adenocarcinoma"
+      ],
+      "keywords": [
+        "Pancreatic Cancer",
+        "PDAC",
+        "Pancreatic Ductal Adenocarcinoma",
+        "RAS",
+        "KRAS",
+        "NRAS",
+        "HRAS",
+        "RAS Wild-Type",
+        "RAS Q61 Mutation",
+        "RAS G12 Mutation",
+        "RAS G13 Mutation"
+      ],
+      "eligibility_summary": "Inclusion Criteria:\n\n* At least 18 years old and has provided informed consent.\n* Eastern Cooperative Oncology Group (ECOG) performance status of 0 or 1.\n* Histologically or cytologically confirmed PDAC with metastatic disease.\n* Measurable disease per RECIST 1.1.\n* Adequate organ function (bone marrow, liver, kidney, coagulation)\n* Documented RAS mutation status, either mutant or wild-type. RAS mutations defined as nonsynonymous mutations in KRAS, NRAS, or HRAS at codons 12, 13, or 61 (G12, G13, or Q61).\n* Able to take oral medications.\n\nExclusion Criteria:\n\n* Prior therapy with direct RAS-ta",
+      "min_age": "18 Years",
+      "max_age": "",
+      "brief_summary": "The purpose of this study is to evaluate the safety and efficacy of a novel RAS(ON) inhibitor compared to standard(s) of care (SOC) treatment.",
+      "detailed_description": "This is a global, randomized, open-label, Phase 3 study designed to evaluate whether treatment with RMC-6236 will improve progression free survival (PFS) or overall survival (OS) compared to Investigator's choice of standard of care chemotherapy in patients with metastatic PDAC who were previously treated with one prior line of therapy with 5-fluorouracil (5-FU) based or gemcitabine-based regimen.\n\nPatients will be randomized in a 1:1 ratio to receive RMC-6236 (Arm A) or Investigator's choice of standard of care chemotherapy (Arm B).",
+      "references": [],
+      "result_pmids": [],
+      "science_flags": {
+        "design_quality": [],
+        "bearish_flags": [
+          "Open-label design (no blinding \u2014 endpoint bias risk)"
+        ],
+        "bullish_flags": [
+          "Large enrollment N=501 (well-powered)",
+          "Hard clinical endpoint (OS/PFS/EFS) \u2014 hardest to fake",
+          "Clear mechanistic rationale stated in protocol"
+        ],
+        "endpoint_type": "CLINICAL",
+        "is_well_powered": null,
+        "design_score": 2
+      },
+      "fetched_date": "2026-04-10"
+    }
+  },
+  "ct_NCT05490446": {
+    "fetched_date": "2026-04-10",
+    "data": {
+      "nct_id": "NCT05490446",
+      "brief_title": "A Study of Tebapivat (AG-946) in Participants With Anemia Due to Lower-Risk Myelodysplastic Syndromes (LR-MDS)",
+      "official_title": "A Phase 2a/2b, Open-label, Proof of Concept (Phase 2a) and Open-label (Phase 2b), Multicenter, Efficacy, and Safety Study of AG-946 in Participants With Anemia Due to Lower-Risk Myelodysplastic Syndromes",
+      "primary_completion": "2026-03",
+      "allocation": "NON_RANDOMIZED",
+      "masking": "NONE",
+      "model": "SEQUENTIAL",
+      "primary_purpose": "TREATMENT",
+      "has_placebo": false,
+      "has_active_comparator": false,
+      "is_open_label": true,
+      "enrollment_count": 87,
+      "enrollment_type": "ACTUAL",
+      "n_arms": 4,
+      "primary_outcomes": [
+        {
+          "measure": "Phase 2a: Proportion of Participants With Hemoglobin (Hb) Response",
+          "description": "Hb response is defined as a \u22651.5-grams per deciliter (g/dL) increase from baseline in the average Hb concentration from Week 8 through Week 16.",
+          "time_frame": "Baseline, Week 8 through Week 16"
+        },
+        {
+          "measure": "Phase 2a: Proportion of Participants With Transfusion Independence During the Core Period",
+          "description": "Transfusion Independence is defined as transfusion-free for \u22658 consecutive weeks during the Core Period (participants With Low Transfusion Burden \\[LTB\\] only).",
+          "time_frame": "Up to 16 weeks"
+        },
+        {
+          "measure": "Phase 2b: Proportion of Participants With Transfusion Independence",
+          "description": "Transfusion independence, defined as transfusion-free for \u22658 consecutive weeks (TI8) during the Core Period.",
+          "time_frame": "Up to 24 weeks"
+        }
+      ],
+      "secondary_outcomes": [
+        {
+          "measure": "Phase 2a: Proportion of Participants With Adverse Events (AEs), Serious Adverse Events (SAEs), and AEs Leading to Discontinuation During the Core Period",
+          "time_frame": "Up to 16 weeks"
+        },
+        {
+          "measure": "Phase 2a: Proportion of Participants With Laboratory Abnormalities During the Core Period",
+          "time_frame": "Up to 16 weeks"
+        },
+        {
+          "measure": "Phase 2a: Proportion of Participants With Hb 1.0+ Response",
+          "time_frame": "Baseline, Week 8 through Week 16"
+        },
+        {
+          "measure": "Phase 2a: Change From Baseline in Hb Concentration During the Core Period",
+          "time_frame": "Baseline up to 16 weeks"
+        },
+        {
+          "measure": "Phase 2a: Proportion of Participants With \u22651.5-g/dL increase From Baseline in the Hb Concentration at \u22652 Consecutive Time Points From Week 8 through Week 16",
+          "time_frame": "Baseline, Week 8 through Week 16"
+        }
+      ],
+      "drug_names": [
+        "Tebapivat"
+      ],
+      "interventions": [
+        {
+          "name": "Tebapivat",
+          "type": "DRUG",
+          "description": "Tebapivat Tablet"
+        }
+      ],
+      "arms": [
+        {
+          "label": "Core Period: Phase 2a - Tebapivat 5 mg",
+          "type": "EXPERIMENTAL",
+          "description": "Participants will receive 5 milligrams (mg) tebapivat orally, once daily for up to 16 weeks. At the discretion of the investigator, participants who complete the Core Period will be eligible to receive the same dose in Extension Period for up to 156 weeks."
+        },
+        {
+          "label": "Core Period: Phase 2b - Tebapivat 10 mg",
+          "type": "EXPERIMENTAL",
+          "description": "Participants will receive 10 mg tebapivat, orally, once daily for up to 24 weeks. At the discretion of the investigator, participants who complete the Core Period will be eligible to receive the same dose in Extension Period for up to 156 weeks."
+        },
+        {
+          "label": "Core Period: Phase 2b - Tebapivat 15 mg",
+          "type": "EXPERIMENTAL",
+          "description": "Participants will receive 15 mg tebapivat, orally, once daily for up to 24 weeks. At the discretion of the investigator, participants who complete the Core Period will be eligible to receive the same dose in Extension Period for up to 156 weeks."
+        },
+        {
+          "label": "Core Period: Phase 2b - Tebapivat 20 mg",
+          "type": "EXPERIMENTAL",
+          "description": "Participants will receive 20 mg tebapivat, orally, once daily for up to 24 weeks. At the discretion of the investigator, participants who complete the Core Period will be eligible to receive the same dose in Extension Period for up to 156 weeks."
+        }
+      ],
+      "conditions": [
+        "Myelodysplastic Syndromes"
+      ],
+      "keywords": [
+        "Anemia",
+        "Lower-Risk Myelodysplastic Syndromes"
+      ],
+      "eligibility_summary": "Inclusion Criteria:\n\nPhase 2a\n\n1. At least 18 years of age at the time of providing informed consent;\n2. Documented diagnosis of myelodysplastic syndromes (MDS) according to World Health Organization (WHO) classification (Arber et al, 2016), that meets Revised International Prognostic Scoring System (IPSS-R) classification of lower-risk disease (risk score: \u22643.5) and \\<5% blasts as determined by the participant's bone marrow biopsy/aspirate during the Screening Period;\n3. Nontransfused or with low transfusion burden (LTB), based on transfusion history from the participant's medical record, acc",
+      "min_age": "18 Years",
+      "max_age": "",
+      "brief_summary": "This purpose of this study is to establish proof of concept of tebapivat in participants with LR-MDS in Phase 2a and to evaluate the effect of tebapivat on transfusion independence (TI) in participants with LR-MDS in phase 2b.",
+      "detailed_description": "",
+      "references": [],
+      "result_pmids": [],
+      "science_flags": {
+        "design_quality": [],
+        "bearish_flags": [
+          "Open-label design (no blinding \u2014 endpoint bias risk)",
+          "NON-RANDOMIZED Phase 3 \u2014 very unusual, high failure risk",
+          "Very small N=87 for Phase 3 (underpowered?)",
+          "Surrogate endpoint \u2014 historically weak FDA track record"
+        ],
+        "bullish_flags": [],
+        "endpoint_type": "SURROGATE",
+        "is_well_powered": null,
+        "design_score": -8
+      },
+      "fetched_date": "2026-04-10"
+    }
+  },
+  "ct_NCT06634420": {
+    "fetched_date": "2026-04-10",
+    "data": {
+      "nct_id": "NCT06634420",
+      "brief_title": "HAELO: A Phase 3 Study to Evaluate NTLA-2002 in Participants With Hereditary Angioedema (HAE)",
+      "official_title": "HAELO: A Phase 3, Multinational, Randomized, Double-Blind, Placebo-Controlled Study to Evaluate the Efficacy and Safety of NTLA-2002 in Participants With Hereditary Angioedema (HAE)",
+      "primary_completion": "2026-04",
+      "allocation": "RANDOMIZED",
+      "masking": "QUADRUPLE",
+      "model": "PARALLEL",
+      "primary_purpose": "TREATMENT",
+      "has_placebo": true,
+      "has_active_comparator": true,
+      "is_open_label": false,
+      "enrollment_count": 60,
+      "enrollment_type": "ESTIMATED",
+      "n_arms": 2,
+      "primary_outcomes": [
+        {
+          "measure": "Time-normalized number of Investigator-confirmed HAE attacks",
+          "description": "",
+          "time_frame": "From Week 5 through Week 28"
+        }
+      ],
+      "secondary_outcomes": [
+        {
+          "measure": "Time-normalized number of Investigator-confirmed HAE attacks requiring on-demand treatment",
+          "time_frame": "From Week 5 through Week 28"
+        },
+        {
+          "measure": "Time-normalized number of moderate or severe Investigator-confirmed HAE attacks",
+          "time_frame": "From Week 5 through Week 28"
+        },
+        {
+          "measure": "Investigator-confirmed HAE attack-free status",
+          "time_frame": "From Week 5 through Week 28"
+        },
+        {
+          "measure": "Change from baseline to Week 28 in AE-QoL Questionnaire total score",
+          "time_frame": "From baseline to Week 28"
+        },
+        {
+          "measure": "Responder status, defined as reduction from baseline of at least 50%, 70%, and 90% in time-normalized number of Investigator-confirmed HAE attacks",
+          "time_frame": "From Week 5 through Week 28"
+        }
+      ],
+      "drug_names": [
+        "NTLA-2002",
+        "Normal Saline IV Administration"
+      ],
+      "interventions": [
+        {
+          "name": "NTLA-2002",
+          "type": "BIOLOGICAL",
+          "description": "CRISPR/Cas9 gene editing system delivered by lipid nanoparticle (LNP) for intravenous (IV) administration"
+        },
+        {
+          "name": "Normal Saline IV Administration",
+          "type": "BIOLOGICAL",
+          "description": "The administration of intravenous (IV) normal saline"
+        }
+      ],
+      "arms": [
+        {
+          "label": "Arm A: NTLA-2002",
+          "type": "ACTIVE_COMPARATOR",
+          "description": "Arm A: NTLA-2002 (50 mg; single IV infusion)"
+        },
+        {
+          "label": "Arm B: Placebo",
+          "type": "PLACEBO_COMPARATOR",
+          "description": "Arm B: Placebo (saline; single IV infusion)"
+        }
+      ],
+      "conditions": [
+        "Hereditary Angioedema"
+      ],
+      "keywords": [
+        "Hereditary Angioedema",
+        "NTLA-2002",
+        "HAE",
+        "HAE-C1INH-Type1 or -Type 2"
+      ],
+      "eligibility_summary": "Inclusion Criteria:\n\n1. Age \u226516 years\n2. Clinical history consistent with HAE-C1INH-Type 1 or -Type 2\n3. Ability to provide evidence of HAE attacks (confirmed by the Investigator) to meet the screening requirement\n4. Must agree to refrain from the use of long-term prophylactic therapies from the start of the screening period through the end of the Primary Observation Period. PI must be in agreement that it is medically acceptable for the participant to do so.\n5. Must have access to, and the ability to use, on-demand medication(s) to treat potential angioedema attacks\n6. Adequate chemistry and ",
+      "min_age": "16 Years",
+      "max_age": "",
+      "brief_summary": "This Phase 3 study aims to evaluate the efficacy and safety of NTLA-2002 compared to placebo in participants with HAE.",
+      "detailed_description": "This is a multinational, multicenter, double-blind, placebo-controlled study in which approximately 60 participants will be randomized in a 2:1 ratio to receive a single IV infusion of NTLA-2002 or placebo. After the Primary Observation Period (Week 1 through Week 28), participants will have the option to receive a blinded, single IV infusion of the opposite treatment. Following the Primary Observation Period, participants will enter the Long-Term Observation Period (76 weeks), for a total of 104 weeks. Including the Screening and Run-In Period, prior to the first blinded dosing, the total study duration is approximately 28 months.",
+      "references": [],
+      "result_pmids": [],
+      "science_flags": {
+        "design_quality": [],
+        "bearish_flags": [
+          "Very small N=60 for Phase 3 (underpowered?)"
+        ],
+        "bullish_flags": [
+          "Randomized placebo-controlled (gold standard design)"
+        ],
+        "endpoint_type": "",
+        "is_well_powered": null,
+        "design_score": 0
+      },
+      "fetched_date": "2026-04-10"
+    }
+  },
+  "ct_NCT06641076": {
+    "fetched_date": "2026-04-10",
+    "data": {
+      "nct_id": "NCT06641076",
+      "brief_title": "Evaluation of Sonelokimab in Patients With Active Psoriatic Arthritis Naive to Biologic Disease-Modifying Antirheumatic Drug",
+      "official_title": "A Phase 3, Parallel-group, Randomized, Double-blind, 3-arm, Placebo-controlled, Multicenter Study to Investigate the Efficacy and Safety of Subcutaneous Sonelokimab in Male and Female Participants Aged 18 Years and Over With Active Psoriatic Arthritis Who Are Naive to Biologic DMARDs",
+      "primary_completion": "2027-02-04",
+      "allocation": "RANDOMIZED",
+      "masking": "TRIPLE",
+      "model": "PARALLEL",
+      "primary_purpose": "TREATMENT",
+      "has_placebo": true,
+      "has_active_comparator": false,
+      "is_open_label": false,
+      "enrollment_count": 960,
+      "enrollment_type": "ESTIMATED",
+      "n_arms": 3,
+      "primary_outcomes": [
+        {
+          "measure": "Response rate of participants achieving at least a 50% improvement in the American College of Rheumatology criteria (ACR50)",
+          "description": "Proportion of participants achieving ACR50",
+          "time_frame": "Week 16"
+        }
+      ],
+      "secondary_outcomes": [
+        {
+          "measure": "Response rate of participants achieving at least 20% improvement in the American College of Rheumatology criteria (ACR20)",
+          "time_frame": "Week 16"
+        },
+        {
+          "measure": "Response rate of participants achieving Minimal Disease Activity (MDA)",
+          "time_frame": "Week 16"
+        },
+        {
+          "measure": "Health Assessment Questionnaire- Disability Index (HAQ-DI)",
+          "time_frame": "Week 16"
+        },
+        {
+          "measure": "Psoriasis Area and Severity Index (PASI90)",
+          "time_frame": "Week 16"
+        },
+        {
+          "measure": "Short- form-36 (SF-36) Physical Component Summary (PCS)",
+          "time_frame": "Week 16"
+        }
+      ],
+      "drug_names": [
+        "Sonelokimab",
+        "Placebo"
+      ],
+      "interventions": [
+        {
+          "name": "Sonelokimab",
+          "type": "DRUG",
+          "description": "Randomized treatment, parallel-group"
+        },
+        {
+          "name": "Placebo",
+          "type": "DRUG",
+          "description": "Randomized treatment, parallel-group"
+        }
+      ],
+      "arms": [
+        {
+          "label": "sonelokimab dose with an induction regimen",
+          "type": "EXPERIMENTAL",
+          "description": "Subjects randomized to this arm will receive sonelokimab subcutaneously (SC) as an induction regimen of 4 doses, followed by sonelokimab SC every 4 weeks maintenance dosing starting at Week 8."
+        },
+        {
+          "label": "sonelokimab dose without an induction regimen",
+          "type": "EXPERIMENTAL",
+          "description": "Subjects randomized to this arm will receive sonelokimab subcutaneously every 4 weeks."
+        },
+        {
+          "label": "Placebo",
+          "type": "PLACEBO_COMPARATOR",
+          "description": "Subjects randomized to this arm will receive placebo subcutaneously."
+        }
+      ],
+      "conditions": [
+        "Arthritis, Psoriatic"
+      ],
+      "keywords": [],
+      "eligibility_summary": "Inclusion Criteria:\n\n1. Participants must be \u226518 years of age .\n2. Participants have a confirmed diagnosis of psoriatic arthritis (PsA) per the 2006 Classification for Psoriatic Arthritis (CASPAR) criteria with symptoms for \u22656 months before the Screening Visit.\n3. Participants have active disease (defined by a 68 tender joint count \\[TJC68\\] of \u22653 and a 66 swollen joint count \\[SJC66\\] of \u22653).\n4. Participants have current active plaque psoriasis (PsO) or a dermatologist-confirmed history of plaque PsO.\n5. Participants test negative for both rheumatoid factor and anti-cyclic citrullinated pepti",
+      "min_age": "18 Years",
+      "max_age": "",
+      "brief_summary": "This is a study to demonstrate the clinical efficacy and safety of sonelokimab administered subcutaneously compared with placebo in the treatment of adult patients with active psoriatic arthritis who are naive to biologic disease-modifying antirheumatic drug therapy.",
+      "detailed_description": "M1095-PSA-301 is a Phase 3, multicenter, randomized, parallel-group, double-blind, 3-arm, placebo-controlled study to investigate the efficacy and safety of sonelokimab 60 mg every 4 weeks (with and without an induction regimen) versus placebo in adults with active psoriatic arthritis who are naive to biologic disease-modifying antirheumatic drug therapy.",
+      "references": [],
+      "result_pmids": [],
+      "science_flags": {
+        "design_quality": [],
+        "bearish_flags": [],
+        "bullish_flags": [
+          "Randomized placebo-controlled (gold standard design)",
+          "Large enrollment N=960 (well-powered)",
+          "Validated composite clinical endpoint (ACR/PASI/HiSCR \u2014 FDA-required standard for this indication)"
+        ],
+        "endpoint_type": "COMPOSITE",
+        "is_well_powered": null,
+        "design_score": 4
+      },
+      "fetched_date": "2026-04-10"
+    }
+  },
+  "ct_NCT04716231": {
+    "fetched_date": "2026-04-10",
+    "data": {
+      "nct_id": "NCT04716231",
+      "brief_title": "Atacicept in Subjects With IgA Nephropathy",
+      "official_title": "A Phase 2b/3, Multi-part, Randomized, Double-Blinded, Placebo-Controlled Study to Evaluate the Efficacy and Safety of Atacicept in Subjects With IgA Nephropathy (IgAN)",
+      "primary_completion": "2025-05-15",
+      "allocation": "RANDOMIZED",
+      "masking": "DOUBLE",
+      "model": "PARALLEL",
+      "primary_purpose": "TREATMENT",
+      "has_placebo": true,
+      "has_active_comparator": false,
+      "is_open_label": false,
+      "enrollment_count": 376,
+      "enrollment_type": "ESTIMATED",
+      "n_arms": 2,
+      "primary_outcomes": [
+        {
+          "measure": "Change from baseline in urine protein to creatinine ratio (UPCR)",
+          "description": "UPCR based on 24 hour urine collection",
+          "time_frame": "36 Weeks"
+        }
+      ],
+      "secondary_outcomes": [
+        {
+          "measure": "Annualized rate of change in estimated glomerular filtration rate (eGFR)",
+          "time_frame": "52 and 104 Weeks"
+        }
+      ],
+      "drug_names": [
+        "Atacicept"
+      ],
+      "interventions": [
+        {
+          "name": "Atacicept",
+          "type": "BIOLOGICAL",
+          "description": "Once weekly subcutaneous (SC) injections by prefilled syringe"
+        },
+        {
+          "name": "Placebo to match Atacicept",
+          "type": "OTHER",
+          "description": "Once weekly subcutaneous (SC) injections by prefilled syringe"
+        }
+      ],
+      "arms": [
+        {
+          "label": "Atacicept Dose 150mg",
+          "type": "EXPERIMENTAL",
+          "description": "Atacicept 150mg once weekly subcutaneous (SC) injections"
+        },
+        {
+          "label": "Placebo to match Atacicept (Part C/D)",
+          "type": "PLACEBO_COMPARATOR",
+          "description": "Placebo to match Atacicept once weekly subcutaneous (SC) injection"
+        }
+      ],
+      "conditions": [
+        "IgA Nephropathy",
+        "Berger Disease"
+      ],
+      "keywords": [
+        "Berger Disease",
+        "Berger's Disease",
+        "IGA Glomerulonephritis",
+        "IGA Nephropathy",
+        "Iga Nephropathy 1",
+        "Immunoglobulin A Nephropathy Nephritis",
+        "IGA Type Nephropathy, IGA"
+      ],
+      "eligibility_summary": "Key Inclusion Criteria:\n\n* Must have the ability to understand and sign a written informed consent form\n* Male or female of \u226518 years of age\n* Total urine protein excretion \u22651.0 g per 24-hour or urine protein to creatinine ratio (UPCR) \u22651.0 mg/mg based on a 24-hour urine sample during the Screening Period\n* Diagnosis of IgAN as demonstrated by renal biopsy conducted within 10 years\n* eGFR \u2265 30 mL/min/1.73 m2, as per the Chronic Kidney Disease Epidemiology Collaboration (CKD-EPI) equation.\n* On a stable prescribed regimen of RAASi for at least 12 weeks that is at the maximum labeled or tolerate",
+      "min_age": "18 Years",
+      "max_age": "",
+      "brief_summary": "A Phase 3 Study with Atacicept in Subjects With IgA Nephropathy (ORIGIN 3)",
+      "detailed_description": "This is a multi-part study comprising of the original Phase 2b study and the addition of a separate pivotal Phase 3 study.\n\nAfter the completion of the primary results for the Ph 2b dose ranging study, the pivotal study will evaluate the efficacy and safety of atacicept compared to placebo in reducing proteinuria in subjects with IgAN and persistent proteinuria despite being on a maximally tolerated dose (MTD) of a RASi. Safety, eGFR, serum immunoglobulins and Gd-IgA1 will also be clinically assessed. The clinical study is comprised of a 104wk double-blind treatment period, followed by a 52wk open-label treatment period and a 26wk safety follow-up period. The UPCR primary endpoint will be assessed after the first 200 patients are randomized.",
+      "references": [
+        {
+          "type": "DERIVED",
+          "citation": "Barratt J, Chen K, Lafayette R. A plain language summary: long-term safety and effectiveness of atacicept in individuals with IgA nephropathy. Curr Med Res Opin. 2025 Dec;41(12):2287-2301. doi: 10.108",
+          "pmid": "41620980"
+        },
+        {
+          "type": "DERIVED",
+          "citation": "Lafayette R, Barbour SJ, Brenner RM, Campbell KN, Doan T, Eren N, Floege J, Jha V, Kim BS, Liew A, Maes B, Pal A, Pecoits-Filho R, Phoon RKS, Rizk DV, Suzuki H, Tesar V, Trimarchi H, Wei X, Zhang H, B",
+          "pmid": "41196369"
+        },
+        {
+          "type": "DERIVED",
+          "citation": "Barratt J, Barbour SJ, Brenner RM, Cooper K, Wei X, Eren N, Floege J, Jha V, Kim SG, Maes B, Phoon RKS, Singh H, Tesar V, Lafayette R; ORIGIN Phase 2b Investigators. Long-Term Results from an Open-Lab",
+          "pmid": "39462308"
+        }
+      ],
+      "result_pmids": [],
+      "science_flags": {
+        "design_quality": [],
+        "bearish_flags": [],
+        "bullish_flags": [
+          "Randomized placebo-controlled (gold standard design)"
+        ],
+        "endpoint_type": "",
+        "is_well_powered": null,
+        "design_score": 2
+      },
+      "fetched_date": "2026-04-10"
+    }
+  },
+  "ct_NCT04462770": {
+    "fetched_date": "2026-04-10",
+    "data": {
+      "nct_id": "NCT04462770",
+      "brief_title": "A Study of EPX-100 (Clemizole Hydrochloride) in Participants With Dravet Syndrome",
+      "official_title": "A 20-Week Multicenter, Randomized, Double-Blind, Placebo-Controlled Trial of EPX-100 (Clemizole Hydrochloride) as Adjunctive Therapy in Children and Adult Participants With Dravet Syndrome (ARGUS Trial)",
+      "primary_completion": "2026-04-01",
+      "allocation": "RANDOMIZED",
+      "masking": "TRIPLE",
+      "model": "PARALLEL",
+      "primary_purpose": "TREATMENT",
+      "has_placebo": true,
+      "has_active_comparator": false,
+      "is_open_label": false,
+      "enrollment_count": 150,
+      "enrollment_type": "ESTIMATED",
+      "n_arms": 3,
+      "primary_outcomes": [
+        {
+          "measure": "Percent Change in Countable Motor Seizures Per 28 Days (CMS-28) in the Titration Plus Maintenance Periods Relative to Baseline",
+          "description": "Percent change in CMS-28 from the Baseline Period through the end of the DB period.",
+          "time_frame": "From Baseline Period (Day 1) up to 16 weeks"
+        },
+        {
+          "measure": "European Union: Percent Change in Countable Motor Seizures Per 28 Days in the Maintenance Period Relative to Baseline",
+          "description": "Percent change in CMS-28 from the Baseline Period through the end of the maintenance period.",
+          "time_frame": "From maintenance period Baseline (Day 29) up to Day 85"
+        }
+      ],
+      "secondary_outcomes": [
+        {
+          "measure": "Proportion of Participants with >=50% reduction in Countable Motor Seizures Per 28 Days in the Titration Plus Maintenance Periods Relative to Baseline",
+          "time_frame": "From Baseline Period (Day 1) up to 16 weeks"
+        },
+        {
+          "measure": "European Union: Proportion of Participants with >=50% reduction in Countable Motor Seizures Per 28 Days in the Maintenance Period Relative to Baseline",
+          "time_frame": "From maintenance period Baseline (Day 29) up to Day 85"
+        },
+        {
+          "measure": "Number of Countable Motor Seizure-free Days in the Titration Plus Maintenance Periods Relative to Baseline",
+          "time_frame": "From Baseline Period (Day 1) up to 16 weeks"
+        },
+        {
+          "measure": "European Union: Number of Countable Motor Seizure-free Days in the Maintenance Period Relative to Baseline",
+          "time_frame": "From maintenance period Baseline (Day 29) up to Day 85"
+        },
+        {
+          "measure": "Clinical Global Impression of Improvement - Clinician (CGII-C) Score",
+          "time_frame": "Day 85"
+        }
+      ],
+      "drug_names": [
+        "Clemizole HCl",
+        "Placebo"
+      ],
+      "interventions": [
+        {
+          "name": "Clemizole HCl",
+          "type": "DRUG",
+          "description": "Clemizole HCl will be administered as an oral solution."
+        },
+        {
+          "name": "Placebo",
+          "type": "DRUG",
+          "description": "Placebo will be administered as an oral solution."
+        }
+      ],
+      "arms": [
+        {
+          "label": "Double-blind clemizole HCl",
+          "type": "EXPERIMENTAL",
+          "description": "Participants will receive their first dose of study drug following randomization."
+        },
+        {
+          "label": "Placebo",
+          "type": "PLACEBO_COMPARATOR",
+          "description": "Participants will receive their first dose of study drug following randomization."
+        },
+        {
+          "label": "Open-label clemizole HCl",
+          "type": "EXPERIMENTAL",
+          "description": "Eligible participants who complete the DB Period will have the option to continue in the OLE Period, during which they will receive clemizole HCL for up to 3 years."
+        }
+      ],
+      "conditions": [
+        "Dravet Syndrome"
+      ],
+      "keywords": [
+        "Clemizole hydrochloride",
+        "Convulsive seizure",
+        "Pediatric epilepsy",
+        "Dravet syndrome"
+      ],
+      "eligibility_summary": "Key Inclusion Criteria:\n\n1. Male and female participants 2 years and older at time of consent.\n2. Participant or parent/legally authorized representative (LAR) willing and able to provide written informed consent, assent (if applicable) prior to initiation of any study related procedures.\n3. Clinical diagnosis of DS. Participants must have seizures which are not completely controlled by AEDs with the following criteria:\n\n   * Onset of seizures prior to 18 months of age,\n   * Normal development at onset,\n   * History of at least one type of countable motor seizure (CMS),\n   * Brain MRI without ",
+      "min_age": "2 Years",
+      "max_age": "",
+      "brief_summary": "This is a multicenter, Phase 3, randomized, double-blind, placebo-controlled study designed to evaluate the efficacy and safety of clemizole hydrochloride (EPX-100) as adjunctive therapy in children and adult participants with Dravet syndrome (DS).",
+      "detailed_description": "This is a global, multicenter, randomized, double-blind, placebo-controlled study to evaluate the safety and efficacy of clemizole hydrochloride as adjunctive therapy in children and adult participants with DS. The study consists of a 4-week Observational Period, a 16-week Double-Blind (DB) Period and an Open-Label Extension (OLE) Period for up to 156 weeks.",
+      "references": [],
+      "result_pmids": [],
+      "science_flags": {
+        "design_quality": [],
+        "bearish_flags": [],
+        "bullish_flags": [
+          "Randomized placebo-controlled (gold standard design)"
+        ],
+        "endpoint_type": "",
+        "is_well_powered": null,
+        "design_score": 2
+      },
+      "fetched_date": "2026-04-10"
+    }
+  },
+  "ct_NCT04098666": {
+    "fetched_date": "2026-04-10",
+    "data": {
+      "nct_id": "NCT04098666",
+      "brief_title": "Metformin in Alzheimer's Dementia Prevention",
+      "official_title": "Metformin in Alzheimer's Dementia Prevention",
+      "primary_completion": "2026-04-30",
+      "allocation": "RANDOMIZED",
+      "masking": "QUADRUPLE",
+      "model": "PARALLEL",
+      "primary_purpose": "PREVENTION",
+      "has_placebo": true,
+      "has_active_comparator": false,
+      "is_open_label": false,
+      "enrollment_count": 326,
+      "enrollment_type": "ACTUAL",
+      "n_arms": 2,
+      "primary_outcomes": [
+        {
+          "measure": "Free and Cued Selective Reminding Test (FCSRT)",
+          "description": "Total recall of the FCSRT",
+          "time_frame": "18 months"
+        }
+      ],
+      "secondary_outcomes": [
+        {
+          "measure": "Alzheimer's Disease Cooperative Study Preclinical Alzheimer's Cognitive Composite (PACC-ADCS)",
+          "time_frame": "18 months"
+        },
+        {
+          "measure": "APOE-\u03b54 genotype",
+          "time_frame": "18 months"
+        },
+        {
+          "measure": "White matter hyper intensity volume (WMH)",
+          "time_frame": "18 months"
+        },
+        {
+          "measure": "Brain amyloid",
+          "time_frame": "18 months"
+        },
+        {
+          "measure": "Brain Tau",
+          "time_frame": "18 months"
+        }
+      ],
+      "drug_names": [
+        "Placebo oral tablet",
+        "extended release metformin"
+      ],
+      "interventions": [
+        {
+          "name": "Placebo oral tablet",
+          "type": "DRUG",
+          "description": "Placebo tablet identical to metformin, up to 4 tablets a day"
+        },
+        {
+          "name": "extended release metformin",
+          "type": "DRUG",
+          "description": "Metformin extended release 500 mg tablets, up to 4 tablets a day"
+        }
+      ],
+      "arms": [
+        {
+          "label": "metformin users",
+          "type": "EXPERIMENTAL",
+          "description": "Extended release metformin 500 mg tablets up to 2,000 mg (4 tablets) a day once at night. The maximum dose will be attempted during a titration period in the first month of the study."
+        },
+        {
+          "label": "metformin non-users",
+          "type": "PLACEBO_COMPARATOR",
+          "description": "Placebo tablets identical to extended release metformin 500 mg tablets up to 4 tablets a day once at night. The maximum dose will be attempted during a titration period in the first month of the study."
+        }
+      ],
+      "conditions": [
+        "Mild Cognitive Impairment"
+      ],
+      "keywords": [],
+      "eligibility_summary": "Inclusion Criteria:\n\nDiagnosis of aMCI: in general, the diagnosis of aMCI follows the definition in the 2011 National Institute on Aging (NIA)/ Alzheimer's association (AA) guidelines, without biomarkers. Participants must have:\n\n* Subjective memory concerns reported by participant, study partner, or clinician.\n* A mini-mental state exam between \u2265 22 for subjects with more than 8 years of education. For subjects with less than 8 years of education, a MMSE \u2265 20 will be allowed.\n* Clinical Dementia Rating = 0.5. The memory box score must be at least 0.5. Information from the formal University of",
+      "min_age": "55 Years",
+      "max_age": "90 Years",
+      "brief_summary": "MAP will be a multisite phase II/III 1:1 randomized controlled trial (RCT) of long acting metformin (reduced mass Glucophage XR) vs. matching placebo in 326 men and women with early and late aMCI, without diabetes, not treated with metformin, overweight or obese, aged 55 years to 90 years. The RCT will last 18 months and have 4 visits: baseline, 6-months, 12-months, and 18-months. The RCT will be preceded by a screening phase followed by randomization and a titration period in which drug/placebo will be titrated from 500 mg a day (one tablet) to 2,000 mg a day (4 tablets), in increments of 500 mg (one tablet) every 10 days. Participants will remain in the RCT on the tolerated dose, and included in analyses on an intent to treat basis. We expect the attrition rate to be 10%/year. Neuropsych",
+      "detailed_description": "STUDY PROCEDURES AT THE LEVEL OF THE PARTICIPANT.\n\n1. Screening. We propose a 2-tier approach for screening, including telephone pre-screening followed by in-person screening. Telephone screening includes questions about inclusion and exclusion criteria including demographics (age, language), medical history, contraindications to metformin, and medications. In-person screening includes consent, in-person anthropometric measurements (height, weight, waist and hip circumference), vital signs (blood pressure and heart rate), EKG, laboratory tests (TSH, RPR, vitamin B12, complete blood count \\[CBC\\], basic metabolic panel \\[BMP\\], Hepatic panel, Lipid panel, and Hemoglobin A1c \\[HbA1c\\]), and the in person-neuropsychological battery that is used to determine aMCI.\n2. Baseline/screening study visit. History includes age, handedness, education, occupation and employment history, past medical history, and all medications utilized, including a judgment as to whether they affect cognition (positively or negatively). Referral source is also documented. Psychiatric history, current and past history of depression, current anxiety, alcohol and other substance use, head injury, hypertension, car",
+      "references": [
+        {
+          "type": "DERIVED",
+          "citation": "Kim AB, Arvanitakis Z. Insulin resistance, cognition, and Alzheimer disease. Obesity (Silver Spring). 2023 Jun;31(6):1486-1498. doi: 10.1002/oby.23761.",
+          "pmid": "37203336"
+        }
+      ],
+      "result_pmids": [],
+      "science_flags": {
+        "design_quality": [],
+        "bearish_flags": [],
+        "bullish_flags": [
+          "Randomized placebo-controlled (gold standard design)"
+        ],
+        "endpoint_type": "",
+        "is_well_powered": null,
+        "design_score": 2
+      },
+      "fetched_date": "2026-04-10"
+    }
+  },
+  "ct_NCT04255849": {
+    "fetched_date": "2026-04-10",
+    "data": {
+      "nct_id": "NCT04255849",
+      "brief_title": "Nine-valent HPV Vaccine to Prevent Persistent Oral HPV Infection in Men Living With HIV",
+      "official_title": "Nine-valent HPV Vaccine to Prevent Persistent Oral HPV Infection in Men Living With HIV",
+      "primary_completion": "2026-05-01",
+      "allocation": "RANDOMIZED",
+      "masking": "QUADRUPLE",
+      "model": "PARALLEL",
+      "primary_purpose": "PREVENTION",
+      "has_placebo": true,
+      "has_active_comparator": false,
+      "is_open_label": false,
+      "enrollment_count": 700,
+      "enrollment_type": "ESTIMATED",
+      "n_arms": 2,
+      "primary_outcomes": [
+        {
+          "measure": "Number of participants with new persistent oral HPV infections with one or more of the following types: 6, 11, 16, 18, 31, 33, 45, 52, or 58",
+          "description": "The primary endpoint is incident persistent oral HPV infection with HPV types 6, 11, 16, 18, 31, 33, 45, 52, or 58 occurring among participants who remain oral HPV negative to the relevant HPV type through the vaccination period (Day 1-Month 6). Newly acquired oral HPV infections that persist for two or more consecutive oral HPV assessments at least 16 weeks apart with the same 9vHPV detected are ",
+          "time_frame": "From Month 7 up to Month 60"
+        }
+      ],
+      "secondary_outcomes": [
+        {
+          "measure": "Immunogenicity of 9-valent HPV vaccine as measured by proportion of participants experiencing seroconversion for vaccine type.",
+          "time_frame": "Month 7"
+        },
+        {
+          "measure": "Safety and tolerability of 9-valent HPV vaccine as measured by proportion of participants with >= grade 3 adverse events related to study vaccination or Grade 1 or 2 events leading to premature discontinuation of vaccination, or serious adverse events.",
+          "time_frame": "Baseline through Month 7"
+        }
+      ],
+      "drug_names": [
+        "9 valent human papillomavirus vaccine (Types 6, 11, 16, 18, 31, 33, 45, 52, 58)"
+      ],
+      "interventions": [
+        {
+          "name": "9 valent human papillomavirus vaccine (Types 6, 11, 16, 18, 31, 33, 45, 52, 58)",
+          "type": "BIOLOGICAL",
+          "description": "Gardasil-9 HPV vaccine"
+        },
+        {
+          "name": "Saline Placebo",
+          "type": "OTHER",
+          "description": "Saline Placebo"
+        }
+      ],
+      "arms": [
+        {
+          "label": "9-valent HPV vaccine",
+          "type": "EXPERIMENTAL",
+          "description": "Participants receive 9-valent HPV vaccine 0.5mL at entry, Month 2 and Month 6"
+        },
+        {
+          "label": "Saline Placebo",
+          "type": "PLACEBO_COMPARATOR",
+          "description": "Participants receive 0.9% NaCl 0.5 mL at entry, Month 2 and Month 6"
+        }
+      ],
+      "conditions": [
+        "HPV Positive Oropharyngeal Squamous Cell Carcinoma",
+        "HIV-1-infection",
+        "HPV Infection"
+      ],
+      "keywords": [],
+      "eligibility_summary": "Inclusion Criteria:\n\n* HIV-1 infection\n* Receipt of antiretroviral therapy for at least 6 months\n* Sexually active in the past 6 months; sexual activity is defined as insertive penile-vaginal sex, receptive or insertive penile-anal sex, oral-anal sex, or oral-genital sex Willingness to comply with three-dose vaccine schedule and subsequent six-month visits for up to four years after randomization.\n\nExclusion Criteria:\n\n* Have a history of oropharyngeal cancer (OPC) or other HPV-related cancer or have suspected OPC or other HPV-related cancer;\n* Have received any doses of a licensed or experime",
+      "min_age": "20 Years",
+      "max_age": "50 Years",
+      "brief_summary": "This is a randomized, double-blinded, placebo-controlled Phase III interventional trial of the nine-valent HPV vaccine (9vHPV) to prevent persistent oral HPV infection in adult men living with HIV.",
+      "detailed_description": "Men ages 20-50 years living with HIV will be enrolled at affiliated clinical sites of the University of Puerto Rico, the National Institute of Public Health, Mexico, and University of S\u00e3o Paulo, Brazil. Participants will have a baseline blood draw for serum HPV antibodies and stored plasma, an oral rinse for HPV testing, HPV methylation, and EBV co-infection, stored anal and genital samples for HPV testing, as well as a baseline questionnaire about risk factors for oral HPV infection and oropharyngeal cancer.\n\nSeven hundred participants will be randomized in a 1:1 allocation to receive 9vHPV or placebo at Day 1, Month 2, and Month 6. Randomization will be stratified based on clinical site and age (20-30, 31-40, 41- 50 years). The age range of enrolled participants will be monitored to ensure enrollment of an approximately even distribution of participants across the age range. Enrollment will take place during the first 28 months of this study.\n\nFollow-up testing for oral HPV will be conducted at Months 2, 6, 7, 12 and every 6 months thereafter up to 54 months post-vaccination. The rationale for oral testing at Months 2 and 6 is to identify participants who are oral HPV positive pr",
+      "references": [
+        {
+          "type": "DERIVED",
+          "citation": "Giuliano AR, Beltrame A, Villa LL, Lazcano-Ponce E, Santana-Bagur J, Allen-Leigh B, Portillo-Romero AJ, Sahasrabuddhe VV, House MG, Brofsky E, Galan de Paula L, Carvalho da Silva R, Schell MJ, Rathwel",
+          "pmid": "40609265"
+        }
+      ],
+      "result_pmids": [],
+      "science_flags": {
+        "design_quality": [],
+        "bearish_flags": [],
+        "bullish_flags": [
+          "Randomized placebo-controlled (gold standard design)",
+          "Large enrollment N=700 (well-powered)"
+        ],
+        "endpoint_type": "",
+        "is_well_powered": null,
+        "design_score": 3
+      },
+      "fetched_date": "2026-04-10"
+    }
+  }
+}

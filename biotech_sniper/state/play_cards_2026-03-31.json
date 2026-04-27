@@ -1,0 +1,42 @@
+{
+  "IDYA": {
+    "why_line": "DB lock 1H April, PFS webcast May. 96% Warpspeed P(success). $3.50 calls targeting 2.4x. Data drops in ~10 days.",
+    "edge_line": "IR page added 'webcast May 2026' post-March-22 shift. Ph1/2 showed ~3x PFS gain. Endpoint is PFS — OS (coin flip) is not scored."
+  },
+  "TVTX": {
+    "why_line": "PDUFA April 13 — 13 days out. FILSPARI already approved for IgAN; sNDA just expands label to FSGS. 77% P(success), 2.4x target.",
+    "edge_line": "Jan Major Amendment = data review only, not safety/mfg. DUPLEX showed strong proteinuria reduction. OI=8,438 = institutional conviction."
+  },
+  "RGNX": {
+    "why_line": "Phase 3 AFFINITY DUCHENNE readout April-May. 68% P(success), 2.3x on $1k. Jul-17 gives 15+ days buffer past expected window.",
+    "edge_line": "Primary endpoint is biomarker expression >=10% — NOT NSAA score. Far lower bar than typical DMD trials. 65 patients enrolled."
+  },
+  "AXSM": {
+    "why_line": "PDUFA April 30 — 30 days. Priority Review + Breakthrough Therapy for AXS-05 Alzheimer's agitation. 85% P(success), 2.9x on $680.",
+    "edge_line": "Same drug as AUVELITY (approved) — safety/mfg cleared. BTD + Priority Review = FDA sees value. Market underprices dual designation together."
+  },
+  "ARGX": {
+    "why_line": "PDUFA May 10 — 40 days. argenx 100% FDA approval rate on all prior sNDAs. $750/$800 call spread targets 4.4x on $1.3k.",
+    "edge_line": "Expansion #4: efgartigimod approved seropositive gMG, ITP, CIDP. Same drug, same mechanism. FDA has never rejected an argenx sNDA."
+  },
+  "RVMD": {
+    "why_line": "RASolute 302 OS data May-June. Stock +144% since entry, strike updated to $125 (35% OTM). 1 contract only — OI=59, thin liquidity.",
+    "edge_line": "Enrollment complete Q1 2026 — PDAC median OS ~12mo, events accumulate fast. Options market hasn't repriced to reflect stock's new level."
+  },
+  "AGIO": {
+    "why_line": "Warpspeed: 6% success vs. street's 50/50. 7 Aug-21 $17.5P at $945. Trial fails = stock -55%, puts pay 3.6x.",
+    "edge_line": "Trial powered for 40% TI rate; Ph2 showed ~20%. 8-week TI endpoint unrealistic for LR-MDS. Endpoint design mismatch = near-certain fail."
+  },
+  "NTLA": {
+    "why_line": "Only Phase 3 in vivo CRISPR globally. HAELO topline 1H 2026, BLA 2H 2026. 82% P(success), 3.5x on $875. RMAT designated.",
+    "edge_line": "Ph1/2 NEJM: 95% HAE attack reduction. Endpoint is attack rate wks 5-28, 60pts, crossover allowed. RMAT = FDA already on expedited path."
+  },
+  "VRDN": {
+    "why_line": "Stock near cash after 35% crash on hearing signal. REVEAL-2 (chronic TED) on track Q2 2026. 80% P(success), 2.9x. $875M cash.",
+    "edge_line": "Hearing signal was in ACTIVE TED — REVEAL-2 is CHRONIC TED, different exposure. Street sold both. Veligrotug PDUFA June 30 = free catalyst."
+  },
+  "LPCN": {
+    "why_line": "LPCN 1154 PPD readout Q2 2026. 62% P(success). 131 equity shares at $993. Win = +80% to ~$13.60. No options market.",
+    "edge_line": "No options = no IV or hedge pressure. FDA pathway set post-ZULRESSO/ZURZUVAE. Thin coverage = price discovery gap not yet competed away."
+  }
+}

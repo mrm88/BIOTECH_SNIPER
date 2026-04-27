@@ -1,0 +1,292 @@
+{
+  "awards": [
+    {
+      "ticker": "AJRD",
+      "company": "AEROJET ROCKETDYNE OF DE, INC",
+      "amount": 3184518882.49,
+      "agency": "National Aeronautics and Space Administration",
+      "sub_agency": "National Aeronautics and Space Administration",
+      "description": "IGF::CT::IGF  RS-25 PRODUCTION RESTART TO BE UNDERTAKEN BY THE CONTRACTOR IN SUPPORT OF PROVIDING SIX RS-25 ENGINES MODIFIED AS NECESSARY FOR THE TECHNICAL REQUIREMENTS UNDER THE SPACE LAUNCH SYSTEM, ",
+      "award_id": "NNM16AA02C"
+    },
+    {
+      "ticker": "LDOS",
+      "company": "LEIDOS, INC.",
+      "amount": 3080759041.82,
+      "agency": "National Science Foundation",
+      "sub_agency": "National Science Foundation",
+      "description": "SCIENCE OPERATION AND MAINTENANCE SUPPORT FOR THE UNITED STATES ANTARCTIC PROGRAM",
+      "award_id": "NSFDACS1219442"
+    },
+    {
+      "ticker": "BAH",
+      "company": "BOOZ ALLEN HAMILTON INC",
+      "amount": 1076134719.27,
+      "agency": "General Services Administration",
+      "sub_agency": "Federal Acquisition Service",
+      "description": "TASK ORDER AWARD",
+      "award_id": "47QFCA22F0047"
+    },
+    {
+      "ticker": "LDOS",
+      "company": "LEIDOS, INC.",
+      "amount": 1062905628.31,
+      "agency": "Social Security Administration",
+      "sub_agency": "Social Security Administration",
+      "description": "ITSSC TASK ORDER FOR SYSTEMS",
+      "award_id": "28321322FDS030130"
+    },
+    {
+      "ticker": "LDOS",
+      "company": "LEIDOS, INC.",
+      "amount": 1013331269.0,
+      "agency": "General Services Administration",
+      "sub_agency": "Federal Acquisition Service",
+      "description": "MILITARY AND FAMILY LIFE COUNSELING. REQUIREMENT FOR WORLDWIDE NON MEDICAL CONFIDENTIAL COUNSELING SERVICES.",
+      "award_id": "47QFCA21C0002"
+    },
+    {
+      "ticker": "LDOS",
+      "company": "LEIDOS, INC.",
+      "amount": 978791366.0,
+      "agency": "Department of Energy",
+      "sub_agency": "Department of Energy",
+      "description": "RESEARCH SUPPORT SERVICES (RSS)",
+      "award_id": "89243318CFE000003"
+    },
+    {
+      "ticker": "BAH",
+      "company": "BOOZ ALLEN HAMILTON INC",
+      "amount": 859686306.3,
+      "agency": "Department of Veterans Affairs",
+      "sub_agency": "Department of Veterans Affairs",
+      "description": "NEW TO - EHRM PMO IO SUPPORT",
+      "award_id": "36C10B22N10070023"
+    },
+    {
+      "ticker": "LDOS",
+      "company": "LEIDOS, INC.",
+      "amount": 836206832.91,
+      "agency": "Department of Transportation",
+      "sub_agency": "Federal Aviation Administration",
+      "description": "THE PURPOSE OF THIS CONTRACT IS TO ENHANCE AND MAINTAIN THE EN ROUTE AUTOMATION AND MODERNIZATION (ERAM), INCLUDING THE EN ROUTE INFORMATION DISPLAY SYSTEM (ERIDS), AND TO PRODUCE, IMPLEMENT, AND PROV",
+      "award_id": "693KA721C00014"
+    },
+    {
+      "ticker": "LHX",
+      "company": "L3HARRIS TECHNOLOGIES, INC.",
+      "amount": 814435946.0,
+      "agency": "National Aeronautics and Space Administration",
+      "sub_agency": "National Aeronautics and Space Administration",
+      "description": "ENGINEERING SERVICES AND DEVELOPMENT LEADING TO THE DELIVERY OF THE CROSS TRACK INFRARED SOUNDER (CRIS) INSTRUMENT AND SUPPORT.",
+      "award_id": "NNG10XA06C"
+    },
+    {
+      "ticker": "LDOS",
+      "company": "LEIDOS, INC.",
+      "amount": 791730604.06,
+      "agency": "General Services Administration",
+      "sub_agency": "Federal Acquisition Service",
+      "description": "THE PURPOSE OF THIS TO IS TO PROVIDE RESEARCH, DESIGN, DEVELOPMENT, INTEGRATION, T&E, INITIAL FIELDING AND OPERATION, LOGISTICS, MAINTENANCE, SUSTAINMENT, AND TRAINING FOR APPLICABLE C5ISR SYSTEMS.",
+      "award_id": "47QFCA22F0051"
+    },
+    {
+      "ticker": "LDOS",
+      "company": "LEIDOS, INC.",
+      "amount": 662944604.17,
+      "agency": "Department of Transportation",
+      "sub_agency": "Federal Aviation Administration",
+      "description": "ADVANCED TECHNOLOGIES AND OCEANIC PROCEDURES (ATOP)",
+      "award_id": "DTFA0101CA0065CALL0001"
+    },
+    {
+      "ticker": "BAH",
+      "company": "BOOZ ALLEN HAMILTON INC",
+      "amount": 661393964.17,
+      "agency": "Department of Veterans Affairs",
+      "sub_agency": "Department of Veterans Affairs",
+      "description": "THE CONTRACTOR SHALL PROVIDE SHIPPABLE PRODUCTS, OPERATIONS SUPPORT, AND SECURITY COMPLIANCE FOR THE HEALTH SERVICES PORTFOLIO.",
+      "award_id": "36C10B21N10150057"
+    },
+    {
+      "ticker": "LHX",
+      "company": "L3HARRIS TECHNOLOGIES, INC.",
+      "amount": 327818619.5,
+      "agency": "Department of Transportation",
+      "sub_agency": "Federal Aviation Administration",
+      "description": "VOICE SWITCHING AND CONTROL SYSTEMS (VSCS)",
+      "award_id": "DTFAWA07C00014CALL0001"
+    },
+    {
+      "ticker": "AJRD",
+      "company": "AEROJET ROCKETDYNE, INC.",
+      "amount": 230228991.82,
+      "agency": "National Aeronautics and Space Administration",
+      "sub_agency": "National Aeronautics and Space Administration",
+      "description": "IGF::OT::IGF NASA, THROUGH THE SPACE TECHNOLOGY MISSION DIRECTORATE (STMD,) SEEKS TO DEMONSTRATE AN ADVANCED SOLAR ELECTRIC PROPULSION (EP) SYSTEM THAT WILL ENABLE FUTURE DEEP SPACE HUMAN AND ROBOTIC ",
+      "award_id": "NNC16CA21C"
+    },
+    {
+      "ticker": "PLTR",
+      "company": "PALANTIR TECHNOLOGIES INC.",
+      "amount": 145008922.61,
+      "agency": "Department of Homeland Security",
+      "sub_agency": "U.S. Immigration and Customs Enforcement",
+      "description": "INVESTIGATIVE CASE MANAGEMENT (ICM) OPERATIONS AND MAINTENANCE (O&M) SUPPORT SERVICES AND CUSTOM ENHANCEMENTS",
+      "award_id": "70CTD022FR0000170"
+    },
+    {
+      "ticker": "LHX",
+      "company": "L3HARRIS TECHNOLOGIES, INC.",
+      "amount": 118390696.11,
+      "agency": "Department of Transportation",
+      "sub_agency": "Federal Aviation Administration",
+      "description": "OPERATIONAL AND SUPPORTABILITY IMPLEMENTATION SYSTEM (OASIS) II  IGF::OT::IGF",
+      "award_id": "DTFAWA15C00006"
+    },
+    {
+      "ticker": "LUNR",
+      "company": "INTUITIVE MACHINES, LLC",
+      "amount": 88031400.0,
+      "agency": "National Aeronautics and Space Administration",
+      "sub_agency": "National Aeronautics and Space Administration",
+      "description": "COMMERCIAL LUNAR PAYLOAD SERVICES (CLPS)",
+      "award_id": "80JSC024F0079"
+    },
+    {
+      "ticker": "LUNR",
+      "company": "INTUITIVE MACHINES, LLC",
+      "amount": 46831892.0,
+      "agency": "National Aeronautics and Space Administration",
+      "sub_agency": "National Aeronautics and Space Administration",
+      "description": "CLPS TASK ORDER CT-4 PAYLOADS AND RESEARCH INVESTIGATIONS ON THE SURFACE OF THE MOON.",
+      "award_id": "80JSC026F7009"
+    },
+    {
+      "ticker": "RKLB",
+      "company": "ROCKET LAB USA INC",
+      "amount": 32322522.0,
+      "agency": "National Aeronautics and Space Administration",
+      "sub_agency": "National Aeronautics and Space Administration",
+      "description": "VENTURE-CLASS ACQUISITION OF DEDICATED AND RIDESHARE (VADR) UMBRELLA TASK ORDER",
+      "award_id": "80KSC023FA107"
+    },
+    {
+      "ticker": "PLTR",
+      "company": "PALANTIR TECHNOLOGIES INC.",
+      "amount": 30283057.21,
+      "agency": "Department of Veterans Affairs",
+      "sub_agency": "Department of Veterans Affairs",
+      "description": "NATIONAL CENTER FOR VETERANS ANALYSIS AND STATISTICS PLATFORM",
+      "award_id": "36C10B25F0313"
+    },
+    {
+      "ticker": "PLTR",
+      "company": "PALANTIR TECHNOLOGIES INC.",
+      "amount": 18653251.8,
+      "agency": "Department of Homeland Security",
+      "sub_agency": "U.S. Secret Service",
+      "description": "DATA MODELING",
+      "award_id": "70US0926F2GSA2328"
+    },
+    {
+      "ticker": "LHX",
+      "company": "L3HARRIS TECHNOLOGIES, INC.",
+      "amount": 15640737.0,
+      "agency": "Department of the Interior",
+      "sub_agency": "Departmental Offices",
+      "description": "RADIO FREQUENCY INTERFERENCE MONITORING SYSTEM OPERATIONS SUSTAINMENT AND MAINTENANCE",
+      "award_id": "140D0423C0084"
+    },
+    {
+      "ticker": "PLTR",
+      "company": "I3 FEDERAL LLC",
+      "amount": 9982560.0,
+      "agency": "Department of Health and Human Services",
+      "sub_agency": "Office of the Assistant Secretary for Administration",
+      "description": "HEALTH AND HUMAN SERVICES ? OFFICE OF THE CHIEF INFORMATION OFFICER (HHS-OCIO) COVID-19 PALANTIR HHS CARES LICENSE ACCESS TO SECURE DATA ECOSYSTEM.",
+      "award_id": "75P00121F80081"
+    },
+    {
+      "ticker": "PLTR",
+      "company": "THUNDERCAT TECHNOLOGY, LLC",
+      "amount": 6864075.03,
+      "agency": "Department of Commerce",
+      "sub_agency": "Office of the Secretary",
+      "description": "BIS PALANTIR DATA ANALYTICS PAAS SOLUTION (REFERENCE ORIGINAL PR 134410-24-0007)",
+      "award_id": "1331L525F0002"
+    },
+    {
+      "ticker": "PLTR",
+      "company": "PALANTIR USG INC",
+      "amount": 6007219.8,
+      "agency": "Department of State",
+      "sub_agency": "Department of State",
+      "description": "PALANTIR PROJECT - GCFS STATEINSIGHT",
+      "award_id": "19AQMM25F7364"
+    },
+    {
+      "ticker": "PLTR",
+      "company": "PALANTIR TECHNOLOGIES INC.",
+      "amount": 5348133.03,
+      "agency": "Department of Transportation",
+      "sub_agency": "Federal Aviation Administration",
+      "description": "G07A02.01. ASIAS. FY23 F&E FUNDS TO APPLY FOR THE NEW TASK ORDER #TBD FOR 75 SOFTWARE LICENSES/CORES ($507,655.44) FOR SERVICES ($209,888.91)",
+      "award_id": "692M1524F00208"
+    },
+    {
+      "ticker": "PLTR",
+      "company": "PALANTIR TECHNOLOGIES INC.",
+      "amount": 4729656.52,
+      "agency": "Department of Justice",
+      "sub_agency": "Offices, Boards and Divisions",
+      "description": "CASE360 SOLUTIONS",
+      "award_id": "15JPSS25F00000911"
+    },
+    {
+      "ticker": "LHX",
+      "company": "L3HARRIS TECHNOLOGIES, INC.",
+      "amount": 4386500.0,
+      "agency": "Department of Homeland Security",
+      "sub_agency": "U.S. Immigration and Customs Enforcement",
+      "description": "EQUIPMENT TO DETERMINE THE LOCATION OF TARGETED MOBILE HANDSETS TO INVESTIGATE CRIMES AND THREATS.",
+      "award_id": "70CMSD22FR0000167"
+    },
+    {
+      "ticker": "PLTR",
+      "company": "PALANTIR TECHNOLOGIES INC.",
+      "amount": 4214317.0,
+      "agency": "Department of Health and Human Services",
+      "sub_agency": "Office of the Assistant Secretary for Financial Resources",
+      "description": "HHS SHARE BPA TASK ORDER FOR ACF DISCOVER",
+      "award_id": "75P00122F37003"
+    },
+    {
+      "ticker": "PLTR",
+      "company": "PALANTIR TECHNOLOGIES INC.",
+      "amount": 4112500.0,
+      "agency": "Department of Energy",
+      "sub_agency": "Department of Energy",
+      "description": "SAFER (SAFETY ANALYTICS, FORECASTING & EVALUATION REPORTING) PROJECT EXECUTION TASK ORDER SUPPORTING NA-ESH & NA-40",
+      "award_id": "89233126FNA400763"
+    },
+    {
+      "ticker": "LHX",
+      "company": "L3HARRIS TECHNOLOGIES INTEGRATED SYSTEMS L.P.",
+      "amount": 4062818.0,
+      "agency": "Department of Commerce",
+      "sub_agency": "National Oceanic and Atmospheric Administration",
+      "description": "TASK ORDER OF 1305M221DNMAN0003 - ORDERING PERIOD IV (PHASE INSPECTION & (SDLM)  TASK ORDER UNDER 1305M221DNMAN0003 FOR N43RF (P-3)",
+      "award_id": "1305M224F0398"
+    },
+    {
+      "ticker": "LHX",
+      "company": "L3HARRIS TECHNOLOGIES, INC.",
+      "amount": 3329843.34,
+      "agency": "Department of Transportation",
+      "sub_agency": "Federal Aviation Administration",
+      "description": "CSS-WX WEATHER PROGRAM OY8 TASK ORDER",
+      "award_id": "693KA826F00127"
+    }
+  ]
+}

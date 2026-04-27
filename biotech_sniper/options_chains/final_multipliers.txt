@@ -1,0 +1,229 @@
+BIOTECH CATALYST SNIPER — LIVE OPTIONS MULTIPLIER TABLE
+Generated: March 30, 2026 | Prices as of market close
+===============================================================================
+All calculations based on LIVE bid/ask from Yahoo Finance / Barchart
+Fill = midpoint (decoy probe) or mid-$0.03 (bulk ladder)
+$1k risk per play standard
+
+KEY: multiple = (contracts × option_value_on_success × 100) / $invested
+===============================================================================
+
+#1 — IDYA | $31.45 | ~15 days | Warpspeed 96% | LONG CALLS
+───────────────────────────────────────────────────────────────────────────────
+BEST OPTION: Apr 17 $35C (catalyst mid-April, expiry gives ~3 day buffer)
+  Bid $0.65 / Ask $2.10 / Mid $1.38 | IV 92.8% | OI 5,146 | Vol 135
+  Spread: $1.45 — WIDE. Use limit at MID ($1.38). Do NOT pay ask.
+  Decoy probe: $1.38 | Bulk ladder: $1.35, $1.30, $1.25, $1.20, $1.15
+  Contracts at $1.38: 7 contracts ($966)
+  SUCCESS (+60% to $50): intrinsic $15 + time ~$0.10 = ~$15.10
+    → 7 × $15.10 × 100 = $10,570 → ~10.9x on $966
+  SUCCESS (+100% to $63): intrinsic $28 + time ~$0.05 = ~$28.05
+    → 7 × $28.05 × 100 = $19,635 → ~20.3x on $966
+  FAILURE: ~$0.05 → $35 (near total loss)
+  Break-even: +11.3% move ($35/$31.45-1)
+  LIQUIDITY: GOOD for biotech (OI 5,146, volume 135)
+
+ALTERNATIVE: May 15 $40C (longer buffer, more OTM)
+  Bid $1.50 / Ask $4.50 / Mid $3.00 | IV 126% | OI 35 | Vol 0
+  Spread: $3.00 — VERY WIDE. Illiquid. Only use if catalyst slips past Apr 17.
+  Fill: $2.50 limit, walk up slowly. May not fill.
+  3 contracts ($750) → SUCCESS (+100%): $23 intrinsic → 3×$23×100 = $6,900 → 9.2x
+  LIQUIDITY: POOR (OI 35, no volume) — last resort only
+
+RECOMMENDED: Apr 17 $35C @ $1.38 mid. 7 contracts, $966 risk. ~11-20x on success.
+===============================================================================
+
+#2 — TVTX | $27.66 | ~14 days | Ensemble 77% | LONG CALLS (HALF SIZE)
+───────────────────────────────────────────────────────────────────────────────
+BEST OPTION: Apr 17 $35C (PDUFA April 13, expiry 4 days after)
+  Bid $2.50 / Ask $2.95 / Mid $2.73 | IV 200.9% | OI 7,607 | Vol 870
+  Spread: $0.45 — TIGHT. Best liquidity of all 9 tickers. FILL HERE.
+  Decoy probe: $2.73 | Bulk ladder: $2.70, $2.65, $2.60, $2.55, $2.50
+  Contracts at $2.73: 3 contracts ($819) [HALF SIZE — model divergence]
+  SUCCESS (+50% to $41.50): intrinsic $6.50 + time ~$0.25 = ~$6.75
+    → 3 × $6.75 × 100 = $2,025 → ~2.5x on $819
+  SUCCESS (+60% to $44): intrinsic $9 + time ~$0.15 = ~$9.15
+    → 3 × $9.15 × 100 = $2,745 → ~3.4x on $819
+  FAILURE: ~$0.05 → $15 (near total loss)
+  Break-even: +26.5% (stock to $35)
+  LIQUIDITY: EXCELLENT (OI 7,607, vol 870) — best fill of all plays today
+
+NOTE: 200% IV means you're paying huge premium. On +50% stock move you only get ~2.5x
+because the entire extrinsic collapses. The HALF SIZE flag is correct here.
+===============================================================================
+
+#3 — AXSM | $160.50 | ~31 days | Ensemble 85% | LONG CALLS
+───────────────────────────────────────────────────────────────────────────────
+BEST OPTION: May 15 $220C (PDUFA April 30, 15 days to expiry — tight but covers event)
+  Bid $1.05 / Ask $1.50 / Mid $1.27 | IV 59.9% | OI 34 | Vol 4
+  Spread: $0.45 — MODERATE. Workable.
+  Decoy probe: $1.27 | Bulk ladder: $1.22, $1.17, $1.12, $1.07, $1.02
+  Contracts at $1.27: 7 contracts ($889)
+  SUCCESS (+25% to $200): STILL OTM at $220 strike. 
+    → Need +37% just to break even at expiry
+    At $200: $0 intrinsic, ~$0.50 time value. 7×$0.50×100 = $350 → 0.4x (LOSS)
+  SUCCESS (+40% to $225): intrinsic $5 + time ~$1.00 = ~$6.00
+    → 7 × $6.00 × 100 = $4,200 → ~4.7x on $889
+  FAILURE: ~$0.05 → $35 (near total loss)
+  Break-even: +37.1% (stock to $221.27)
+
+ISSUE: At 59% IV and $160 stock, $220C is truly a lottery ticket. The +25% success
+scenario doesn't even reach the strike. Only the +40% blockbuster scenario pays.
+BETTER APPROACH for AXSM — use closer-to-money CALL SPREAD:
+  Buy $170C / Sell $200C May 15 (estimated $8-10 debit)
+  At +25% ($200): spread worth $30 → 3-4x on $1k
+  At +35% ($216): spread worth $30 max → 3-4x on $1k
+  Max profit = spread width. More realistic payoff profile for a large-cap.
+  Requires checking $170/$200 May OI before entering.
+
+RECOMMENDED: May $220C @ $1.27 if you want lottery upside, call spread $170/$200
+if you want higher probability of making money. Flag: 37% BE vs 40% expected = TIGHT.
+===============================================================================
+
+#4 — RGNX | $7.77 | ~35 days | Ensemble 68.5% | LONG CALLS
+───────────────────────────────────────────────────────────────────────────────
+PROBLEM: May chain has ONLY 1 STRIKE ($10C) with 0 bid and OI=1. UNTRADEABLE.
+BEST VIABLE OPTION: Jul 17 $10C
+  Bid $1.50 / Ask $3.50 / Mid $2.50 | IV 189% | OI 1,509 | Vol 1
+  Spread: $2.00 — WIDE. Post limit at mid, be patient.
+  Decoy probe: $2.50 | Bulk ladder: $2.45, $2.35, $2.25, $2.15, $2.00
+  Contracts at $2.50: 4 contracts ($1,000)
+  SUCCESS (+80% to $14): intrinsic $4 + time ~$0.75 = ~$4.75
+    → 4 × $4.75 × 100 = $1,900 → ~1.9x on $1,000
+  SUCCESS (+150% to $19.40): intrinsic $9.40 + time ~$0.50 = ~$9.90
+    → 4 × $9.90 × 100 = $3,960 → ~4.0x on $1,000
+  FAILURE: ~$0.00 → total loss (no bid, hard to exit)
+  Break-even: +28.7% (stock to $10)
+
+ALTERNATIVE: Apr 17 $10C (no bid, OI 355 — more liquid but no buffer after catalyst)
+  Realistic fill: $0.85-1.00 (post limit, wait)
+  10 contracts ($900) → SUCCESS (+150% to $19.40): intrinsic $9.40 × 10 × 100 = $9,400 → ~10.4x
+  HUGE multiple BUT: catalyst is "early Q2" — if it's May, Apr 17 expires worthless
+
+RECOMMENDED: Jul $10C @ $2.00-2.50 (patient limit). 4x on $1k in strong success.
+NOTE: RGNX options are genuinely illiquid. Consider 50% equity / 50% options split.
+===============================================================================
+
+#5 — ARGX | $704.31 | ~41 days | Ensemble 87.5% | CALL SPREAD (equity preferred)
+───────────────────────────────────────────────────────────────────────────────
+OTM CALLS ($920C): Bid $0.20 / Ask $5.00 / Mid $2.60 | OI 5 | Vol 1 — UNTRADEABLE
++8% success move takes stock to $760 — DOES NOT REACH $920 STRIKE. Total loss.
+Naked far-OTM calls DO NOT WORK for ARGX given only +8% expected move.
+
+BEST OPTION: $730/$800 Bull Call Spread May 15
+  $730C: Bid $23.50 / Ask $27.70 / Mid $25.60
+  $800C: Bid $11.50 / Ask $15.80 / Mid $13.65
+  Spread cost: $25.60 - $13.65 = $11.95 mid | Realistic fill: ~$13.00
+  1 spread = $1,300 (exceeds $1k budget — need $1,300 min for 1 spread)
+  Max profit: ($800-$730) × 100 - $1,300 = $7,000 - $1,300 = $5,700
+  SUCCESS (+8% to $760): $730C=$30 intrinsic, $800C=$0 → spread=$30×100=$3,000-$1,300=$1,700 → 2.3x
+  SUCCESS (+14% to $800+): spread at max → $5,700 profit → 5.4x on $1,300
+  Break-even: stock at $730 + $13 = $743 (+5.5% from $704)
+
+RECOMMENDED: $730/$800 call spread at ~$13 debit ($1,300 per spread).
+2.3x on moderate success, 5.4x on full move. Much better than naked OTM calls.
+NOTE: $1k budget is slightly insufficient — need $1,300. If strict $1k, use EQUITY.
+EQUITY ALTERNATIVE: Buy 1 share at $704 → +8% = +$56 → 1.08x. Not a degen play.
+===============================================================================
+
+#6 — AGIO | $29.61 | ~55 days | Warpspeed 6% | LONG PUTS
+───────────────────────────────────────────────────────────────────────────────
+NOTE: No Jun 20 expiry exists. Using Aug 21 for adequate time buffer.
+$20P Aug21: Bid $0.00 / Ask $2.95 / Mid $1.48 | OI 7 | Vol 1 — ILLIQUID
+$17.50P Aug21: Bid $0.00 / Ask $2.50 / Mid $1.25 | OI 98 | Vol 2 — BETTER OI
+
+BEST OPTION: $17.50P Aug 21 (highest OI at 98)
+  Realistic fill: $1.00-1.25 (post limit, wait — no bid means patience required)
+  Decoy probe: $1.25 | Bulk ladder: $1.20, $1.15, $1.10, $1.00, $0.90
+  Contracts at $1.25: 8 contracts ($1,000)
+  FAILURE (-50% stock to $14.80): intrinsic $2.70 + time ~$0.20 = ~$2.90
+    → 8 × $2.90 × 100 = $2,320 → ~2.3x on $1,000
+  FAILURE (-65% stock to $10.36): intrinsic $7.14 + time ~$0.10 = ~$7.24
+    → 8 × $7.24 × 100 = $5,792 → ~5.8x on $1,000
+  SUCCESS (trial hits, stock +30%): option ~$0.00 → total loss
+  Break-even: stock at $17.50 - $1.25 = $16.25 (-45% from $29.61)
+
+ALTERNATIVE: $20P Aug21 at $1.48 fill
+  6 contracts ($888) → FAILURE (-65% to $10): intrinsic $10 × 6 × 100 = $6,000 → 6.8x
+  Break-even: stock at $18.52 (-37.5%) — better break-even but worse OI (7)
+
+RECOMMENDED: $17.50P Aug21 @ $1.00-1.25 (patient limit). 5.8x in hard failure scenario.
+WARNING: ALL puts show $0 bid. This is a patient entry — post limit and wait days.
+===============================================================================
+
+#7 — NTLA | $11.65 | ~60 days | Ensemble 82% | LONG CALLS
+───────────────────────────────────────────────────────────────────────────────
+NOTE: No Jun 20 expiry. Using Jul 17, 2026.
+BEST OPTION: Jul 17 $15C
+  Bid $1.50 / Ask $1.80 / Mid $1.65 | IV ~90% | OI 1,730 | Vol 20
+  Spread: $0.30 — TIGHT. Second best liquidity after TVTX.
+  Decoy probe: $1.65 | Bulk ladder: $1.62, $1.57, $1.52, $1.47, $1.42
+  Contracts at $1.65: 6 contracts ($990)
+  SUCCESS (+75% to $20.40): intrinsic $5.40 + time ~$0.40 = ~$5.80
+    → 6 × $5.80 × 100 = $3,480 → ~3.5x on $990
+  SUCCESS (+100% to $23.30): intrinsic $8.30 + time ~$0.25 = ~$8.55
+    → 6 × $8.55 × 100 = $5,130 → ~5.2x on $990
+  FAILURE: ~$0.10 → $60 (near total loss)
+  Break-even: +28.8% (stock to $16.65)
+  LIQUIDITY: GOOD (OI 1,730)
+
+ALTERNATIVE: Jul 17 $16C at $1.75 mid
+  OI 537 | Spread moderate
+  5 contracts ($875) → SUCCESS (+75% to $20.40): intrinsic $4.40 × 5 × 100 = $2,200 → 2.5x
+  Lower multiple. Stick with $15C.
+
+RECOMMENDED: Jul $15C @ $1.65. 6 contracts, $990. 3.5-5.2x depending on success magnitude.
+===============================================================================
+
+#8 — VRDN | $18.53 | ~60 days | Ensemble 80% | LONG CALLS
+───────────────────────────────────────────────────────────────────────────────
+NOTE: Stock CRASHED -32% today. IV extremely elevated. Spreads wide. Check carefully.
+BEST OPTION: Jul 17 $25C
+  Bid $1.30 / Ask $2.25 / Mid $1.78 | IV elevated post-crash | OI 856 | Vol 94
+  Spread: $0.95 — WIDE but improving (was wider at open). High vol today.
+  Decoy probe: $1.78 | Bulk ladder: $1.75, $1.65, $1.55, $1.45, $1.35
+  Contracts at $1.78: 5 contracts ($890)
+  SUCCESS (+60% to $29.65): Still OTM at $25 → intrinsic $4.65 + time ~$0.90 = ~$5.55
+    → 5 × $5.55 × 100 = $2,775 → ~3.1x on $890
+  SUCCESS (+80% to $33.35): intrinsic $8.35 + time ~$0.65 = ~$9.00
+    → 5 × $9.00 × 100 = $4,500 → ~5.1x on $890
+  FAILURE: ~$0.20 → $100 (elevated time value due to high IV)
+  Break-even stock at $25 + $1.78 = $26.78 (+44% from $18.53)
+    — notably below pre-crash $27.39 level
+
+LIQUIDITY NOTE: Vol=94 today (9x avg day — crash day volume). May thin out.
+Decoy entry strategy: Post $1.50 limit first, let market settle from crash.
+Tomorrow spreads may tighten as IV normalizes.
+
+RECOMMENDED: Jul $25C @ $1.50-1.78. 5 contracts. Wait for spreads to normalize post-crash.
+5x on $1k if +80% recovery. Break-even is pre-crash price — compelling entry.
+===============================================================================
+
+#9 — LPCN | $7.58 | ~60 days | Ensemble 62.5% | NO OPTIONS MARKET
+───────────────────────────────────────────────────────────────────────────────
+CONFIRMED: No options listed for LPCN anywhere.
+EQUITY ONLY: Buy shares at $7.58
+  $1,000 = 131 shares
+  SUCCESS (+150% to $18.95): +$1,484 profit → 2.5x on $1k
+  FAILURE (-70% to $2.27): -$699 loss → 0.3x on $1k (30 cents on the dollar)
+  No leverage. Pure equity binary bet.
+
+ALTERNATIVE: Skip LPCN for options players. Equity only with tiny position.
+===============================================================================
+
+SUMMARY TABLE — $1k OTM OPTION MULTIPLES (realistic fills)
+───────────────────────────────────────────────────────────
+Ticker | Strike/Exp    | Fill  | Ctrs | Success Move | Multiple | Liquidity
+IDYA   | Apr17 $35C    | $1.38 |  7   | +60-100%     | 11-20x   | GOOD
+TVTX   | Apr17 $35C    | $2.73 |  3   | +50-60%      |  2.5-3.4x| EXCELLENT
+AXSM   | May15 $220C   | $1.27 |  7   | +40%         |  4.7x    | MODERATE
+RGNX   | Jul17 $10C    | $2.25 |  4   | +80-150%     |  1.9-4.0x| POOR
+ARGX   | $730/$800 sprd| $13.00|  1   | +8-14%       |  2.3-5.4x| POOR (1 sprd=$1.3k)
+AGIO   | Aug21 $17.50P | $1.25 |  8   | -50-65%      |  2.3-5.8x| POOR (patient)
+NTLA   | Jul17 $15C    | $1.65 |  6   | +75-100%     |  3.5-5.2x| GOOD
+VRDN   | Jul17 $25C    | $1.78 |  5   | +60-80%      |  3.1-5.1x| MODERATE (post-crash)
+LPCN   | NO OPTIONS    | N/A   | N/A  | +150%        |  2.5x equity|EQUITY ONLY
+
+BEST MULTIPLE: IDYA Apr17 $35C → 11-20x if data hits strong (>60% stock move)
+BEST LIQUIDITY: TVTX Apr17 $35C (OI 7,607, $0.45 spread) — tightest fill
+WORST LIQUIDITY: AGIO puts (all $0 bid), RGNX (no bid), ARGX OTM (no market)

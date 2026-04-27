@@ -1,0 +1,277 @@
+{
+  "NCT05987332": {
+    "ticker": "IDYA",
+    "primary_outcomes": [
+      {
+        "measure": "Phase 2a: To determine the optimal dose of IDE196 + Crizotinib combination for Phase 2B and Phase 3 by evaluating the following:",
+        "description": "dose exposure response (safety and efficacy) relationship, plasma concentration profiles and pharmacokinetic (PK) parameters, treatment-emergent Adverse Events (TEAEs), laboratory abnormalities, electrocardiogram (ECG), and vital sign changes and study treatment discontinuation due to AEs.",
+        "timeFrame": ""
+      },
+      {
+        "measure": "Phase 2 Progression-Free Survival (PFS)",
+        "description": "by blinded independent central review (BICR) of IDE196 + Crizotinib compared to investigator's choice of treatment per RECIST v1.1",
+        "timeFrame": ""
+      },
+      {
+        "measure": "Phase 3 Overall Survival (OS) of IDE196 + Crizotinib compared to investigator's choice of treatment.",
+        "description": "OS from randomization to date of death due to any cause",
+        "timeFrame": ""
+      }
+    ],
+    "enrollment": {
+      "count": 420,
+      "type": "ESTIMATED"
+    },
+    "status": {
+      "overall": "ACTIVE_NOT_RECRUITING",
+      "last_update": "2026-02-17",
+      "verified_date": "2026-02"
+    },
+    "last_checked": "2026-04-10"
+  },
+  "NCT05490446": {
+    "ticker": "AGIO",
+    "primary_outcomes": [
+      {
+        "measure": "Phase 2a: Proportion of Participants With Hemoglobin (Hb) Response",
+        "description": "Hb response is defined as a \u22651.5-grams per deciliter (g/dL) increase from baseline in the average Hb concentration from Week 8 through Week 16.",
+        "timeFrame": ""
+      },
+      {
+        "measure": "Phase 2a: Proportion of Participants With Transfusion Independence During the Core Period",
+        "description": "Transfusion Independence is defined as transfusion-free for \u22658 consecutive weeks during the Core Period (participants With Low Transfusion Burden \\[LTB\\] only).",
+        "timeFrame": ""
+      },
+      {
+        "measure": "Phase 2b: Proportion of Participants With Transfusion Independence",
+        "description": "Transfusion independence, defined as transfusion-free for \u22658 consecutive weeks (TI8) during the Core Period.",
+        "timeFrame": ""
+      }
+    ],
+    "enrollment": {
+      "count": 87,
+      "type": "ACTUAL"
+    },
+    "status": {
+      "overall": "ACTIVE_NOT_RECRUITING",
+      "last_update": "2026-03-30",
+      "verified_date": "2026-03"
+    },
+    "last_checked": "2026-04-10"
+  },
+  "NCT05640245": {
+    "ticker": "MLTX",
+    "primary_outcomes": [
+      {
+        "measure": "Response Rate of participants achieving at least a 50% improvement in the American College of Rheumatology criteria (ACR50)",
+        "description": "Proportion of participants who achieve ACR50 compared with baseline",
+        "timeFrame": ""
+      }
+    ],
+    "enrollment": {
+      "count": 207,
+      "type": "ACTUAL"
+    },
+    "status": {
+      "overall": "COMPLETED",
+      "last_update": "2024-09-05",
+      "verified_date": "2024-09"
+    },
+    "last_checked": "2026-04-10"
+  },
+  "NCT06881992": {
+    "ticker": "RZLT",
+    "primary_outcomes": [
+      {
+        "measure": "Proportion of participants with clinically meaningful reduction in IV glucose infusion rate from baseline.",
+        "description": "",
+        "timeFrame": ""
+      }
+    ],
+    "enrollment": {
+      "count": 16,
+      "type": "ESTIMATED"
+    },
+    "status": {
+      "overall": "RECRUITING",
+      "last_update": "2025-12-30",
+      "verified_date": "2025-12"
+    },
+    "last_checked": "2026-04-10"
+  },
+  "NCT06625320": {
+    "ticker": "RVMD",
+    "primary_outcomes": [
+      {
+        "measure": "Progression free survival (PFS) in the RAS G12-mutant population",
+        "description": "PFS is defined as the time from randomization until disease progression or death from any cause, whichever occurs first. Progression is per response evaluation criteria in solid tumors (RECIST) v1.1 and as assessed by blinded independent central review (BICR)",
+        "timeFrame": ""
+      },
+      {
+        "measure": "Overall survival (OS) in the RAS G12-mutant population",
+        "description": "OS is defined as the time from randomization until death from any cause.",
+        "timeFrame": ""
+      }
+    ],
+    "enrollment": {
+      "count": 501,
+      "type": "ACTUAL"
+    },
+    "status": {
+      "overall": "ACTIVE_NOT_RECRUITING",
+      "last_update": "2025-12-12",
+      "verified_date": "2025-11"
+    },
+    "last_checked": "2026-04-10"
+  },
+  "NCT03493685": {
+    "ticker": "TVTX",
+    "primary_outcomes": [
+      {
+        "measure": "Slope of Estimated Glomerular Filtration Rate (eGFR)",
+        "description": "The total eGFR slope over 2 years, defined as the slope of eGFR following initiation of randomized treatment (ie, Day 1 to Week 108). Estimates are calculated from a mixed-effects model with treatment, Baseline eGFR, analysis visit, treatment-by-analysis visit, randomization stratification factors as fixed effects, and intercept and slope for each participant as a random effect.",
+        "timeFrame": ""
+      },
+      {
+        "measure": "Percentage of Participants Achieving FSGS Partial Remission Endpoint (FPRE)",
+        "description": "Percentage of participants achieving FPRE, defined as urine protein-to-creatinine ratio (UP/C) \u22641.5 grams/gram (g/g) (170 milligrams per millimoles \\[mg/mmol\\]) and a \\>40% reduction from Baseline was analyzed using a generalized linear model to model probability of achieving FPRE. Missing responses were imputed prior to analysis using multiple imputation. A generalized linear model with appropriate link function was implemented with Baseline log (UP/C), treatment, analysis visit, treatment by analysis visit interaction, and randomization strata as fixed effects. For estimates of probability of achieving FPRE, risk difference, and odds ratio, binomial distribution with logit link was used. For relative risk, Poisson distribution with log link was used. Using Rubin's approach, estimated treatment effects are combined across all imputations to obtain overall estimates for probabilities.",
+        "timeFrame": ""
+      }
+    ],
+    "enrollment": {
+      "count": 371,
+      "type": "ACTUAL"
+    },
+    "status": {
+      "overall": "ACTIVE_NOT_RECRUITING",
+      "last_update": "2025-06-12",
+      "verified_date": "2025-06"
+    },
+    "last_checked": "2026-04-10"
+  },
+  "NCT04797715": {
+    "ticker": "AXSM",
+    "primary_outcomes": [
+      {
+        "measure": "Time from randomization to relapse of agitation symptoms",
+        "description": "",
+        "timeFrame": ""
+      }
+    ],
+    "enrollment": {
+      "count": 178,
+      "type": "ACTUAL"
+    },
+    "status": {
+      "overall": "COMPLETED",
+      "last_update": "2023-11-29",
+      "verified_date": "2023-11"
+    },
+    "last_checked": "2026-04-10"
+  },
+  "NCT05693142": {
+    "ticker": "RGNX",
+    "primary_outcomes": [
+      {
+        "measure": "Part 1 Safety measured by incidence of Adverse Events and Serious Adverse Events",
+        "description": "Evaluate incidences of AEs and SAEs",
+        "timeFrame": ""
+      },
+      {
+        "measure": "Part 2 and 3 Pharmacodynamic",
+        "description": "Proportion of participants whose RGX-202 microdystrophin protein expression determined in their muscle biopsy is \u2265 10%",
+        "timeFrame": ""
+      }
+    ],
+    "enrollment": {
+      "count": 65,
+      "type": "ESTIMATED"
+    },
+    "status": {
+      "overall": "RECRUITING",
+      "last_update": "2025-12-17",
+      "verified_date": "2025-12"
+    },
+    "last_checked": "2026-04-10"
+  },
+  "NCT04980495": {
+    "ticker": "ARGX",
+    "primary_outcomes": [
+      {
+        "measure": "Mean of the average MG-ADL total score change from baseline during the visit of week 1 through week 21 by regimen arm",
+        "description": "The MG-ADL (Myasthenia Gravis Activities of Daily Living) scale assesses MG symptoms and their effects on daily activities. The total score varies between 0 and 24, with higher total scores indicating more impairment.",
+        "timeFrame": ""
+      }
+    ],
+    "enrollment": {
+      "count": 69,
+      "type": "ACTUAL"
+    },
+    "status": {
+      "overall": "COMPLETED",
+      "last_update": "2025-11-05",
+      "verified_date": "2025-11"
+    },
+    "last_checked": "2026-04-10"
+  },
+  "NCT06634420": {
+    "ticker": "NTLA",
+    "primary_outcomes": [
+      {
+        "measure": "Time-normalized number of Investigator-confirmed HAE attacks",
+        "description": "",
+        "timeFrame": ""
+      }
+    ],
+    "enrollment": {
+      "count": 60,
+      "type": "ESTIMATED"
+    },
+    "status": {
+      "overall": "ACTIVE_NOT_RECRUITING",
+      "last_update": "2025-12-18",
+      "verified_date": "2025-06"
+    },
+    "last_checked": "2026-04-10"
+  },
+  "NCT06625398": {
+    "ticker": "VRDN",
+    "primary_outcomes": [
+      {
+        "measure": "Title: Proptosis Responder Rate in the study eye",
+        "description": "Description: Proportion of participants with a \u22652 mm reduction from baseline in proptosis in the study eye \\[without a corresponding increase of \u22652 mm in the fellow eye\\]",
+        "timeFrame": ""
+      }
+    ],
+    "enrollment": {
+      "count": 195,
+      "type": "ESTIMATED"
+    },
+    "status": {
+      "overall": "ACTIVE_NOT_RECRUITING",
+      "last_update": "2025-09-30",
+      "verified_date": "2025-09"
+    },
+    "last_checked": "2026-04-10"
+  },
+  "NCT05202509": {
+    "ticker": "NAMS",
+    "primary_outcomes": [
+      {
+        "measure": "Major Adverse Cardiovascular Effect (MACE)",
+        "description": "To evaluate the effect of obicetrapib on the risk of MACE",
+        "timeFrame": ""
+      }
+    ],
+    "enrollment": {
+      "count": 9541,
+      "type": "ACTUAL"
+    },
+    "status": {
+      "overall": "ACTIVE_NOT_RECRUITING",
+      "last_update": "2024-06-04",
+      "verified_date": "2024-06"
+    },
+    "last_checked": "2026-04-10"
+  }
+}
