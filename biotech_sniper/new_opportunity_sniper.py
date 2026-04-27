@@ -153,6 +153,51 @@ def validate_ticker(ticker: str) -> dict:
         return {"valid": False}
 
 
+# ── PRICE RESOLUTION ──────────────────────────────────────────────────────────
+
+
+def _resolve_underlying_price(ticker: str) -> Optional[float]:
+    """Best-effort underlying-price lookup using the Alpaca SDK.
+
+    Added by f-m3-13 as the explicit fallback when
+    :func:`validate_ticker` returns ``price=None`` (the new default
+    after the f-m3-02 yfinance removal). The lookup is best-effort:
+    any failure (no SDK, no creds, network error) returns ``None`` so
+    the caller can decide whether to skip-with-WARN or proceed with
+    a different sizing path. Never raises.
+    """
+    if not ticker:
+        return None
+    try:
+        # Local import: keeps the new_opportunity_sniper import-cheap
+        # on hosts without alpaca-py creds (e.g. CI smoke gate).
+        from alpaca.data.historical.stock import StockHistoricalDataClient
+        from alpaca.data.requests import StockLatestTradeRequest
+
+        from biotech_sniper import config
+
+        api_key = config.get_alpaca_key_id()
+        secret_key = config.get_alpaca_secret_key()
+        if not api_key or not secret_key:
+            return None
+        client = StockHistoricalDataClient(api_key=api_key, secret_key=secret_key)
+        resp = client.get_stock_latest_trade(
+            StockLatestTradeRequest(symbol_or_symbols=ticker)
+        )
+        trade = resp.get(ticker) if isinstance(resp, dict) else None
+        if trade is None:
+            return None
+        raw_price = getattr(trade, "price", None)
+        if raw_price is None:
+            return None
+        price = float(raw_price)
+        if price <= 0:
+            return None
+        return price
+    except Exception:
+        return None
+
+
 # ── CORRECT EXPIRY ─────────────────────────────────────────────────────────────
 
 def get_correct_expiry(catalyst_date_str: str, available_exps: list) -> Optional[str]:
@@ -196,7 +241,19 @@ def get_best_option(ticker: str, expiry: str, direction: str, price: float) -> O
     :func:`biotech_sniper.options_chains.pull_options.pull_chain`,
     which is backed by the Alpaca options API instead of the legacy
     market-data vendor.
+
+    M3 update (f-m3-13): ``price`` MUST be a positive numeric. Callers
+    are responsible for resolving the underlying price BEFORE invoking
+    this helper — passing ``None`` (which the legacy yfinance-backed
+    ``validate_ticker`` used to populate) used to raise ``TypeError``
+    on ``price * 1.8`` / ``price * 0.35`` and was silently swallowed
+    by the outer broad-except, rejecting otherwise-valid candidates.
+    The guard is now explicit and the broad-except narrowed so future
+    regressions surface instead of being masked.
     """
+    if price is None or not isinstance(price, (int, float)) or price <= 0:
+        print(f"  [sniper] get_best_option {ticker}: invalid price={price!r} — skipping")
+        return None
     try:
         from biotech_sniper.options_chains.pull_options import pull_chain
 
@@ -260,7 +317,13 @@ def get_best_option(ticker: str, expiry: str, direction: str, price: float) -> O
                 }
 
         return best
-    except Exception as e:
+    except (ImportError, ValueError, KeyError) as e:
+        # f-m3-13: narrowed from a bare ``Exception`` so that
+        # ``TypeError`` (the one yfinance-removal regression that used
+        # to silently reject otherwise-valid candidates via
+        # ``price * 1.8`` on a ``None``) propagates loudly and cannot
+        # mask future regressions of the same shape. Network / chain
+        # parse failures still degrade gracefully.
         print(f"  [sniper] Options error {ticker} {expiry}: {e}")
         return None
 
@@ -540,12 +603,28 @@ def score_and_price_candidate(candidate: dict) -> Optional[dict]:
         print(f"    {ticker}: invalid ({info.get('reason','no options/price')})")
         return None
 
-    price = info["price"]
+    price = info.get("price")
     exps  = info.get("expirations", [])
 
     if not info.get("has_options") or not exps:
         print(f"    {ticker}: no options")
         return None
+
+    # f-m3-13: validate_ticker now returns price=None after the
+    # f-m3-02 yfinance removal. Resolve a positive underlying price
+    # before scoring options — fall back to AlpacaClient.get_latest_trade
+    # when available, otherwise WARN-and-skip so a TypeError in
+    # get_best_option (``price * 1.8`` / ``price * 0.35``) cannot be
+    # silently swallowed and reject the candidate.
+    if price is None or not isinstance(price, (int, float)) or price <= 0:
+        price = _resolve_underlying_price(ticker)
+        if price is None:
+            print(
+                f"    [sniper] WARN {ticker}: underlying price unavailable "
+                f"(validate_ticker returned None and Alpaca latest-trade "
+                f"fallback failed) — skipping candidate"
+            )
+            return None
 
     # Step 2: Science profile if NCT available
     science_prompt = None
