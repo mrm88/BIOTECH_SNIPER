@@ -9,7 +9,7 @@ on the VPS. These files are committed to the repo and copied into
 | Unit                                    | Type     | Schedule (UTC)                                   | Entrypoint                                  |
 |-----------------------------------------|----------|--------------------------------------------------|---------------------------------------------|
 | `alpha-sniper.service` / `.timer`       | oneshot  | Daily 13:13 UTC (PDT) / 14:13 UTC (PST), `Persistent=true` | `python -m biotech_sniper.master_unified_run` |
-| `alpha-sniper-intraday.service` / `.timer` | oneshot | Mon..Fri 13:22..21:22 UTC (9 elapses/weekday)   | `python -m biotech_sniper.intraday_scanner` |
+| `alpha-sniper-intraday.service` / `.timer` | oneshot | Mon..Fri 13:22..21:22 UTC (9 elapses/weekday)   | `python -m biotech_sniper.intraday_run`     |
 | `alpha-sniper-watchdog.service` / `.timer` | oneshot | Every 15 min: `*:08, *:23, *:38, *:53` UTC      | `python -m biotech_sniper.watchdog`         |
 
 ## Stagger / collision avoidance

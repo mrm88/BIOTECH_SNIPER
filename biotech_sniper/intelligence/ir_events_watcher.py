@@ -54,8 +54,28 @@ REGISTRATION_KEYWORDS = ["register", "webcast", "listen live", "webinar", "join"
 
 
 def load_registry():
-    with open(REGISTRY_FILE) as f:
-        return json.load(f)
+    """Return the watchlist registry, or an empty stub if the file is absent.
+
+    f-m4-09: greenfield deployments have no
+    ``intelligence/nct_registry.json`` (the registry is built
+    incrementally by ``company_resolver`` + ``master_discovery``).
+    The legacy ``open(...)`` call raised :class:`FileNotFoundError`,
+    surfaced as the WARNING line ``nct_registry.json No such file``
+    by the f-m4-08 retry of ``run_ir_events_check``. Returning an
+    empty ``{"watchlist": {}}`` makes the watcher a no-op until the
+    registry is populated, matching the other loaders.
+    """
+    if not REGISTRY_FILE.exists():
+        return {"watchlist": {}}
+    try:
+        with open(REGISTRY_FILE) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {"watchlist": {}}
+    if not isinstance(data, dict):
+        return {"watchlist": {}}
+    data.setdefault("watchlist", {})
+    return data
 
 def load_ir_state():
     if IR_STATE_FILE.exists():

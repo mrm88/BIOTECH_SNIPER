@@ -82,7 +82,16 @@ ROUTINE_8K_ITEMS = [
     "item 8.01 other events",  # generic — still check content
 ]
 
-# RSS feeds to scan
+# RSS feeds to scan.
+#
+# f-m4-09: ``feeds.reuters.com/reuters/healthNews`` is dead — the
+# Reuters health RSS endpoint started returning ``NameResolutionError``
+# / ``ServerNotFound`` from the VPS once Reuters retired its public
+# RSS infrastructure mid-2024 (the Reuters site no longer publishes
+# section-level RSS at all). The dead entry generated repeated WARNING
+# logs from ``run_hourly_news_scan`` on every intraday cycle without
+# yielding any rows. We dropped it; the remaining 5 feeds satisfy the
+# mission's "≥ 4 feeds" guardrail.
 RSS_FEEDS = [
     {
         "name": "STAT News",
@@ -95,10 +104,6 @@ RSS_FEEDS = [
     {
         "name": "Fierce Biotech",
         "url": "https://www.fiercebiotech.com/rss/xml",
-    },
-    {
-        "name": "Reuters Health",
-        "url": "https://feeds.reuters.com/reuters/healthNews",
     },
     {
         "name": "BioPharma Dive",

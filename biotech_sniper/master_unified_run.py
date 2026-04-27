@@ -197,6 +197,44 @@ def _run_unified_scan_impl(*, today: str, started_at: float, state: dict) -> dic
     except Exception as e:
         print(f"  Auto-resolver skipped: {e}")
 
+    # ── STEP 0b2: UNIVERSE REFRESH (f-m4-09) ─────────────────────────────────
+    # Wired BEFORE news ingest so the watch+tradeable pool is fresh
+    # for the news scan. ``build_universe`` re-seeds the SECTORS +
+    # CT.gov rows AND probes every row's options chain, so
+    # ``last_chain_check_at`` is updated for every universe row each
+    # day (≥ 90% per f-m4-09 contract).
+    print(f"\n{'─'*70}")
+    print(f"STEP 0b2: UNIVERSE REFRESH (build_universe)")
+    print(f"{'─'*70}")
+    try:
+        from biotech_sniper.bulk_universe_scanner import build_universe
+        universe_result = build_universe()
+        sector_results["universe_refresh"] = {
+            "watch_count": universe_result.watch_count,
+            "tradeable_count": universe_result.tradeable_count,
+            "probe_calls": universe_result.probe_calls,
+            "completed_at": universe_result.completed_at,
+            "db_path": universe_result.db_path,
+        }
+        print(
+            f"  → Universe refresh: "
+            f"watch={universe_result.watch_count} | "
+            f"tradeable={universe_result.tradeable_count} | "
+            f"probes={universe_result.probe_calls}"
+        )
+        log.info(
+            "universe_refresh",
+            extra={
+                "event": "universe_refresh",
+                "watch_count": universe_result.watch_count,
+                "tradeable_count": universe_result.tradeable_count,
+                "probe_calls": universe_result.probe_calls,
+            },
+        )
+    except Exception as e:
+        print(f"  → Universe refresh error: {e}")
+        sector_results["universe_refresh"] = {"error": str(e)}
+
     # ── STEP 0c: DAILY NEWS INGEST (f-m2-13 fix #4) ──────────────────────────
     # Wired BEFORE scoring so downstream scoring can read fresh
     # ``news_events`` rows. Targets every ticker in the watch+tradeable

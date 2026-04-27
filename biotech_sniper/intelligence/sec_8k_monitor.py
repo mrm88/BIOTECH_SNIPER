@@ -47,8 +47,29 @@ ROUTINE_8K_ITEMS = [
 ]
 
 def load_registry():
-    with open(REGISTRY_FILE) as f:
-        return json.load(f)
+    """Return the watchlist registry, or an empty stub if the file is absent.
+
+    f-m4-09: greenfield deployments have no ``intelligence/nct_registry.json``
+    file (the registry is built incrementally by ``company_resolver``
+    + ``master_discovery`` over the first few daily runs). The legacy
+    ``open(...)`` call raised :class:`FileNotFoundError`, which the
+    f-m4-08 retry surfaced as repeated WARNING log lines from
+    ``run_8k_monitor``. Returning ``{"watchlist": {}}`` makes the
+    monitor a no-op until the registry is populated, matching the
+    behaviour of the other registry loaders (``master_discovery``,
+    ``intraday_scanner``).
+    """
+    if not REGISTRY_FILE.exists():
+        return {"watchlist": {}}
+    try:
+        with open(REGISTRY_FILE) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {"watchlist": {}}
+    if not isinstance(data, dict):
+        return {"watchlist": {}}
+    data.setdefault("watchlist", {})
+    return data
 
 def load_sec_state():
     if SEC_STATE_FILE.exists():

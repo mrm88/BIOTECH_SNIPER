@@ -39,7 +39,12 @@ TIMER_NAMES = [
 
 EXPECTED_ENTRYPOINTS = {
     "alpha-sniper.service": "biotech_sniper.master_unified_run",
-    "alpha-sniper-intraday.service": "biotech_sniper.intraday_scanner",
+    # f-m4-09: alpha-sniper-intraday.service was migrated from
+    # ``biotech_sniper.intraday_scanner`` (legacy news scan +
+    # email formatter) to ``biotech_sniper.intraday_run`` (the new
+    # adverse_news_check / stop_loss_tick / rotation_evaluate trio
+    # with per-step structured log tags).
+    "alpha-sniper-intraday.service": "biotech_sniper.intraday_run",
     "alpha-sniper-watchdog.service": "biotech_sniper.watchdog",
 }
 
