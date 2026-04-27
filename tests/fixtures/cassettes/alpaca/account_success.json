@@ -1,0 +1,15 @@
+{
+  "comment": "Hand-crafted cassette mimicking a 200 response from /v2/account on the Alpaca paper sandbox. Numeric fields are kept simple and well-known so test assertions can pin exact values. No real account data here.",
+  "type": "result",
+  "result": {
+    "id": "00000000-0000-0000-0000-000000000001",
+    "account_number": "PA-FAKE-0001",
+    "status": "ACTIVE",
+    "currency": "USD",
+    "buying_power": "200000.00",
+    "cash": "100000.00",
+    "equity": "100000.00",
+    "portfolio_value": "100000.00",
+    "options_buying_power": "100000.00"
+  }
+}

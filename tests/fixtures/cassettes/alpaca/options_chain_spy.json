@@ -1,0 +1,159 @@
+{
+  "comment": "Hand-crafted cassette mimicking SPY near-term chain — two calls, two puts. Bid/ask/IV/delta come from the snapshot side; strike/expiry/type/oi from the contracts side.",
+  "contracts": [
+    {
+      "id": "ct-1",
+      "symbol": "SPY250620C00500000",
+      "name": "SPY June 2025 500 Call",
+      "status": "active",
+      "tradable": true,
+      "expiration_date": "2025-06-20",
+      "root_symbol": "SPY",
+      "underlying_symbol": "SPY",
+      "underlying_asset_id": "00000000-0000-0000-0000-00000000abcd",
+      "type": "call",
+      "style": "american",
+      "strike_price": 500.0,
+      "size": "100",
+      "open_interest": "1234",
+      "open_interest_date": "2025-04-26",
+      "close_price": "12.45",
+      "close_price_date": "2025-04-26"
+    },
+    {
+      "id": "ct-2",
+      "symbol": "SPY250620C00510000",
+      "name": "SPY June 2025 510 Call",
+      "status": "active",
+      "tradable": true,
+      "expiration_date": "2025-06-20",
+      "root_symbol": "SPY",
+      "underlying_symbol": "SPY",
+      "underlying_asset_id": "00000000-0000-0000-0000-00000000abcd",
+      "type": "call",
+      "style": "american",
+      "strike_price": 510.0,
+      "size": "100",
+      "open_interest": "987",
+      "open_interest_date": "2025-04-26",
+      "close_price": "7.20",
+      "close_price_date": "2025-04-26"
+    },
+    {
+      "id": "ct-3",
+      "symbol": "SPY250620P00500000",
+      "name": "SPY June 2025 500 Put",
+      "status": "active",
+      "tradable": true,
+      "expiration_date": "2025-06-20",
+      "root_symbol": "SPY",
+      "underlying_symbol": "SPY",
+      "underlying_asset_id": "00000000-0000-0000-0000-00000000abcd",
+      "type": "put",
+      "style": "american",
+      "strike_price": 500.0,
+      "size": "100",
+      "open_interest": "2345",
+      "open_interest_date": "2025-04-26",
+      "close_price": "9.80",
+      "close_price_date": "2025-04-26"
+    },
+    {
+      "id": "ct-4",
+      "symbol": "SPY250620P00490000",
+      "name": "SPY June 2025 490 Put",
+      "status": "active",
+      "tradable": true,
+      "expiration_date": "2025-06-20",
+      "root_symbol": "SPY",
+      "underlying_symbol": "SPY",
+      "underlying_asset_id": "00000000-0000-0000-0000-00000000abcd",
+      "type": "put",
+      "style": "american",
+      "strike_price": 490.0,
+      "size": "100",
+      "open_interest": "1500",
+      "open_interest_date": "2025-04-26",
+      "close_price": "5.40",
+      "close_price_date": "2025-04-26"
+    }
+  ],
+  "snapshots": {
+    "SPY250620C00500000": {
+      "symbol": "SPY250620C00500000",
+      "latest_quote": {
+        "symbol": "SPY250620C00500000",
+        "timestamp": "2025-04-27T15:30:00Z",
+        "bid_price": 12.30,
+        "bid_size": 10,
+        "ask_price": 12.60,
+        "ask_size": 10
+      },
+      "implied_volatility": 0.182,
+      "greeks": {
+        "delta": 0.55,
+        "gamma": 0.02,
+        "rho": 0.10,
+        "theta": -0.05,
+        "vega": 0.30
+      }
+    },
+    "SPY250620C00510000": {
+      "symbol": "SPY250620C00510000",
+      "latest_quote": {
+        "symbol": "SPY250620C00510000",
+        "timestamp": "2025-04-27T15:30:00Z",
+        "bid_price": 7.10,
+        "bid_size": 5,
+        "ask_price": 7.30,
+        "ask_size": 5
+      },
+      "implied_volatility": 0.175,
+      "greeks": {
+        "delta": 0.42,
+        "gamma": 0.02,
+        "rho": 0.08,
+        "theta": -0.05,
+        "vega": 0.28
+      }
+    },
+    "SPY250620P00500000": {
+      "symbol": "SPY250620P00500000",
+      "latest_quote": {
+        "symbol": "SPY250620P00500000",
+        "timestamp": "2025-04-27T15:30:00Z",
+        "bid_price": 9.70,
+        "bid_size": 8,
+        "ask_price": 9.90,
+        "ask_size": 8
+      },
+      "implied_volatility": 0.190,
+      "greeks": {
+        "delta": -0.45,
+        "gamma": 0.02,
+        "rho": -0.08,
+        "theta": -0.05,
+        "vega": 0.30
+      }
+    },
+    "SPY250620P00490000": {
+      "symbol": "SPY250620P00490000",
+      "latest_quote": {
+        "symbol": "SPY250620P00490000",
+        "timestamp": "2025-04-27T15:30:00Z",
+        "bid_price": 5.30,
+        "bid_size": 12,
+        "ask_price": 5.50,
+        "ask_size": 12
+      },
+      "implied_volatility": 0.198,
+      "greeks": {
+        "delta": -0.32,
+        "gamma": 0.02,
+        "rho": -0.06,
+        "theta": -0.05,
+        "vega": 0.27
+      }
+    }
+  }
+}
