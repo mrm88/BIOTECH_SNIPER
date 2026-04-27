@@ -74,6 +74,39 @@ RISK_DEFAULTS: Final[dict[str, int]] = {
 
 
 # ---------------------------------------------------------------------------
+# Ensemble synthesis weights (M2 ensemble layer).
+# ---------------------------------------------------------------------------
+
+# ``ENSEMBLE_WEIGHTS`` describes the weighting applied by
+# :func:`biotech_sniper.llm.ensemble.compute_ensemble` when blending the
+# fast-tier (Grok-4) probability with the deep-tier (Claude / Gemini)
+# probabilities into a single ``ensemble_score``.
+#
+# Documented formula (see ``biotech_sniper.llm.ensemble``):
+#
+#     ensemble_score = w_grok   * grok_score
+#                    + w_claude * claude_probability
+#                    + w_gemini * gemini_probability
+#
+# The base weights below sum to 1.0. When a provider is disabled via
+# :data:`LLM_PROVIDERS` (or its API key is missing), its weight is
+# redistributed proportionally across the active providers so the
+# active weights still sum to 1.0. When the deep tier is disabled
+# entirely (``LLM_PROVIDERS["deep"] == []``), ``ensemble_score`` equals
+# ``grok_score`` (effective grok weight = 1.0).
+#
+# The weights below were chosen so the deep tier (combined Claude +
+# Gemini) carries 60% of the ensemble while the cheaper fast tier
+# carries the remaining 40%. Validators in ``tests/scoring/test_ensemble.py``
+# exercise this formula against fixed inputs.
+ENSEMBLE_WEIGHTS: Final[dict[str, float]] = {
+    "grok": 0.4,
+    "claude": 0.3,
+    "gemini": 0.3,
+}
+
+
+# ---------------------------------------------------------------------------
 # Helpers.
 # ---------------------------------------------------------------------------
 
@@ -199,6 +232,7 @@ def provider_enabled(provider: str) -> bool:
 
 __all__ = [
     "RISK_DEFAULTS",
+    "ENSEMBLE_WEIGHTS",
     "LIVE_MODE",
     "LLM_PROVIDERS",
     "get_xai_api_key",
