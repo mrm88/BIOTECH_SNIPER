@@ -65,6 +65,9 @@ i-understand-this-trades-real-money
 biotech_sniper/intelligence/*.json
 biotech_sniper/options_chains/*.txt
 biotech_sniper/*.xlsx
+# Some scripts emit the Biotech_Catalyst_Sniper_*.xlsx at the repo root
+# depending on the cwd from which they're invoked. Cover both locations.
+/Biotech_Catalyst_Sniper_*.xlsx
 
 # --- OS / editor noise -----------------------------------------------------
 **/.DS_Store
