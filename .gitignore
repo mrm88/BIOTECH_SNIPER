@@ -1,54 +1,70 @@
-# Python
-__pycache__/
+# Biotech Sniper — VCS ignores.
+#
+# Patterns are intentionally broad (``**/...``) so they match nested
+# locations like ``biotech_sniper/state/...`` as well as the top-level
+# ``state/``. The original 22k-LOC project committed runtime state JSONs
+# under ``biotech_sniper/state/`` — those have been moved to
+# ``migrations/seed/`` (so M2 can backfill from them) and the runtime
+# state directory is now gitignored to prevent leakage of new state files.
+
+# --- Python ----------------------------------------------------------------
+**/__pycache__/
+*.pyc
 *.py[cod]
 *$py.class
 *.so
 .Python
 
-# Virtual environments
-.venv/
-venv/
-env/
+# --- Virtual environments --------------------------------------------------
+**/.venv/
+**/venv/
+**/env/
 
-# Distribution / packaging
+# --- Distribution / packaging ----------------------------------------------
 build/
 dist/
 *.egg-info/
 *.egg
 
-# Environment / secrets
+# --- Secrets ---------------------------------------------------------------
 .env
 .env.local
+.env.*.local
 *.pem
 *.key
+
+# --- Live-trading confirmation marker (only the user creates this) --------
 i-understand-this-trades-real-money
 
-# State, data, db, logs
-data/*.db
-data/*.db-wal
-data/*.db-shm
-state/*.json
-state/*.jsonl
-logs/
-*.log
+# --- Runtime state, db, logs (broad patterns: match nested locations) -----
+**/state/*.json
+**/state/*.jsonl
+**/data/*.db
+**/data/*.db-wal
+**/data/*.db-shm
+**/logs/
+**/*.log
 
-# Reports (generated)
-reports/
+# --- Generated reports / models / backups ---------------------------------
+# Anything inside a ``reports/`` directory is treated as build-output and
+# never committed (ignore everything except a placeholder ``.gitkeep``).
+**/reports/*
+!**/reports/.gitkeep
+**/reports/*.xlsx
+**/reports/*.pdf
+**/reports/*.html
+**/models/*.lgb
+**/backups/*.gz
 
-# Backups
-backups/
-
-# OS
-.DS_Store
+# --- OS / editor noise -----------------------------------------------------
+**/.DS_Store
 Thumbs.db
-
-# Editor
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# Pytest / coverage
+# --- Pytest / coverage -----------------------------------------------------
 .pytest_cache/
 .coverage
 htmlcov/
