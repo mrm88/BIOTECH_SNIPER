@@ -74,6 +74,101 @@ RISK_DEFAULTS: Final[dict[str, int]] = {
 
 
 # ---------------------------------------------------------------------------
+# Position sizing & paper-executor caps (M3 feature f-m3-04).
+# ---------------------------------------------------------------------------
+
+# ``RISK_PER_PLAY_USD`` is the default per-play USD cap consumed by
+# :func:`biotech_sniper.paper_executor.size_position` when computing the
+# contract count for an entry. The contract is
+# ``contracts = floor(RISK_PER_PLAY_USD / (mid * 100))``; ``mid`` is
+# the (bid + ask) / 2 from the chain row attached to the play card.
+#
+# Operators can override the cap on a per-deployment basis by writing
+# ``{"risk_per_play_usd": <int>}`` into ``state/calibration_params.json``.
+# :func:`get_risk_per_play_usd` reads that override at call time so the
+# value is hot-reloadable without an executor restart.
+RISK_PER_PLAY_USD: Final[int] = 250
+
+# ``MAX_CONCURRENT_PLAYS`` caps the number of simultaneously-active
+# Alpaca options positions. The paper executor calls
+# ``client.get_positions()`` and refuses to submit a new entry once the
+# returned length reaches this value (raising
+# ``ConcurrencyCapExceeded``). Distinct from
+# :data:`RISK_DEFAULTS["max_concurrent"]` (which is the broader
+# mission-wide ceiling); the M3 paper executor uses the tighter
+# value below per the f-m3-04 contract.
+MAX_CONCURRENT_PLAYS: Final[int] = 3
+
+# ``MAX_DEPLOYED_USD`` caps the total deployed capital across active
+# Alpaca options positions. Computed as
+# ``sum(qty * avg_entry_price * 100)`` and compared against this
+# constant plus the planned cost of the new entry; submissions that
+# would push the sum above this cap raise ``DeployedCapExceeded``.
+MAX_DEPLOYED_USD: Final[int] = 750
+
+
+def get_risk_per_play_usd() -> int:
+    """Return the effective per-play risk cap in USD.
+
+    Honours an optional ``state/calibration_params.json`` file with
+    a ``risk_per_play_usd`` key — when present and parseable, that
+    integer overrides :data:`RISK_PER_PLAY_USD`. Missing or
+    unparseable JSON / non-numeric override values fall back to the
+    default with a WARNING log so operators can tell the override
+    was rejected without crashing the run.
+
+    The state file is read at every call so the override is
+    hot-reloadable; the executor does not need to be restarted to
+    pick up a tuning change.
+    """
+    import json
+    import logging
+
+    from biotech_sniper.paths import STATE_DIR
+
+    calibration_path = STATE_DIR / "calibration_params.json"
+    try:
+        if not calibration_path.is_file():
+            return RISK_PER_PLAY_USD
+        raw = calibration_path.read_text(encoding="utf-8")
+    except OSError:
+        logging.getLogger(__name__).warning(
+            "calibration_params.json present but unreadable at %s; "
+            "falling back to RISK_PER_PLAY_USD=%d",
+            calibration_path,
+            RISK_PER_PLAY_USD,
+        )
+        return RISK_PER_PLAY_USD
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        logging.getLogger(__name__).warning(
+            "calibration_params.json at %s is not valid JSON; "
+            "falling back to RISK_PER_PLAY_USD=%d",
+            calibration_path,
+            RISK_PER_PLAY_USD,
+        )
+        return RISK_PER_PLAY_USD
+
+    if not isinstance(data, dict):
+        return RISK_PER_PLAY_USD
+    override = data.get("risk_per_play_usd")
+    if override is None:
+        return RISK_PER_PLAY_USD
+    try:
+        return int(override)
+    except (TypeError, ValueError):
+        logging.getLogger(__name__).warning(
+            "calibration_params.json.risk_per_play_usd=%r is not numeric; "
+            "falling back to RISK_PER_PLAY_USD=%d",
+            override,
+            RISK_PER_PLAY_USD,
+        )
+        return RISK_PER_PLAY_USD
+
+
+# ---------------------------------------------------------------------------
 # Ensemble synthesis weights (M2 ensemble layer).
 # ---------------------------------------------------------------------------
 
@@ -267,6 +362,9 @@ def provider_enabled(provider: str) -> bool:
 
 __all__ = [
     "RISK_DEFAULTS",
+    "RISK_PER_PLAY_USD",
+    "MAX_CONCURRENT_PLAYS",
+    "MAX_DEPLOYED_USD",
     "ENSEMBLE_WEIGHTS",
     "MIN_ENSEMBLE_SCORE",
     "MIN_SCIENCE_GRADE",
@@ -279,5 +377,6 @@ __all__ = [
     "get_alpaca_secret_key",
     "get_alpaca_base_url",
     "get_biotech_sniper_home",
+    "get_risk_per_play_usd",
     "provider_enabled",
 ]

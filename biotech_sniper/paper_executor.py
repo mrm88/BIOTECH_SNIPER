@@ -38,15 +38,40 @@ Validation contract assertions fulfilled
   msg>'``, and never persists a row with ``status='submitted'`` for
   the failed attempt.
 
-Sizing logic (``$250`` cap, mid-price computation, concurrency / capital
-caps) is intentionally **not** implemented in this module — it lands
-in feature ``f-m3-04`` (``size_position``). Likewise, full execution
-telemetry / liquidity probing lands in ``f-m3-11`` and ``f-m3-12``.
+Sizing logic — ``size_position(play_card)``, the ``$250``
+``RISK_PER_PLAY_USD`` cap, the mid-price computation
+(``mid = (bid + ask) / 2`` from the chain row), the concurrency cap
+(``MAX_CONCURRENT_PLAYS=3``), and the deployed-capital cap
+(``MAX_DEPLOYED_USD=750``) — all land in feature ``f-m3-04`` and
+live in this module. Constants are sourced from
+:mod:`biotech_sniper.config` so the executor body has no hardcoded
+cap literals (validators grep for the cap values to catch
+regressions). Full execution telemetry / liquidity probing lands
+in ``f-m3-11`` and ``f-m3-12``.
+
+Validation contract assertions added by f-m3-04
+-----------------------------------------------
+
+* **VAL-M3-019** — ``size_position(play_card)`` returns
+  ``floor(RISK_PER_PLAY_USD / (mid * 100))`` when ``mid * 100 ≤
+  RISK_PER_PLAY_USD``.
+* **VAL-M3-020** — ``mid = (bid + ask) / 2``; both bid and ask
+  zero/None raises :class:`MissingQuoteData`.
+* **VAL-M3-021** — ``mid * 100 > RISK_PER_PLAY_USD`` returns
+  ``qty=0`` from ``size_position`` and raises
+  :class:`ContractTooExpensive` from ``execute``.
+* **VAL-M3-022** — ``state/calibration_params.json``
+  ``risk_per_play_usd`` overrides the default cap when present.
+* **VAL-M3-023** — ``len(client.get_positions()) >=
+  MAX_CONCURRENT_PLAYS`` raises :class:`ConcurrencyCapExceeded`.
+* **VAL-M3-024** — ``deployed + planned_cost > MAX_DEPLOYED_USD``
+  raises :class:`DeployedCapExceeded`.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 import sqlite3
 import time
 import uuid
@@ -56,6 +81,7 @@ from typing import Any, Mapping, Optional, Sequence
 from alpaca.trading.enums import OrderSide, OrderType, TimeInForce
 from alpaca.trading.requests import LimitOrderRequest, MarketOrderRequest
 
+from biotech_sniper import config as _config
 from biotech_sniper import db as db_module
 from biotech_sniper.alpaca_client import (
     AlpacaClient,
@@ -71,6 +97,11 @@ __all__ = [
     "PaperOnlyViolation",
     "UnsupportedOrderShape",
     "OrderRejected",
+    "ContractTooExpensive",
+    "ConcurrencyCapExceeded",
+    "DeployedCapExceeded",
+    "MissingQuoteData",
+    "size_position",
     "DEFAULT_DB_PATH",
     "TERMINAL_STATUSES",
     "FILLED_STATUSES",
@@ -149,6 +180,50 @@ class OrderRejected(PaperExecutorError):
     """
 
 
+class MissingQuoteData(PaperExecutorError):
+    """Raised by :func:`size_position` when bid AND ask are unusable.
+
+    The play card's chain row must carry usable bid/ask. ``last``
+    alone is not a substitute — entering on a stale "last" risks
+    huge slippage on illiquid options. We refuse to guess and raise
+    so the caller surfaces the incomplete chain to the operator.
+    """
+
+
+class ContractTooExpensive(PaperExecutorError):
+    """Raised when a single contract costs more than the per-play cap.
+
+    :func:`size_position` returns ``0`` in that case (cannot size a
+    fractional contract); :meth:`PaperExecutor.execute` re-raises
+    this exception so callers know the play was skipped because of
+    the price, not because of a broker rejection. A row with
+    ``status='rejected'`` is persisted before the exception is
+    raised so the orders table reflects the skip per VAL-M3-033.
+    """
+
+
+class ConcurrencyCapExceeded(PaperExecutorError):
+    """Raised when ``len(client.get_positions()) >= MAX_CONCURRENT_PLAYS``.
+
+    The cap is sourced from :data:`biotech_sniper.config.MAX_CONCURRENT_PLAYS`
+    so the executor body has no hardcoded literal. A
+    ``status='rejected'`` row is persisted with the exception message
+    in ``reason`` for auditability (VAL-M3-033).
+    """
+
+
+class DeployedCapExceeded(PaperExecutorError):
+    """Raised when the planned entry would push deployed > MAX_DEPLOYED_USD.
+
+    Deployed capital is computed as
+    ``sum(qty * avg_entry_price * 100)`` over the broker's open
+    positions. The cap is sourced from
+    :data:`biotech_sniper.config.MAX_DEPLOYED_USD`. A
+    ``status='rejected'`` row is persisted with the exception
+    message in ``reason``.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -217,7 +292,11 @@ def _coerce_tif(value: Any) -> TimeInForce:
     )
 
 
-def _validate_single_leg(play_card: Mapping[str, Any]) -> Mapping[str, Any]:
+def _validate_single_leg(
+    play_card: Mapping[str, Any],
+    *,
+    require_qty: bool = True,
+) -> Mapping[str, Any]:
     """Return the single leg from ``play_card['option_legs']`` or raise.
 
     The validator runs BEFORE any network call so a rejected play
@@ -229,8 +308,11 @@ def _validate_single_leg(play_card: Mapping[str, Any]) -> Mapping[str, Any]:
     * ``play_card['order_class']``, when present, MUST equal
       ``'simple'``. ``'mleg'`` / ``'bracket'`` etc. raise.
     * The single leg MUST have a non-empty ``symbol`` (the OCC
-      option symbol the broker recognises) and a positive integer
-      ``qty``. Missing / invalid values raise.
+      option symbol the broker recognises) and, when ``require_qty``
+      is ``True`` (the default for the ``execute`` path), a positive
+      integer ``qty``. ``size_position`` calls this with
+      ``require_qty=False`` since it computes the qty itself from
+      the chain quote.
     * The leg's ``option_type``, when present, MUST be ``'call'`` or
       ``'put'``. Anything else raises (defence against a future
       writer adding an unsupported strategy).
@@ -272,17 +354,18 @@ def _validate_single_leg(play_card: Mapping[str, Any]) -> Mapping[str, Any]:
             "option_legs[0]['symbol'] must be a non-empty OCC option symbol"
         )
 
-    qty_raw = leg.get("qty")
-    try:
-        qty = int(qty_raw)
-    except (TypeError, ValueError):
-        raise UnsupportedOrderShape(
-            f"option_legs[0]['qty'] must be a positive integer, got {qty_raw!r}"
-        )
-    if qty < 1:
-        raise UnsupportedOrderShape(
-            f"option_legs[0]['qty'] must be >= 1, got {qty}"
-        )
+    if require_qty:
+        qty_raw = leg.get("qty")
+        try:
+            qty = int(qty_raw)
+        except (TypeError, ValueError):
+            raise UnsupportedOrderShape(
+                f"option_legs[0]['qty'] must be a positive integer, got {qty_raw!r}"
+            )
+        if qty < 1:
+            raise UnsupportedOrderShape(
+                f"option_legs[0]['qty'] must be >= 1, got {qty}"
+            )
 
     option_type = leg.get("option_type")
     if option_type is not None:
@@ -294,6 +377,129 @@ def _validate_single_leg(play_card: Mapping[str, Any]) -> Mapping[str, Any]:
             )
 
     return leg
+
+
+def _coerce_quote(value: Any) -> float:
+    """Return ``float(value)`` clamped to ``>= 0`` or ``0.0`` on parse fail.
+
+    Quotes from chain rows can arrive as ``None`` (no recent quote),
+    integers, or strings; downstream math wants a non-negative
+    float. We fail soft to ``0.0`` here so the caller decides whether
+    a missing-quote situation is fatal (it is for both bid AND ask)
+    or merely partial (a one-sided quote is still usable for the
+    mid).
+    """
+    if value is None:
+        return 0.0
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return out if out > 0.0 else 0.0
+
+
+def size_position(
+    play_card: Mapping[str, Any],
+    *,
+    risk_per_play_usd: Optional[int] = None,
+) -> int:
+    """Return the contract qty implied by the play card's quote + cap.
+
+    Reads ``play_card['option_legs'][0]['bid']`` and ``['ask']``,
+    computes ``mid = (bid + ask) / 2``, then returns
+    ``floor(cap / (mid * 100))`` where ``cap`` is the per-play USD
+    risk cap (``risk_per_play_usd`` when supplied; otherwise
+    :func:`biotech_sniper.config.get_risk_per_play_usd` which honours
+    ``state/calibration_params.json``).
+
+    Returns ``0`` when ``mid * 100 > cap`` (a single contract would
+    blow the per-play cap; ``execute`` translates this into a
+    :class:`ContractTooExpensive` rejection).
+
+    Raises :class:`MissingQuoteData` when both bid AND ask are
+    missing/zero — refusing to guess from ``last`` keeps the sizing
+    deterministic and avoids slippage on illiquid options.
+
+    Note: this function does NOT mutate the play card; the caller
+    receives the qty and decides what to do with it.
+    """
+    leg = _validate_single_leg(play_card, require_qty=False)
+    bid = _coerce_quote(leg.get("bid"))
+    ask = _coerce_quote(leg.get("ask"))
+
+    if bid <= 0.0 and ask <= 0.0:
+        raise MissingQuoteData(
+            "option_legs[0] has no usable bid or ask: "
+            f"bid={leg.get('bid')!r}, ask={leg.get('ask')!r}. "
+            "size_position refuses to size from `last` alone."
+        )
+
+    mid = (bid + ask) / 2.0
+    cost_per_contract = mid * 100.0
+
+    cap = (
+        risk_per_play_usd
+        if risk_per_play_usd is not None
+        else _config.get_risk_per_play_usd()
+    )
+
+    if cost_per_contract > cap:
+        return 0
+
+    if cost_per_contract <= 0:
+        # Defensive: bid+ask both > 0 but mid * 100 <= 0 cannot happen
+        # arithmetically; treat it as "no size" rather than divide-by-zero.
+        return 0
+
+    return int(math.floor(cap / cost_per_contract))
+
+
+def _planned_cost_usd(leg: Mapping[str, Any], qty: int) -> float:
+    """Return the projected dollar cost of entering ``qty`` of ``leg``.
+
+    Prefers the chain mid (``(bid + ask) / 2``) as the most accurate
+    fillable price; falls back to ``limit_price`` and finally to
+    ``0.0`` when neither is available. Multiplied by 100 because
+    each option contract represents 100 underlying shares.
+    """
+    bid = _coerce_quote(leg.get("bid"))
+    ask = _coerce_quote(leg.get("ask"))
+    if bid > 0.0 and ask > 0.0:
+        per_contract = (bid + ask) / 2.0
+    elif bid > 0.0 or ask > 0.0:
+        per_contract = bid + ask  # one-sided, use the populated leg
+    else:
+        try:
+            per_contract = float(leg.get("limit_price") or 0.0)
+        except (TypeError, ValueError):
+            per_contract = 0.0
+    return float(qty) * per_contract * 100.0
+
+
+def _deployed_capital_usd(positions: Sequence[Mapping[str, Any]]) -> float:
+    """Sum ``qty * avg_entry_price * 100`` across active positions.
+
+    Mirrors VAL-M3-024 exactly. Missing or unparseable fields are
+    treated as ``0.0`` so a malformed broker payload does not
+    artificially relax the cap. Numeric coercion handles the
+    pydantic-typed ``Decimal`` values alpaca-py occasionally emits.
+    """
+    total = 0.0
+    for position in positions or ():
+        if not isinstance(position, Mapping):
+            continue
+        qty_raw = position.get("qty")
+        avg_raw = position.get("avg_entry_price")
+        try:
+            qty = float(qty_raw) if qty_raw is not None else 0.0
+        except (TypeError, ValueError):
+            qty = 0.0
+        try:
+            avg = float(avg_raw) if avg_raw is not None else 0.0
+        except (TypeError, ValueError):
+            avg = 0.0
+        total += abs(qty) * avg * 100.0
+    return total
 
 
 def _broker_reason(exc: BaseException) -> str:
@@ -500,6 +706,17 @@ class PaperExecutor:
             ``status='rejected'`` and ``reason=<broker msg>`` is
             persisted before the exception is raised; no
             ``status='submitted'`` row is left behind.
+        ContractTooExpensive
+            If :func:`size_position` returns ``0`` for the supplied
+            chain quote (mid * 100 > per-play cap). A
+            ``status='rejected'`` row is persisted before the
+            exception is raised. No order is submitted.
+        ConcurrencyCapExceeded
+            If the broker already reports ≥ ``MAX_CONCURRENT_PLAYS``
+            open positions. Persists a ``status='rejected'`` row.
+        DeployedCapExceeded
+            If ``deployed_capital + planned_cost > MAX_DEPLOYED_USD``.
+            Persists a ``status='rejected'`` row.
         PaperOnlyViolation
             (Re-checked on every call as defence-in-depth.) If the
             wrapped client's ``base_url`` ever drifts away from the
@@ -514,20 +731,189 @@ class PaperExecutor:
                 f"{PAPER_BASE_URL!r}; refusing to submit order."
             )
 
-        leg = _validate_single_leg(play_card)
-
         play_card_id = play_card.get("play_card_id")
         parent_play_card_id = play_card.get("parent_play_card_id")
+        event = play_card.get("event")
+
+        # f-m3-04: when the leg carries a chain quote (bid/ask), run
+        # ``size_position`` to derive the contract count. A ``0``
+        # result means the contract alone exceeds the per-play cap;
+        # we persist a rejection row and raise
+        # :class:`ContractTooExpensive`. When the leg already carries
+        # an explicit ``qty`` (legacy callers / pre-sized cards), we
+        # honour it and skip sizing — `_validate_single_leg` will
+        # surface a missing-qty as ``UnsupportedOrderShape``.
+        legs_preview = play_card.get("option_legs")
+        leg_preview: Mapping[str, Any] = (
+            legs_preview[0]
+            if isinstance(legs_preview, Sequence)
+            and not isinstance(legs_preview, (str, bytes))
+            and len(legs_preview) >= 1
+            and isinstance(legs_preview[0], Mapping)
+            else {}
+        )
+        has_quote = (
+            leg_preview.get("bid") is not None
+            or leg_preview.get("ask") is not None
+        )
+        has_explicit_qty = leg_preview.get("qty") is not None
+
+        if has_quote and not has_explicit_qty:
+            sized_qty = size_position(play_card)
+            if sized_qty == 0:
+                cap = _config.get_risk_per_play_usd()
+                bid = _coerce_quote(leg_preview.get("bid"))
+                ask = _coerce_quote(leg_preview.get("ask"))
+                mid = (bid + ask) / 2.0 if (bid + ask) > 0 else 0.0
+                msg = (
+                    f"ContractTooExpensive: mid=${mid:.2f} (bid={bid}, "
+                    f"ask={ask}) implies ${mid * 100:.2f} per contract, "
+                    f"exceeds risk_per_play_usd=${cap}"
+                )
+                logger.warning(
+                    "paper_executor.contract_too_expensive play_card_id=%s "
+                    "symbol=%s mid=%.4f cap=%s",
+                    play_card_id,
+                    leg_preview.get("symbol"),
+                    mid,
+                    cap,
+                )
+                self._persist_order_row(
+                    order_id=uuid.uuid4().hex,
+                    play_card_id=play_card_id,
+                    alpaca_order_id=None,
+                    symbol=str(leg_preview.get("symbol") or "") or None,
+                    side=str(leg_preview.get("side") or "buy"),
+                    qty=0,
+                    status="rejected",
+                    reason=msg,
+                    event=event,
+                    parent_play_card_id=parent_play_card_id,
+                )
+                raise ContractTooExpensive(msg)
+
+            # Inject the sized qty so the rest of the pipeline (the
+            # standard ``_validate_single_leg`` + alpaca-py request
+            # builder) sees a fully-populated leg without us needing
+            # to mutate the caller's play_card.
+            sized_leg = {**leg_preview, "qty": sized_qty}
+            play_card = {**play_card, "option_legs": [sized_leg]}
+
+        leg = _validate_single_leg(play_card)
+
         client_order_id = play_card.get("client_order_id") or leg.get(
             "client_order_id"
         )
-        event = play_card.get("event")
 
         symbol = str(leg["symbol"])
         qty = int(leg["qty"])
         side = _coerce_side(leg.get("side", "buy"))
         tif = _coerce_tif(leg.get("time_in_force"))
         limit_price = leg.get("limit_price")
+        side_str = side.value if hasattr(side, "value") else str(side)
+
+        # f-m3-04: Concurrency + deployed-capital caps. Both are
+        # sourced from :mod:`biotech_sniper.config` so this module
+        # has no hardcoded literals (validators grep the cap values
+        # to catch regressions).
+        # ``get_positions`` is invoked via a duck-typed lookup so
+        # exit-only callers (or tests that omit positions on the
+        # client double) degrade to "no caps" rather than crashing
+        # — production callers always pass an
+        # :class:`AlpacaClient`, which implements ``get_positions``.
+        positions: list[dict[str, Any]] = []
+        get_positions = getattr(self.client, "get_positions", None)
+        if callable(get_positions):
+            try:
+                raw_positions = get_positions() or []
+            except AlpacaClientError as exc:
+                # Surface broker errors during the cap probe as a
+                # rejection so the orders table reflects the failure
+                # without leaking a half-submitted entry.
+                reason = _broker_reason(exc)
+                logger.warning(
+                    "paper_executor.position_probe_failed "
+                    "play_card_id=%s reason=%s",
+                    play_card_id,
+                    reason,
+                )
+                self._persist_order_row(
+                    order_id=uuid.uuid4().hex,
+                    play_card_id=play_card_id,
+                    alpaca_order_id=None,
+                    symbol=symbol,
+                    side=side_str,
+                    qty=qty,
+                    status="rejected",
+                    reason=f"OrderRejected: {reason}",
+                    event=event,
+                    parent_play_card_id=parent_play_card_id,
+                )
+                raise OrderRejected(
+                    f"Failed to read positions before submission: {reason}"
+                ) from exc
+            positions = list(raw_positions)
+
+        cap_concurrent = _config.MAX_CONCURRENT_PLAYS
+        if len(positions) >= cap_concurrent:
+            msg = (
+                f"ConcurrencyCapExceeded: {len(positions)} active positions "
+                f"meets/exceeds MAX_CONCURRENT_PLAYS={cap_concurrent}"
+            )
+            logger.warning(
+                "paper_executor.concurrency_cap_exceeded play_card_id=%s "
+                "symbol=%s active=%s cap=%s",
+                play_card_id,
+                symbol,
+                len(positions),
+                cap_concurrent,
+            )
+            self._persist_order_row(
+                order_id=uuid.uuid4().hex,
+                play_card_id=play_card_id,
+                alpaca_order_id=None,
+                symbol=symbol,
+                side=side_str,
+                qty=qty,
+                status="rejected",
+                reason=msg,
+                event=event,
+                parent_play_card_id=parent_play_card_id,
+            )
+            raise ConcurrencyCapExceeded(msg)
+
+        cap_deployed = _config.MAX_DEPLOYED_USD
+        deployed = _deployed_capital_usd(positions)
+        planned_cost = _planned_cost_usd(leg, qty)
+        if (deployed + planned_cost) > cap_deployed:
+            msg = (
+                f"DeployedCapExceeded: deployed=${deployed:.2f} + "
+                f"planned=${planned_cost:.2f} = "
+                f"${deployed + planned_cost:.2f} > "
+                f"MAX_DEPLOYED_USD=${cap_deployed}"
+            )
+            logger.warning(
+                "paper_executor.deployed_cap_exceeded play_card_id=%s "
+                "symbol=%s deployed=%.2f planned=%.2f cap=%s",
+                play_card_id,
+                symbol,
+                deployed,
+                planned_cost,
+                cap_deployed,
+            )
+            self._persist_order_row(
+                order_id=uuid.uuid4().hex,
+                play_card_id=play_card_id,
+                alpaca_order_id=None,
+                symbol=symbol,
+                side=side_str,
+                qty=qty,
+                status="rejected",
+                reason=msg,
+                event=event,
+                parent_play_card_id=parent_play_card_id,
+            )
+            raise DeployedCapExceeded(msg)
 
         # Build the alpaca-py request model. We deliberately use a
         # typed request rather than a dict so the SDK's pydantic
@@ -556,7 +942,6 @@ class PaperExecutor:
             )
 
         internal_id = uuid.uuid4().hex
-        side_str = side.value if hasattr(side, "value") else str(side)
 
         try:
             order_dict = self.client.submit_order(order_request)

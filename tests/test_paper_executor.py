@@ -74,13 +74,20 @@ class _FakeAlpacaClient:
         submit_order_results: list[Any] | None = None,
         submit_order_error: Exception | None = None,
         get_order_results: list[Any] | None = None,
+        positions: list[dict[str, Any]] | None = None,
     ) -> None:
         self.base_url = base_url
         self._submit_results = list(submit_order_results or [])
         self._submit_error = submit_order_error
         self._get_order_results = list(get_order_results or [])
+        self._positions = list(positions or [])
         self.submit_calls: list[Any] = []
         self.get_order_calls: list[str] = []
+        self.get_positions_calls: int = 0
+
+    def get_positions(self) -> list[dict[str, Any]]:
+        self.get_positions_calls += 1
+        return list(self._positions)
 
     def submit_order(self, order_request: Any) -> dict[str, Any]:
         self.submit_calls.append(order_request)
