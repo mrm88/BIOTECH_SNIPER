@@ -54,9 +54,152 @@ from biotech_sniper.llm.ensemble import (  # noqa: F401 (re-exported)
     compute_ensemble,
     letter_grade_distance,
 )
+from biotech_sniper.llm.claude_client import LETTER_GRADE_ORDER  # noqa: F401
 
 ACTIVE_PLAYS_FILE = BASE_DIR / "state/active_plays.json"
 SCORING_CACHE_FILE = BASE_DIR / "state/scoring_cache.json"
+
+
+# ---------------------------------------------------------------------------
+# f-m2-11 — Selection logic (top-N from scoring_cache).
+# ---------------------------------------------------------------------------
+
+
+def _grades_at_or_above(min_grade: str) -> list[str]:
+    """Return the canonical letter grades that satisfy ``>= min_grade``.
+
+    :data:`LETTER_GRADE_ORDER` runs from best (``"A+"``, index 0) to
+    worst (``"F"``). A grade ``g`` "passes" when its index is **less
+    than or equal to** the index of ``min_grade``. This helper
+    materialises that allowed-list so callers can use a SQLite ``IN``
+    clause instead of relying on lexicographic ``>=`` (which would
+    incorrectly mark ``"B-"`` as worse than ``"C"`` because of ASCII
+    ordering of the modifier characters).
+
+    ``min_grade`` MUST be a member of :data:`LETTER_GRADE_ORDER` —
+    callers receive a deterministic :class:`ValueError` otherwise so
+    typos surface in the test suite rather than silently dropping all
+    candidates.
+    """
+    if min_grade not in LETTER_GRADE_ORDER:
+        raise ValueError(
+            f"select_top_n: min_grade={min_grade!r} is not a member of "
+            f"LETTER_GRADE_ORDER={LETTER_GRADE_ORDER}"
+        )
+    cutoff = LETTER_GRADE_ORDER.index(min_grade)
+    return list(LETTER_GRADE_ORDER[: cutoff + 1])
+
+
+def select_top_n(
+    as_of_date: str,
+    n: int,
+    *,
+    min_ensemble_score: float | None = None,
+    min_science_grade: str | None = None,
+    db_path=None,
+) -> list[dict]:
+    """Return the top-N candidates from ``scoring_cache`` for ``as_of_date``.
+
+    Behaviour (per the f-m2-11 / VAL-M2-077 / VAL-M2-078 contract):
+
+    * Reads from the SQLite ``scoring_cache`` table at
+      ``DATA_DIR / "alpha_sniper.db"`` (override via ``db_path``).
+    * Filters rows to ``as_of_date`` (ISO date string, e.g.
+      ``"2026-04-27"``).
+    * Drops any row whose ``ensemble_score`` is ``NULL`` or
+      ``< MIN_ENSEMBLE_SCORE`` (override via ``min_ensemble_score``).
+    * Drops any row whose ``science_grade`` is ``NULL`` or worse than
+      :data:`biotech_sniper.config.MIN_SCIENCE_GRADE` (override via
+      ``min_science_grade``).
+    * Orders survivors by ``ensemble_score DESC`` with a deterministic
+      tie-break on ``ticker ASC`` so two scoring runs on the same
+      data return the same ordered list.
+    * Caps the survivor list at ``n`` candidates.
+
+    ``n`` is the only required parameter alongside ``as_of_date``;
+    callers typically pass :data:`config.RISK_DEFAULTS["max_concurrent"]`.
+    Negative or zero ``n`` returns ``[]`` immediately. Returns ``[]``
+    when the SQLite db file does not yet exist (fresh checkouts) so
+    the play-card writer can no-op cleanly on a cold start.
+
+    Returns
+    -------
+    list[dict]
+        One dict per surviving candidate, in score-desc order. Keys:
+        ``id``, ``ticker``, ``as_of_date``, ``ensemble_score``,
+        ``science_grade``, ``claude_grade``, ``claude_probability``,
+        ``gemini_grade``, ``gemini_probability``, ``grok_score``,
+        ``grok_rank``, ``divergence_flag``, ``payload``,
+        ``created_at``. ``payload`` is left as the raw JSON string
+        (callers can ``json.loads`` if they need the breakdown).
+    """
+    # Local imports keep this module import-safe before the SQLite layer
+    # is wired up (e.g. on a fresh checkout where data/ is empty).
+    from biotech_sniper import config as _config
+    from biotech_sniper import db as _db
+    from biotech_sniper.paths import DATA_DIR
+
+    if n is None or n <= 0:
+        return []
+
+    threshold_score = (
+        float(min_ensemble_score)
+        if min_ensemble_score is not None
+        else float(_config.MIN_ENSEMBLE_SCORE)
+    )
+    threshold_grade = (
+        str(min_science_grade)
+        if min_science_grade is not None
+        else str(_config.MIN_SCIENCE_GRADE)
+    )
+
+    allowed_grades = _grades_at_or_above(threshold_grade)
+    if not allowed_grades:
+        # Defensive: ``_grades_at_or_above`` already validates the
+        # input, so this branch is unreachable in normal use.
+        return []
+
+    target_path = Path(db_path) if db_path is not None else DATA_DIR / "alpha_sniper.db"
+    if not target_path.exists():
+        return []
+
+    try:
+        conn = _db.connect(target_path)
+    except Exception:
+        return []
+    try:
+        try:
+            _db.run_migrations(conn)
+        except Exception:
+            return []
+
+        placeholders = ", ".join("?" for _ in allowed_grades)
+        query = (
+            "SELECT id, ticker, as_of_date, grok_rank, grok_score, "
+            "claude_grade, claude_probability, gemini_grade, "
+            "gemini_probability, science_grade, ensemble_score, "
+            "divergence_flag, payload, created_at "
+            "FROM scoring_cache "
+            "WHERE as_of_date = ? "
+            "  AND ensemble_score IS NOT NULL "
+            "  AND ensemble_score >= ? "
+            "  AND science_grade IS NOT NULL "
+            f"  AND science_grade IN ({placeholders}) "
+            "ORDER BY ensemble_score DESC, ticker ASC "
+            "LIMIT ?"
+        )
+        params: list = [as_of_date, threshold_score, *allowed_grades, int(n)]
+        rows = conn.execute(query, params).fetchall()
+    finally:
+        conn.close()
+
+    results: list[dict] = []
+    for row in rows:
+        item = dict(row)
+        item["divergence_flag"] = bool(item.get("divergence_flag"))
+        results.append(item)
+    return results
+
 
 def load_active_plays():
     if ACTIVE_PLAYS_FILE.exists():

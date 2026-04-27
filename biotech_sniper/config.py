@@ -107,6 +107,41 @@ ENSEMBLE_WEIGHTS: Final[dict[str, float]] = {
 
 
 # ---------------------------------------------------------------------------
+# Selection thresholds (M2 selection logic — f-m2-11).
+# ---------------------------------------------------------------------------
+
+# ``MIN_ENSEMBLE_SCORE`` is the minimum :data:`ensemble_score` (a float
+# in ``[0.0, 1.0]``) a candidate must reach in
+# :func:`biotech_sniper.sectors.unified_scorer.select_top_n` before it
+# can be promoted to a play card under
+# ``play_cards/YYYY-MM-DD/<TICKER>.json``.
+#
+# Default ``0.55`` is the documented baseline for the M2 build and is
+# expected to be tuned by the M5 LightGBM ranker once the calibration
+# dataset is large enough. A higher value tightens selection; a lower
+# value lets weaker candidates through. Keep the value in ``[0, 1]``
+# since :data:`ensemble_score` is itself a probability.
+MIN_ENSEMBLE_SCORE: Final[float] = 0.55
+
+
+# ``MIN_SCIENCE_GRADE`` is the minimum letter grade (per
+# :data:`biotech_sniper.llm.claude_client.LETTER_GRADE_ORDER`) the
+# deep-tier ``science_grade`` must reach for a candidate to be
+# promoted in :func:`select_top_n`. A grade is "good enough" when its
+# index in :data:`LETTER_GRADE_ORDER` (lower index = better grade) is
+# **less than or equal to** the index of ``MIN_SCIENCE_GRADE``.
+#
+# Default ``"C+"`` matches the f-m2-11 spec — it admits A/B/C+ tiers
+# and rejects C / C- / D / F. The grade is a string compared via the
+# canonical ordering (NOT lexicographic), so naive ``science_grade >=
+# "C+"`` SQL comparison is *not* sufficient for non-trivial ties (e.g.
+# ``"B-"`` is alphabetically less than ``"C"`` but a better grade);
+# the selection helper translates this constant into the canonical
+# allowed-list before issuing the SQLite query.
+MIN_SCIENCE_GRADE: Final[str] = "C+"
+
+
+# ---------------------------------------------------------------------------
 # Helpers.
 # ---------------------------------------------------------------------------
 
@@ -233,6 +268,8 @@ def provider_enabled(provider: str) -> bool:
 __all__ = [
     "RISK_DEFAULTS",
     "ENSEMBLE_WEIGHTS",
+    "MIN_ENSEMBLE_SCORE",
+    "MIN_SCIENCE_GRADE",
     "LIVE_MODE",
     "LLM_PROVIDERS",
     "get_xai_api_key",

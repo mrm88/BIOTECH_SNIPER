@@ -14,6 +14,143 @@ from pathlib import Path
 from biotech_sniper.paths import BASE_DIR as BASE
 
 
+# ---------------------------------------------------------------------------
+# f-m2-11 — Play-card emission from select_top_n.
+#
+# The cards under ``play_cards/YYYY-MM-DD/`` correspond exactly to the
+# ordered output of
+# :func:`biotech_sniper.sectors.unified_scorer.select_top_n` — same
+# tickers, same score-desc ordering, same threshold filters. The
+# helpers below write one JSON file per ticker named ``<TICKER>.json``
+# so that the M2-077 ``ls play_cards/YYYY-MM-DD/ | sed 's/\\.json//'``
+# validator can compare directly against the SQL selection.
+# ---------------------------------------------------------------------------
+
+
+def _play_cards_root(base_dir: Path | None = None) -> Path:
+    """Return the ``play_cards/`` root directory (under ``BASE_DIR``)."""
+    return (Path(base_dir) if base_dir is not None else BASE) / "play_cards"
+
+
+def _build_play_card_payload(
+    candidate: dict, *, rank: int, as_of_date: str
+) -> dict:
+    """Shape one ``scoring_cache`` row into the on-disk card payload.
+
+    Keeps the schema small and explicit: the validator at
+    VAL-M2-077 only requires the filename to match the ticker, but
+    VAL-M2-084 / downstream M3 consumers want a ``grade`` field
+    they can override with the LLM-debate ``final_grade``. The
+    ``rank`` field encodes the score-desc order (1-indexed) so
+    consumers don't have to re-sort the directory listing.
+    """
+    return {
+        "ticker": candidate["ticker"],
+        "as_of_date": as_of_date,
+        "rank": int(rank),
+        "ensemble_score": candidate.get("ensemble_score"),
+        "grade": candidate.get("science_grade"),
+        "science_grade": candidate.get("science_grade"),
+        "claude_grade": candidate.get("claude_grade"),
+        "claude_probability": candidate.get("claude_probability"),
+        "gemini_grade": candidate.get("gemini_grade"),
+        "gemini_probability": candidate.get("gemini_probability"),
+        "grok_score": candidate.get("grok_score"),
+        "grok_rank": candidate.get("grok_rank"),
+        "divergence_flag": bool(candidate.get("divergence_flag")),
+        "scoring_cache_id": candidate.get("id"),
+    }
+
+
+def emit_play_cards(
+    as_of_date: str | None = None,
+    *,
+    n: int | None = None,
+    base_dir: Path | None = None,
+    db_path: Path | None = None,
+    min_ensemble_score: float | None = None,
+    min_science_grade: str | None = None,
+) -> list[Path]:
+    """Write the top-N candidates to ``play_cards/<as_of_date>/<ticker>.json``.
+
+    Resolves the candidate list by calling
+    :func:`biotech_sniper.sectors.unified_scorer.select_top_n` so the
+    on-disk cards are guaranteed set-equal to the SQL selection (per
+    VAL-M2-077). Files are written in score-desc order and the
+    per-card payload carries an explicit ``rank`` field so consumers
+    can recover the order without re-sorting.
+
+    The destination directory is wiped of any pre-existing
+    ``*.json`` files before re-emitting so re-runs on the same date
+    do not leak yesterday's cards. The directory itself is created
+    on demand when missing.
+
+    Parameters
+    ----------
+    as_of_date:
+        ISO date string (``"YYYY-MM-DD"``) — defaults to today.
+    n:
+        Cap on the number of cards to emit. Defaults to
+        :data:`biotech_sniper.config.RISK_DEFAULTS["max_concurrent"]`.
+    base_dir:
+        Override for the project base directory (used by tests).
+    db_path:
+        Override for the SQLite db path (used by tests).
+    min_ensemble_score, min_science_grade:
+        Overrides for the documented thresholds. Default to the
+        values in :mod:`biotech_sniper.config`.
+
+    Returns
+    -------
+    list[pathlib.Path]
+        Absolute paths of the JSON files written, in the same order
+        as :func:`select_top_n` returned them (score-desc, ties
+        broken by ticker ASC). Returns ``[]`` when no candidates pass
+        the thresholds.
+    """
+    # Local import to avoid a circular import (unified_scorer imports
+    # from this module's neighbours via assemble_card chains).
+    from biotech_sniper import config as _config
+    from biotech_sniper.sectors.unified_scorer import select_top_n
+
+    iso_date = as_of_date or datetime.date.today().isoformat()
+    cap = int(n) if n is not None else int(_config.RISK_DEFAULTS["max_concurrent"])
+
+    candidates = select_top_n(
+        iso_date,
+        cap,
+        min_ensemble_score=min_ensemble_score,
+        min_science_grade=min_science_grade,
+        db_path=db_path,
+    )
+
+    out_dir = _play_cards_root(base_dir) / iso_date
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Wipe any prior emission so the directory listing is exactly the
+    # current selection. We only remove ``*.json`` files we own and
+    # leave any other artefacts (e.g. a sidecar README a human dropped)
+    # untouched.
+    for stale in out_dir.glob("*.json"):
+        try:
+            stale.unlink()
+        except OSError:
+            # Best-effort cleanup; if a file is locked by another
+            # process we still rewrite the new cards below.
+            pass
+
+    written: list[Path] = []
+    for rank, cand in enumerate(candidates, start=1):
+        payload = _build_play_card_payload(
+            cand, rank=rank, as_of_date=iso_date
+        )
+        target = out_dir / f"{cand['ticker']}.json"
+        with target.open("w", encoding="utf-8") as fp:
+            json.dump(payload, fp, indent=2, sort_keys=True, default=str)
+        written.append(target)
+    return written
+
+
 # ── MULTIPLIER CALCULATOR ────────────────────────────────────────────────────
 
 def calculate_multiple(option_fill: float, option_strike: float, option_type: str,
