@@ -161,10 +161,10 @@ def _resolve_underlying_price(ticker: str) -> Optional[float]:
 
     Added by f-m3-13 as the explicit fallback when
     :func:`validate_ticker` returns ``price=None`` (the new default
-    after the f-m3-02 yfinance removal). The lookup is best-effort:
-    any failure (no SDK, no creds, network error) returns ``None`` so
-    the caller can decide whether to skip-with-WARN or proceed with
-    a different sizing path. Never raises.
+    after the f-m3-02 market-data vendor swap). The lookup is
+    best-effort: any failure (no SDK, no creds, network error)
+    returns ``None`` so the caller can decide whether to skip-with-WARN
+    or proceed with a different sizing path. Never raises.
     """
     if not ticker:
         return None
@@ -244,7 +244,7 @@ def get_best_option(ticker: str, expiry: str, direction: str, price: float) -> O
 
     M3 update (f-m3-13): ``price`` MUST be a positive numeric. Callers
     are responsible for resolving the underlying price BEFORE invoking
-    this helper — passing ``None`` (which the legacy yfinance-backed
+    this helper — passing ``None`` (which the legacy market-data-vendor
     ``validate_ticker`` used to populate) used to raise ``TypeError``
     on ``price * 1.8`` / ``price * 0.35`` and was silently swallowed
     by the outer broad-except, rejecting otherwise-valid candidates.
@@ -319,8 +319,8 @@ def get_best_option(ticker: str, expiry: str, direction: str, price: float) -> O
         return best
     except (ImportError, ValueError, KeyError) as e:
         # f-m3-13: narrowed from a bare ``Exception`` so that
-        # ``TypeError`` (the one yfinance-removal regression that used
-        # to silently reject otherwise-valid candidates via
+        # ``TypeError`` (the one market-data-vendor-removal regression
+        # that used to silently reject otherwise-valid candidates via
         # ``price * 1.8`` on a ``None``) propagates loudly and cannot
         # mask future regressions of the same shape. Network / chain
         # parse failures still degrade gracefully.
@@ -611,11 +611,12 @@ def score_and_price_candidate(candidate: dict) -> Optional[dict]:
         return None
 
     # f-m3-13: validate_ticker now returns price=None after the
-    # f-m3-02 yfinance removal. Resolve a positive underlying price
-    # before scoring options — fall back to AlpacaClient.get_latest_trade
-    # when available, otherwise WARN-and-skip so a TypeError in
-    # get_best_option (``price * 1.8`` / ``price * 0.35``) cannot be
-    # silently swallowed and reject the candidate.
+    # f-m3-02 market-data vendor swap. Resolve a positive underlying
+    # price before scoring options — fall back to
+    # AlpacaClient.get_latest_trade when available, otherwise
+    # WARN-and-skip so a TypeError in get_best_option
+    # (``price * 1.8`` / ``price * 0.35``) cannot be silently swallowed
+    # and reject the candidate.
     if price is None or not isinstance(price, (int, float)) or price <= 0:
         price = _resolve_underlying_price(ticker)
         if price is None:

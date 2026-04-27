@@ -285,14 +285,13 @@ def filter_and_score(candidates_by_ticker: dict, today: datetime.date) -> dict:
         if c.get("has_pdufa"): score += 20
 
         tier = 1 if score >= 40 else (2 if score >= 20 else 3)
-        # M3 update (f-m3-13): yfinance was removed in f-m3-02, so the
-        # legacy `price`, `mktcap`, and `opts` locals no longer exist
-        # here. Stock-price / market-cap filtering moves to the M3
-        # selection layer that consumes the SQLite ``universe`` table;
-        # those keys are dropped from the per-ticker row. We still
-        # surface ``n_expiries`` (derived from the Alpaca-backed chain
-        # rows) so downstream consumers know how many distinct
-        # expirations were observed.
+        # M3 update (f-m3-13): the legacy `price`, `mktcap`, and `opts`
+        # locals no longer exist here — stock-price / market-cap
+        # filtering moves to the M3 selection layer that consumes the
+        # SQLite ``universe`` table, and those keys are dropped from
+        # the per-ticker row. We still surface ``n_expiries`` (derived
+        # from the Alpaca-backed chain rows) so downstream consumers
+        # know how many distinct expirations were observed.
         n_expiries = len({row.get("expiry") for row in chain if row.get("expiry")})
         scored[ticker] = {**c, "price": None, "market_cap": None,
                            "n_expiries": n_expiries, "pre_score": score, "tier": tier,
