@@ -70,6 +70,7 @@ __all__ = [
     "record_execution_event",
     "validate_state_transition",
     "ExecutionSubscriber",
+    "main",
 ]
 
 logger = _logging.getLogger(__name__)
@@ -462,7 +463,12 @@ class ExecutionSubscriber:
     # Read helpers (test-friendly)
     # ------------------------------------------------------------------
 
-    def _open_orders(self, conn: _sqlite3.Connection) -> list[Mapping[str, Any]]:
+    def _open_orders(
+        self,
+        conn: _sqlite3.Connection,
+        *,
+        date: Optional[str] = None,
+    ) -> list[Mapping[str, Any]]:
         """Return ``paper_orders`` rows that have not reached a terminal state.
 
         An order is "open" when:
@@ -473,42 +479,58 @@ class ExecutionSubscriber:
           the executor wrote the row but the subscriber has not
           picked up the broker-side ``submitted`` event yet — the
           subscriber emits the missing event on the next poll).
+
+        When ``date`` is provided (ISO-8601 ``YYYY-MM-DD``), the
+        query is additionally narrowed to ``paper_orders`` whose
+        ``created_at`` falls on that calendar date. f-m3-19 adds
+        this filter so the production CLI can scope its poll to the
+        current trading day rather than walking every historical
+        open order on every cron tick.
         """
-        rows = conn.execute(
-            """
-            SELECT po.id, po.alpaca_order_id, po.status,
-                   COALESCE(
-                       (SELECT ee.event_type FROM execution_events ee
-                        WHERE ee.paper_order_id = po.id
-                        ORDER BY ee.event_at DESC, ee.id DESC LIMIT 1),
-                       NULL
-                   ) AS last_event_type
-            FROM paper_orders po
-            WHERE po.alpaca_order_id IS NOT NULL
-              AND po.alpaca_order_id != ''
-            """
-        ).fetchall()
+        params: list[Any] = []
+        sql = (
+            "SELECT po.id, po.alpaca_order_id, po.status, po.qty, "
+            "po.side, po.requested_mid_at_submit, "
+            "COALESCE("
+            "  (SELECT ee.event_type FROM execution_events ee "
+            "   WHERE ee.paper_order_id = po.id "
+            "   ORDER BY ee.event_at DESC, ee.id DESC LIMIT 1), "
+            "  NULL"
+            ") AS last_event_type "
+            "FROM paper_orders po "
+            "WHERE po.alpaca_order_id IS NOT NULL "
+            "  AND po.alpaca_order_id != '' "
+        )
+        if date:
+            sql += "  AND substr(po.created_at, 1, 10) = ? "
+            params.append(date)
+        rows = conn.execute(sql, params).fetchall()
         out: list[Mapping[str, Any]] = []
         for row in rows:
             if isinstance(row, _sqlite3.Row):
                 last = row["last_event_type"]
+                d = dict(row)
             else:
-                last = row[3]
+                last = row[6]
+                d = {
+                    "id": row[0],
+                    "alpaca_order_id": row[1],
+                    "status": row[2],
+                    "qty": row[3],
+                    "side": row[4],
+                    "requested_mid_at_submit": row[5],
+                    "last_event_type": row[6],
+                }
             if last is not None and last in TERMINAL_EVENT_TYPES:
                 continue
-            out.append(dict(row) if isinstance(row, _sqlite3.Row) else {
-                "id": row[0],
-                "alpaca_order_id": row[1],
-                "status": row[2],
-                "last_event_type": row[3],
-            })
+            out.append(d)
         return out
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def poll_once(self) -> int:
+    def poll_once(self, *, date: Optional[str] = None) -> int:
         """Walk every open order and record any state change.
 
         Returns the number of ``execution_events`` rows inserted by
@@ -518,11 +540,27 @@ class ExecutionSubscriber:
         The method is idempotent in the steady state: orders whose
         broker status maps to the SAME ``event_type`` as the last
         persisted event are skipped (no duplicate row).
+
+        f-m3-19 contract: when the broker reports ``partial_fill``
+        or ``filled``, the writer ALSO records the matching
+        ``execution_fills`` row (slippage / time-to-fill telemetry).
+        For every other transition only ``execution_events`` is
+        written — the fills table is reserved for actual fills, not
+        intermediate state changes.
+
+        Parameters
+        ----------
+        date:
+            Optional ISO-8601 ``YYYY-MM-DD`` string. When supplied
+            the open-orders query is narrowed to that calendar date
+            (matched against ``paper_orders.created_at``). Used by
+            the production CLI in :func:`main` so cron jobs only
+            poll today's orders.
         """
         conn = _db_module.connect(self.db_path)
         try:
             _db_module.run_migrations(conn)
-            open_orders = self._open_orders(conn)
+            open_orders = self._open_orders(conn, date=date)
         finally:
             conn.close()
 
@@ -531,6 +569,7 @@ class ExecutionSubscriber:
             paper_order_id = row["id"]
             alpaca_order_id = row["alpaca_order_id"]
             last_event_type = row.get("last_event_type")
+            parent_qty = row.get("qty")
             try:
                 broker = self.client.get_order(alpaca_order_id)
             except Exception:
@@ -569,13 +608,89 @@ class ExecutionSubscriber:
             )
 
             try:
-                record_execution_event(
-                    self.db_path,
-                    paper_order_id=paper_order_id,
-                    event_type=event_type,
-                    event_at=event_at,
-                    raw_payload=broker,
-                )
+                if event_type in ("partial_fill", "filled"):
+                    # f-m3-19 fix #1: a fill event must produce BOTH
+                    # an ``execution_fills`` row (slippage /
+                    # time-to-fill telemetry) AND the matching
+                    # ``execution_events`` row. ``record_fill``
+                    # writes the fills row and emits the events row
+                    # via ``record_execution_event``. We swallow
+                    # context-missing errors (no parent mid stored)
+                    # by falling back to the events-only path so a
+                    # legacy paper_orders row from before f-m3-11
+                    # still produces a lifecycle event.
+                    filled_price = broker.get("filled_avg_price")
+                    filled_qty = broker.get("filled_qty")
+                    if (
+                        filled_price is None
+                        or filled_qty in (None, 0, "0")
+                    ):
+                        # Broker reports a fill status without
+                        # populated fill metrics — fall back to the
+                        # events-only writer so the lifecycle row
+                        # still lands. The next poll will pick up
+                        # the populated payload.
+                        record_execution_event(
+                            self.db_path,
+                            paper_order_id=paper_order_id,
+                            event_type=event_type,
+                            event_at=event_at,
+                            raw_payload=broker,
+                        )
+                    else:
+                        try:
+                            try:
+                                filled_qty_int = int(float(filled_qty))
+                            except (TypeError, ValueError):
+                                filled_qty_int = 0
+                            qty_int: int = (
+                                int(parent_qty) if parent_qty is not None else 0
+                            )
+                            partial_qty_remaining = (
+                                0
+                                if event_type == "filled"
+                                else max(0, qty_int - filled_qty_int)
+                            )
+                            from biotech_sniper.execution_fills import (
+                                record_fill as _record_fill,
+                                FillContextMissing as _FillContextMissing,
+                            )
+                            _record_fill(
+                                self.db_path,
+                                paper_order_id=paper_order_id,
+                                filled_price=float(filled_price),
+                                filled_qty=filled_qty_int,
+                                filled_at=event_at,
+                                partial_qty_remaining=partial_qty_remaining,
+                                raw_payload=broker,
+                            )
+                        except _FillContextMissing:
+                            # No requested_mid_at_submit / side on
+                            # the parent row — fall back to writing
+                            # ONLY the events row so the lifecycle
+                            # stream is still complete. The
+                            # validator will surface the missing
+                            # fills row downstream.
+                            logger.warning(
+                                "execution_subscriber.fill_context_missing "
+                                "paper_order_id=%s; recording event-only",
+                                paper_order_id,
+                            )
+                            record_execution_event(
+                                self.db_path,
+                                paper_order_id=paper_order_id,
+                                event_type=event_type,
+                                event_at=event_at,
+                                raw_payload=broker,
+                            )
+                else:
+                    record_execution_event(
+                        self.db_path,
+                        paper_order_id=paper_order_id,
+                        event_type=event_type,
+                        event_at=event_at,
+                        raw_payload=broker,
+                    )
                 recorded += 1
             except IllegalStateTransition:
                 # The runtime validator caught a non-canonical
@@ -591,3 +706,162 @@ class ExecutionSubscriber:
                 )
                 raise
         return recorded
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point (f-m3-19)
+# ---------------------------------------------------------------------------
+
+
+def _default_db_path() -> _Path:
+    """Resolve the project's canonical SQLite db path lazily.
+
+    Imported at call-time so unit tests don't pay the
+    ``biotech_sniper.paths`` import cost just by importing the
+    module.
+    """
+    from biotech_sniper.paths import DATA_DIR
+
+    return DATA_DIR / "alpha_sniper.db"
+
+
+def main(
+    argv: Optional[list[str]] = None,
+    *,
+    client: Any = None,
+    db_path: Optional[_Path | str] = None,
+) -> int:
+    """CLI for the execution subscriber.
+
+    Production wiring (f-m3-19): ``python -m
+    biotech_sniper.execution_subscriber --poll-once --date <today>``
+    runs a single :meth:`ExecutionSubscriber.poll_once` against
+    every open ``paper_orders`` row created on ``<today>`` and
+    exits.
+
+    The function returns an integer exit code so callers (cron, the
+    intraday scanner Job 6) can short-circuit on error. Non-zero
+    means at least one broker call raised AND the broker error was
+    logged at ERROR; the orders table is unchanged.
+
+    Test hook: tests inject a stub Alpaca client via the ``client``
+    keyword (not exposed on the command line) so the poll loop can
+    exercise hermetic broker payloads. Likewise ``db_path`` overrides
+    the default ``data/alpha_sniper.db`` for test isolation.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="python -m biotech_sniper.execution_subscriber",
+        description=(
+            "Poll-once telemetry subscriber for paper_orders. Records "
+            "execution_events / execution_fills rows for every "
+            "broker-side state change observed since the last poll."
+        ),
+    )
+    parser.add_argument(
+        "--poll-once",
+        action="store_true",
+        help="Run a single poll iteration and exit.",
+    )
+    parser.add_argument(
+        "--date",
+        type=str,
+        default=None,
+        help=(
+            "Restrict the poll to paper_orders rows whose "
+            "created_at falls on this YYYY-MM-DD calendar date. "
+            "Defaults to today (UTC) when --poll-once is set and "
+            "--date is omitted."
+        ),
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Skip broker contact entirely. Logs the count of open "
+            "orders that WOULD be polled and exits 0. Used by the "
+            "intraday scanner's smoke check before live broker "
+            "wiring is enabled."
+        ),
+    )
+    args = parser.parse_args(argv)
+
+    target_db = _Path(db_path) if db_path is not None else _default_db_path()
+    target_db.parent.mkdir(parents=True, exist_ok=True)
+
+    target_date: Optional[str] = args.date
+    if (args.poll_once or args.dry_run) and target_date is None:
+        target_date = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d")
+
+    if args.dry_run:
+        # Defence-in-depth: dry-run NEVER instantiates an Alpaca
+        # client, so missing credentials or a network outage cannot
+        # break the smoke command.
+        conn = _db_module.connect(target_db)
+        try:
+            _db_module.run_migrations(conn)
+            stub = ExecutionSubscriber(client=None, db_path=target_db)
+            open_orders = stub._open_orders(conn, date=target_date)
+        finally:
+            conn.close()
+        logger.info(
+            "execution_subscriber.dry_run db_path=%s date=%s open_orders=%d",
+            target_db,
+            target_date,
+            len(open_orders),
+        )
+        print(
+            f"execution_subscriber dry-run: db={target_db} "
+            f"date={target_date} open_orders={len(open_orders)}"
+        )
+        return 0
+
+    if not args.poll_once:
+        parser.error("one of --poll-once or --dry-run is required")
+        return 2  # pragma: no cover — argparse exits
+
+    if client is None:
+        # Lazily build the Alpaca paper client. Failures here are
+        # logged but turned into a non-zero exit so cron sees the
+        # misconfig (missing creds, wrong base url, etc.) instead
+        # of silently skipping the poll.
+        try:
+            from biotech_sniper.alpaca_client import AlpacaClient
+
+            client = AlpacaClient()
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "execution_subscriber.alpaca_client_unavailable error=%s",
+                exc,
+            )
+            return 1
+
+    subscriber = ExecutionSubscriber(client, db_path=target_db)
+    try:
+        recorded = subscriber.poll_once(date=target_date)
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "execution_subscriber.poll_failed db_path=%s date=%s",
+            target_db,
+            target_date,
+        )
+        return 1
+
+    logger.info(
+        "execution_subscriber.poll_complete db_path=%s date=%s recorded=%d",
+        target_db,
+        target_date,
+        recorded,
+    )
+    print(
+        f"execution_subscriber poll: db={target_db} "
+        f"date={target_date} recorded={recorded}"
+    )
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover — CLI smoke
+    import sys as _sys
+
+    _sys.exit(main())

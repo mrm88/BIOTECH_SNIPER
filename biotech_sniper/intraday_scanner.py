@@ -803,6 +803,42 @@ def run_intraday_scan():
             "errors": 1,
         }
 
+    # ── JOB 6: TELEMETRY POLL (f-m3-19) ─────────────────────────────────
+    # Best-effort execution telemetry poll. Walks every open
+    # ``paper_orders`` row created today and records any broker-side
+    # state change to ``execution_events`` / ``execution_fills``. The
+    # production CLI (``python -m
+    # biotech_sniper.execution_subscriber --poll-once --date <today>``)
+    # is the canonical entry point; we invoke it in-process so an
+    # intraday tick keeps slippage / time-to-fill telemetry fresh
+    # between watchdog runs. Failures (missing Alpaca creds, DB not
+    # yet migrated, broker outage) MUST NOT break the rest of the
+    # cycle — the helper logs and returns a non-zero exit code which
+    # we surface but do not raise on.
+    print("\nJOB 6 — TELEMETRY POLL")
+    try:
+        from biotech_sniper.execution_subscriber import (
+            main as _execution_subscriber_main,
+        )
+        import datetime as _dt
+        _today = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d")
+        _exit_code = _execution_subscriber_main(
+            ["--poll-once", "--date", _today]
+        )
+        print(
+            f"  date={_today} | exit_code={_exit_code} | "
+            f"status={'ok' if _exit_code == 0 else 'errored'}"
+        )
+        telemetry_result = {"date": _today, "exit_code": int(_exit_code)}
+    except Exception as _te:  # pragma: no cover - defensive
+        print(
+            f"  telemetry_poll: skipped ({type(_te).__name__}: {_te})"
+        )
+        telemetry_result = {
+            "date": now.split()[0] if isinstance(now, str) else "",
+            "exit_code": 1,
+        }
+
     # ── EMAIL ─────────────────────────────────────────────────────────
     # New opportunities get their OWN immediate email (higher priority)
     if new_opportunities:

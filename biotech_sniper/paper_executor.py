@@ -1874,6 +1874,20 @@ class PaperExecutor:
         )
         deadline = time.monotonic() + max(0.0, float(timeout_seconds))
 
+        # f-m3-19 fix #2: every observed broker status change must
+        # land an ``execution_events`` row. The initial ``submitted``
+        # event is written inside :meth:`execute` (the executor's
+        # write-then-submit invariant); this loop covers everything
+        # AFTER submission. We seed ``last_event_type`` from the DB
+        # so the validator never trips when wait_for_fill is called
+        # in a process where ``execute`` already wrote a state.
+        paper_order_id = self._lookup_paper_order_id(order_id)
+        last_event_type: Optional[str] = (
+            self._latest_event_type(paper_order_id)
+            if paper_order_id
+            else None
+        )
+
         last_status: Optional[str] = None
         last_order: dict[str, Any] = {}
         while True:
@@ -1884,6 +1898,24 @@ class PaperExecutor:
             if status and status != last_status:
                 self._update_order_status(order_id, order)
                 last_status = status
+
+                # Emit the execution_events row for the observed
+                # transition. Mapping is identical to the subscriber's
+                # so the two writers stay in lock-step.
+                if paper_order_id:
+                    self._record_event_for_status(
+                        paper_order_id=paper_order_id,
+                        broker_status=status,
+                        order=order,
+                        last_event_type=last_event_type,
+                    )
+                    # Refresh ``last_event_type`` from the DB rather
+                    # than guessing — keeps the loop honest if a
+                    # concurrent subscriber poll lands an event in
+                    # between our writes.
+                    refreshed = self._latest_event_type(paper_order_id)
+                    if refreshed is not None:
+                        last_event_type = refreshed
 
             if status in TERMINAL_STATUSES:
                 return order
@@ -2321,3 +2353,262 @@ class PaperExecutor:
             conn.commit()
         finally:
             conn.close()
+
+    # ------------------------------------------------------------------
+    # f-m3-19: telemetry emission from wait_for_fill.
+    # ------------------------------------------------------------------
+
+    def _lookup_paper_order_id(self, alpaca_order_id: str) -> Optional[str]:
+        """Resolve the local ``paper_orders.id`` for an Alpaca order id.
+
+        ``wait_for_fill`` only knows the broker-side ``alpaca_order_id``;
+        the ``execution_events`` writer needs the local
+        ``paper_orders.id`` (the executor-generated UUID4 the
+        write-then-submit row carries). The lookup is restricted to
+        rows whose ``alpaca_order_id`` is non-NULL/non-empty so a
+        rejected stub row never matches.
+
+        Returns ``None`` when no row exists yet — wait_for_fill is
+        sometimes invoked from tests that never went through
+        :meth:`execute` (i.e. the cassette-driven poll loop in
+        ``test_paper_executor.py``). In that case telemetry is
+        silently skipped; the test only asserts on
+        ``paper_orders.status``.
+        """
+        if not alpaca_order_id:
+            return None
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                """
+                SELECT id FROM paper_orders
+                WHERE alpaca_order_id = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (alpaca_order_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            return None
+        if isinstance(row, sqlite3.Row):
+            return row["id"]
+        return row[0]
+
+    def _latest_event_type(self, paper_order_id: str) -> Optional[str]:
+        """Return the most recent ``execution_events.event_type`` for the order.
+
+        Used to dedup repeat status reports from the broker (the
+        bounded poll loop sees the same ``accepted`` payload until
+        it ticks over to ``filled``; we must not write a fresh
+        ``accepted`` row on every iteration).
+        """
+        if not paper_order_id:
+            return None
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                """
+                SELECT event_type FROM execution_events
+                WHERE paper_order_id = ?
+                ORDER BY event_at DESC, id DESC
+                LIMIT 1
+                """,
+                (paper_order_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            return None
+        if isinstance(row, sqlite3.Row):
+            return row["event_type"]
+        return row[0]
+
+    def _record_event_for_status(
+        self,
+        *,
+        paper_order_id: str,
+        broker_status: str,
+        order: Mapping[str, Any],
+        last_event_type: Optional[str],
+    ) -> None:
+        """Translate a broker status into ``execution_events`` (+ fills).
+
+        Mirrors :meth:`ExecutionSubscriber.poll_once` so the two
+        writers stay in lock-step regardless of which path observes
+        the broker first. The mapping table
+        :data:`biotech_sniper.execution_subscriber._BROKER_STATUS_TO_EVENT_TYPE`
+        is the single source of truth.
+
+        Behaviour:
+
+        * Unmapped statuses (``new``, ``done_for_day`` aliases, etc.
+          not in the canonical enum) are silently dropped — the
+          subscriber will pick the canonical lifecycle up on its
+          next tick.
+        * Repeat events (same ``event_type`` as the last persisted
+          event) are skipped EXCEPT for ``partial_fill`` which is
+          deliberately allowed to repeat (each broker-emitted
+          partial fill is a distinct event).
+        * For ``partial_fill`` / ``filled``: writes BOTH
+          ``execution_fills`` (slippage / time-to-fill) AND the
+          matching ``execution_events`` row via
+          :func:`biotech_sniper.execution_fills.record_fill`. Falls
+          back to the events-only writer when the broker payload
+          lacks fill metrics or the parent row has no
+          ``requested_mid_at_submit`` to compute slippage against.
+        * For all other transitions: writes only the
+          ``execution_events`` row.
+
+        Failures during telemetry MUST NOT break the order
+        lifecycle; the wait_for_fill caller cares about the
+        broker-side outcome, not the audit trail. We swallow
+        :class:`IllegalStateTransition` (the validator surfaces it
+        as ERROR; the subscriber will replay the canonical sequence
+        next tick) and any unexpected exception (logged, no
+        re-raise).
+        """
+        # Lazy imports keep the paper_executor module importable
+        # without forcing the f-m3-11 telemetry modules to load
+        # eagerly (they pull in db migrations, paths.py, etc.).
+        from biotech_sniper.execution_subscriber import (
+            _BROKER_STATUS_TO_EVENT_TYPE,
+            IllegalStateTransition as _IllegalStateTransition,
+            record_execution_event as _record_execution_event,
+        )
+        from biotech_sniper.execution_fills import (
+            FillContextMissing as _FillContextMissing,
+            record_fill as _record_fill,
+        )
+
+        event_type = _BROKER_STATUS_TO_EVENT_TYPE.get(broker_status)
+        if event_type is None:
+            logger.debug(
+                "paper_executor.wait_for_fill.unmapped_status "
+                "paper_order_id=%s broker_status=%s",
+                paper_order_id,
+                broker_status,
+            )
+            return
+
+        # Dedup: skip if the broker repeats the same status. partial_fill
+        # is exempt because each partial fill is a distinct event row.
+        if event_type == last_event_type and event_type != "partial_fill":
+            return
+
+        event_at = (
+            order.get("filled_at")
+            or order.get("updated_at")
+            or order.get("submitted_at")
+            or _utc_now_iso()
+        )
+
+        try:
+            if event_type in ("partial_fill", "filled"):
+                filled_price = order.get("filled_avg_price")
+                filled_qty_raw = order.get("filled_qty")
+                if filled_price is None or filled_qty_raw in (None, 0, "0"):
+                    # Broker reports a fill status without populated
+                    # fill metrics (e.g., the cassette ticked over
+                    # to "filled" but the subsequent payload still
+                    # carries the intermediate fill_qty=0). Fall
+                    # back to the events-only writer so the
+                    # lifecycle row still lands.
+                    _record_execution_event(
+                        self.db_path,
+                        paper_order_id=paper_order_id,
+                        event_type=event_type,
+                        event_at=event_at,
+                        raw_payload=order,
+                    )
+                    return
+                try:
+                    filled_qty_int = int(float(filled_qty_raw))
+                except (TypeError, ValueError):
+                    filled_qty_int = 0
+                # Look up the parent qty so we can compute the
+                # remaining qty for partial fills.
+                parent_qty: Optional[int] = None
+                conn = self._connect()
+                try:
+                    qrow = conn.execute(
+                        "SELECT qty FROM paper_orders WHERE id = ?",
+                        (paper_order_id,),
+                    ).fetchone()
+                finally:
+                    conn.close()
+                if qrow is not None:
+                    raw = (
+                        qrow["qty"]
+                        if isinstance(qrow, sqlite3.Row)
+                        else qrow[0]
+                    )
+                    try:
+                        parent_qty = (
+                            int(raw) if raw is not None else None
+                        )
+                    except (TypeError, ValueError):
+                        parent_qty = None
+                partial_qty_remaining = (
+                    0
+                    if event_type == "filled"
+                    else max(0, (parent_qty or 0) - filled_qty_int)
+                )
+                try:
+                    _record_fill(
+                        self.db_path,
+                        paper_order_id=paper_order_id,
+                        filled_price=float(filled_price),
+                        filled_qty=filled_qty_int,
+                        filled_at=event_at,
+                        partial_qty_remaining=partial_qty_remaining,
+                        raw_payload=order,
+                    )
+                except _FillContextMissing:
+                    # Fall back to events-only when the parent row
+                    # lacks the slippage context. The lifecycle
+                    # stream stays complete; the validator will
+                    # surface the missing fills row downstream.
+                    logger.warning(
+                        "paper_executor.wait_for_fill.fill_context_missing "
+                        "paper_order_id=%s; recording event-only",
+                        paper_order_id,
+                    )
+                    _record_execution_event(
+                        self.db_path,
+                        paper_order_id=paper_order_id,
+                        event_type=event_type,
+                        event_at=event_at,
+                        raw_payload=order,
+                    )
+            else:
+                _record_execution_event(
+                    self.db_path,
+                    paper_order_id=paper_order_id,
+                    event_type=event_type,
+                    event_at=event_at,
+                    raw_payload=order,
+                )
+        except _IllegalStateTransition:
+            # The runtime validator caught a non-canonical
+            # transition (e.g., wait_for_fill picked up a 'filled'
+            # without an intermediate 'accepted' because the broker
+            # batched both into a single response). Logged at ERROR
+            # so the operator sees it; the lifecycle row is dropped
+            # rather than corrupting the validator's monotonic
+            # invariant.
+            logger.error(
+                "paper_executor.wait_for_fill.illegal_transition "
+                "paper_order_id=%s last=%s next=%s",
+                paper_order_id,
+                last_event_type,
+                event_type,
+            )
+        except Exception:  # noqa: BLE001 — telemetry must not break execute()
+            logger.exception(
+                "paper_executor.wait_for_fill.event_record_failed "
+                "paper_order_id=%s event_type=%s",
+                paper_order_id,
+                event_type,
+            )
