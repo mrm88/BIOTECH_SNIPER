@@ -97,6 +97,7 @@ __all__ = [
     "load_active_plays_from_db",
     "load_today_candidates_from_db",
     "DebateRunner",
+    "_validate_challenger_card_complete",
 ]
 
 logger = logging.getLogger(__name__)
@@ -122,9 +123,17 @@ ENTRY_EVENT: str = _hold_policy.ENTRY_EVENT  # 'open'
 
 #: Closed enum of allowed ``rotation_skipped`` reasons. Matches the
 #: feature spec (catalyst_too_close, below_threshold,
-#: debate_inverted_preference).
+#: debate_inverted_preference) plus the f-m3-21 preflight reason
+#: (``incomplete_challenger_card``) which fires before any leg is
+#: submitted when the challenger candidate is missing the metadata
+#: required to construct a valid PaperExecutor card.
 VALID_SKIP_REASONS: frozenset[str] = frozenset(
-    {"catalyst_too_close", "below_threshold", "debate_inverted_preference"}
+    {
+        "catalyst_too_close",
+        "below_threshold",
+        "debate_inverted_preference",
+        "incomplete_challenger_card",
+    }
 )
 
 
@@ -230,6 +239,66 @@ def _coerce_qty(play: Mapping[str, Any]) -> int:
 def _ticker(play: Mapping[str, Any]) -> str:
     raw = play.get("ticker") or play.get("symbol") or ""
     return str(raw).strip().upper()
+
+
+def _validate_challenger_card_complete(
+    candidate: Mapping[str, Any],
+) -> bool:
+    """Return ``True`` when ``candidate`` carries a fully-shaped buy card.
+
+    Per f-m3-21, the rotation engine submits the SELL leg before the
+    BUY leg, so a partially-populated challenger can leave the
+    portfolio one-sided (incumbent sold, challenger never bought) if
+    the buy raises mid-flight. This validator runs BEFORE the sell
+    leg fires so an incomplete card aborts the rotation cleanly,
+    with a structured ``rotation_skipped`` audit entry.
+
+    A challenger card is considered complete when ALL of the
+    following are true:
+
+    * ``candidate['catalyst_date']`` is non-None and parseable to a
+      :class:`datetime.date` — the 24h guard depends on this.
+    * ``candidate['play_card']`` is a Mapping (or the candidate itself
+      carries the buy-card fields directly).
+    * ``candidate['option_legs']`` is a non-empty Sequence and the
+      first leg is a Mapping with a non-empty ``symbol`` string.
+
+    The validator is intentionally conservative: ANY missing piece
+    returns ``False`` so the engine never submits half a rotation.
+    """
+    if not isinstance(candidate, Mapping):
+        return False
+
+    # 1) catalyst_date must be present and parseable.
+    if _coerce_date_or_none(candidate.get("catalyst_date")) is None:
+        return False
+
+    # 2) play_card must exist (either nested or the candidate itself
+    #    must be usable as the play card).
+    play_card = candidate.get("play_card")
+    if not isinstance(play_card, Mapping):
+        return False
+
+    # 3) option_legs must be a non-empty Sequence whose first leg
+    #    has a non-empty ``symbol`` string. Prefer the candidate's
+    #    top-level ``option_legs`` (rotation engine reads from there
+    #    in ``_extract_buy_symbol``) but fall back to the play_card's
+    #    nested copy.
+    legs = candidate.get("option_legs")
+    if not isinstance(legs, Sequence) or isinstance(legs, (str, bytes)):
+        legs = play_card.get("option_legs")
+    if not isinstance(legs, Sequence) or isinstance(legs, (str, bytes)):
+        return False
+    if len(legs) == 0:
+        return False
+    first = legs[0]
+    if not isinstance(first, Mapping):
+        return False
+    sym = first.get("symbol")
+    if not isinstance(sym, str) or not sym.strip():
+        return False
+
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -584,6 +653,86 @@ def _scoring_cache_symbol_from_payload(
     return None
 
 
+def _decode_payload_dict(payload_raw: Any) -> Optional[dict[str, Any]]:
+    """Best-effort decode a JSON ``payload`` blob into a dict; ``None`` on failure."""
+    if isinstance(payload_raw, dict):
+        return payload_raw
+    if not isinstance(payload_raw, str) or not payload_raw.strip():
+        return None
+    try:
+        data = json.loads(payload_raw)
+    except (TypeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _extract_option_metadata(
+    payload_dict: Optional[Mapping[str, Any]],
+) -> tuple[Optional[str], Optional[str], Optional[float], Optional[str]]:
+    """Pull ``(symbol, option_type, strike, expiry)`` from a payload dict.
+
+    Reads from both the legs-style shape (``option_legs[0]``) and the
+    flat shape (``option_symbol`` / ``option_type`` / ``option_strike``
+    / ``option_expiry``). Returns ``None`` for any field that is
+    absent or unparseable.
+    """
+    if not isinstance(payload_dict, Mapping):
+        return None, None, None, None
+
+    symbol: Optional[str] = None
+    opt_type: Optional[str] = None
+    strike: Optional[float] = None
+    expiry: Optional[str] = None
+
+    legs = payload_dict.get("option_legs")
+    if (
+        isinstance(legs, Sequence)
+        and not isinstance(legs, (str, bytes))
+        and len(legs) > 0
+        and isinstance(legs[0], Mapping)
+    ):
+        leg = legs[0]
+        leg_sym = leg.get("symbol")
+        if isinstance(leg_sym, str) and leg_sym.strip():
+            symbol = leg_sym.strip()
+        leg_type = leg.get("option_type") or leg.get("type")
+        if isinstance(leg_type, str) and leg_type.strip():
+            opt_type = leg_type.strip()
+        leg_strike = leg.get("strike") or leg.get("option_strike")
+        try:
+            if leg_strike is not None:
+                strike = float(leg_strike)
+        except (TypeError, ValueError):
+            strike = None
+        leg_expiry = leg.get("expiry") or leg.get("option_expiry")
+        if isinstance(leg_expiry, str) and leg_expiry.strip():
+            expiry = leg_expiry.strip()
+
+    if not symbol:
+        flat_sym = payload_dict.get("option_symbol") or payload_dict.get(
+            "symbol"
+        )
+        if isinstance(flat_sym, str) and flat_sym.strip():
+            symbol = flat_sym.strip()
+    if not opt_type:
+        flat_type = payload_dict.get("option_type")
+        if isinstance(flat_type, str) and flat_type.strip():
+            opt_type = flat_type.strip()
+    if strike is None:
+        flat_strike = payload_dict.get("option_strike")
+        try:
+            if flat_strike is not None:
+                strike = float(flat_strike)
+        except (TypeError, ValueError):
+            strike = None
+    if not expiry:
+        flat_expiry = payload_dict.get("option_expiry")
+        if isinstance(flat_expiry, str) and flat_expiry.strip():
+            expiry = flat_expiry.strip()
+
+    return symbol, opt_type, strike, expiry
+
+
 def load_today_candidates_from_db(
     *, today: Any = None, db_path: Optional[Path] = None
 ) -> list[dict[str, Any]]:
@@ -653,31 +802,73 @@ def load_today_candidates_from_db(
             record["scoring_cache_id"] = record.get("id")
 
             play_row = _latest_play_for_ticker(conn, ticker)
+            sc_payload = _decode_payload_dict(payload_raw)
+            play_payload = (
+                _decode_payload_dict(play_row.get("payload"))
+                if play_row
+                else None
+            )
 
-            # catalyst_date: plays row first, then payload.
-            cat = play_row.get("catalyst_date") if play_row else None
-            if not cat and isinstance(payload_raw, str):
-                try:
-                    p_dict = json.loads(payload_raw)
-                    if isinstance(p_dict, dict):
-                        cat = p_dict.get("catalyst_date")
-                except (TypeError, ValueError):
-                    pass
+            # catalyst_date: best-effort from any available source so
+            # the f-m3-21 preflight (and the 24h guard) is rarely
+            # tripped. Priority order:
+            #   1. plays.catalyst_date column (canonical)
+            #   2. scoring_cache.payload.catalyst_date
+            #   3. plays.payload.catalyst_date
+            cat: Any = play_row.get("catalyst_date") if play_row else None
+            if not cat and isinstance(sc_payload, Mapping):
+                cat = sc_payload.get("catalyst_date")
+            if not cat and isinstance(play_payload, Mapping):
+                cat = play_payload.get("catalyst_date")
             if cat:
                 record["catalyst_date"] = cat
 
-            # Build option_legs: prefer scoring_cache payload's
-            # symbol, then construct from the most-recent plays row.
-            symbol = _scoring_cache_symbol_from_payload(payload_raw)
-            opt_type = "call"
-            strike: Optional[float] = None
-            expiry: Optional[str] = None
-            if play_row:
-                opt_type = (
-                    play_row.get("option_type") or opt_type or "call"
+            # Build option_legs: synthesize an OCC symbol from any
+            # source so the preflight is rarely hit. Priority order
+            # for each component (symbol, type, strike, expiry):
+            #   1. scoring_cache.payload (legs-style or flat keys)
+            #   2. plays row's columns (option_type/option_strike/
+            #      option_expiry — canonical)
+            #   3. plays.payload (legs-style or flat keys)
+            sc_sym, sc_type, sc_strike, sc_expiry = _extract_option_metadata(
+                sc_payload
+            )
+            play_payload_sym, play_payload_type, play_payload_strike, \
+                play_payload_expiry = _extract_option_metadata(play_payload)
+
+            # Coerce plays row's column-level strike to float for
+            # consistent OCC construction (the column is REAL but
+            # SQLite may return Decimal/None).
+            row_strike: Optional[float]
+            try:
+                raw_row_strike = (
+                    play_row.get("option_strike") if play_row else None
                 )
-                strike = play_row.get("option_strike")
-                expiry = play_row.get("option_expiry")
+                row_strike = (
+                    float(raw_row_strike)
+                    if raw_row_strike is not None
+                    else None
+                )
+            except (TypeError, ValueError):
+                row_strike = None
+
+            row_type = play_row.get("option_type") if play_row else None
+            row_expiry = play_row.get("option_expiry") if play_row else None
+
+            symbol = sc_sym or play_payload_sym
+            opt_type = (
+                sc_type
+                or row_type
+                or play_payload_type
+                or "call"
+            )
+            strike = (
+                sc_strike
+                if sc_strike is not None
+                else (row_strike if row_strike is not None else play_payload_strike)
+            )
+            expiry = sc_expiry or row_expiry or play_payload_expiry
+
             if not symbol:
                 symbol = _build_occ_symbol(
                     ticker, expiry, opt_type, strike
@@ -897,6 +1088,49 @@ def evaluate_rotation(
                     "incumbent_catalyst_date": _iso_or_none(
                         weakest.get("catalyst_date")
                     ),
+                },
+            )
+            skips.append(skip)
+            continue
+
+        # Preflight: refuse to submit the SELL leg unless the
+        # challenger carries a fully-shaped buy card (catalyst_date,
+        # play_card, option_legs[0].symbol). Without this gate a
+        # missing-symbol challenger could result in the incumbent
+        # being closed AND the buy raising — leaving a one-sided
+        # rotation. See f-m3-21.
+        if not _validate_challenger_card_complete(cand):
+            play_card = cand.get("play_card")
+            legs = cand.get("option_legs")
+            if not isinstance(legs, Sequence) or isinstance(
+                legs, (str, bytes)
+            ):
+                if isinstance(play_card, Mapping):
+                    legs = play_card.get("option_legs")
+            first_symbol = None
+            if (
+                isinstance(legs, Sequence)
+                and not isinstance(legs, (str, bytes))
+                and len(legs) > 0
+                and isinstance(legs[0], Mapping)
+            ):
+                first_symbol = legs[0].get("symbol")
+            skip = _record_skip(
+                audit,
+                reason="incomplete_challenger_card",
+                context={
+                    **skip_context,
+                    "challenger_catalyst_date": _iso_or_none(
+                        cand.get("catalyst_date")
+                    ),
+                    "has_play_card": isinstance(play_card, Mapping),
+                    "option_legs_count": (
+                        len(legs)
+                        if isinstance(legs, Sequence)
+                        and not isinstance(legs, (str, bytes))
+                        else 0
+                    ),
+                    "first_leg_symbol": first_symbol,
                 },
             )
             skips.append(skip)
