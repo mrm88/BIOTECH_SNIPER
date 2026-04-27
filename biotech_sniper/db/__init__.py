@@ -60,7 +60,7 @@ SCHEMA_PATH: Final[Path] = Path(__file__).resolve().parent / "schema.sql"
 #     connect (every CREATE statement uses ``IF NOT EXISTS``), so even
 #     if a db drifts to a stale version row, re-running
 #     :func:`run_migrations` will restore any missing tables.
-CURRENT_VERSION: Final[int] = 5
+CURRENT_VERSION: Final[int] = 6
 
 
 # File mode applied to the on-disk SQLite database after every
@@ -246,7 +246,154 @@ _ALTER_TABLE_ADD_COLUMNS: tuple[tuple[str, str, str], ...] = (
     # LLM call is logged but the body could not be parsed (e.g.
     # ``note='unparseable_response'``).
     ("llm_cost_ledger", "note", "note TEXT"),
+    # f-m3-09: ``enrichment_label`` carries the LLM-enrichment tag
+    # written by the news pipeline (e.g. ``'negative_material'``).
+    # Used by the adverse-news exit hook to detect headlines that
+    # should auto-close active plays.
+    ("news_events", "enrichment_label", "enrichment_label TEXT"),
 )
+
+
+# f-m3-09: required CHECK clause on ``orders.event``. New databases get
+# this from ``schema.sql``; production databases that pre-date f-m3-09
+# need a recreate migration because SQLite cannot add a CHECK
+# constraint via ``ALTER TABLE``.
+_ORDERS_EVENT_CHECK_FRAGMENT: Final[str] = (
+    "event IN ('open','iv_crush_exit','stop_loss','adverse_news','rotation')"
+)
+
+
+def _orders_table_has_event_check(conn: sqlite3.Connection) -> bool:
+    """Return ``True`` when the ``orders`` table already enforces the
+    f-m3-09 CHECK constraint on the ``event`` column.
+
+    Inspects the live DDL stored in ``sqlite_master.sql`` because
+    ``PRAGMA table_info`` does not surface column-level CHECK
+    constraints. The check is purely textual — it looks for the
+    canonical enum fragment :data:`_ORDERS_EVENT_CHECK_FRAGMENT`. A
+    stricter parser would require sqlite_schema introspection that
+    has no benefit here: the migration always emits this exact
+    fragment so the substring check is sufficient.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master "
+        "WHERE type='table' AND name='orders'"
+    ).fetchone()
+    if row is None:
+        return False
+    sql = row["sql"] if isinstance(row, sqlite3.Row) else row[0]
+    if not isinstance(sql, str):
+        return False
+    return _ORDERS_EVENT_CHECK_FRAGMENT in sql
+
+
+def _recreate_orders_with_event_check(conn: sqlite3.Connection) -> None:
+    """Re-create the ``orders`` table with the f-m3-09 CHECK constraint.
+
+    SQLite supports column-level CHECK only at table creation time;
+    promoting an existing table requires the CREATE-COPY-DROP-RENAME
+    pattern. We:
+
+    1. Create ``orders__new`` with the canonical schema (matches the
+       f-m3-09 ``schema.sql`` definition).
+    2. Copy every row from ``orders`` into ``orders__new``. Rows whose
+       ``event`` is ``NULL`` or in the allowed enum copy verbatim;
+       rows with an unknown legacy value are coerced to ``NULL`` so
+       the CHECK does not abort the migration. The coercion is
+       logged at WARNING via :func:`logging.getLogger(__name__)` for
+       operator visibility.
+    3. ``DROP TABLE orders`` and ``ALTER TABLE orders__new RENAME TO
+       orders``.
+    4. Re-create the index set the original table carried.
+
+    The whole sequence runs inside the caller's transaction (started
+    by :func:`run_migrations`) so a failure rolls back cleanly.
+    """
+    import logging as _logging
+
+    log = _logging.getLogger(__name__)
+
+    # 1. Create the new table.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS orders__new (
+            id                    TEXT    NOT NULL PRIMARY KEY,
+            play_card_id          TEXT,
+            alpaca_order_id       TEXT,
+            symbol                TEXT,
+            side                  TEXT,
+            qty                   INTEGER,
+            status                TEXT    NOT NULL,
+            reason                TEXT,
+            event                 TEXT    CHECK(
+                event IS NULL OR
+                event IN ('open','iv_crush_exit','stop_loss',
+                          'adverse_news','rotation')
+            ),
+            parent_play_card_id   TEXT,
+            created_at            TEXT    NOT NULL DEFAULT
+                (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        )
+        """
+    )
+
+    # 2. Copy rows. Coerce unknown legacy event values to NULL so the
+    # CHECK passes; the operator gets a structured log of every
+    # coerced row id so the audit trail survives.
+    allowed = ("open", "iv_crush_exit", "stop_loss", "adverse_news", "rotation")
+    rows_to_coerce = list(
+        conn.execute(
+            "SELECT id, event FROM orders "
+            "WHERE event IS NOT NULL AND event NOT IN "
+            f"({', '.join('?' * len(allowed))})",
+            allowed,
+        ).fetchall()
+    )
+    for row in rows_to_coerce:
+        rid = row["id"] if isinstance(row, sqlite3.Row) else row[0]
+        rev = row["event"] if isinstance(row, sqlite3.Row) else row[1]
+        log.warning(
+            "orders.event_coerced_to_null id=%s legacy_event=%s reason=f-m3-09",
+            rid,
+            rev,
+        )
+
+    conn.execute(
+        f"""
+        INSERT INTO orders__new (
+            id, play_card_id, alpaca_order_id, symbol, side, qty,
+            status, reason, event, parent_play_card_id, created_at
+        )
+        SELECT id, play_card_id, alpaca_order_id, symbol, side, qty,
+               status, reason,
+               CASE
+                   WHEN event IS NULL THEN NULL
+                   WHEN event IN ({', '.join('?' * len(allowed))}) THEN event
+                   ELSE NULL
+               END AS event,
+               parent_play_card_id, created_at
+        FROM orders
+        """,
+        allowed,
+    )
+
+    # 3. Drop the old table and rename.
+    conn.execute("DROP TABLE orders")
+    conn.execute("ALTER TABLE orders__new RENAME TO orders")
+
+    # 4. Restore indices declared in schema.sql.
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_orders_play_card_id   ON orders(play_card_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_orders_alpaca_id      ON orders(alpaca_order_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_orders_status         ON orders(status)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_orders_event          ON orders(event)"
+    )
 
 
 def _apply_pending_alter_table_migrations(conn: sqlite3.Connection) -> None:
@@ -259,6 +406,10 @@ def _apply_pending_alter_table_migrations(conn: sqlite3.Connection) -> None:
     enclosing migration transaction. Any other ``OperationalError``
     (e.g. malformed DDL, missing table) is re-raised so callers can
     roll back.
+
+    f-m3-09 also runs the orders-table recreate here so production
+    databases that pre-date the CHECK constraint pick it up on the
+    next connect.
     """
     for table, column, ddl in _ALTER_TABLE_ADD_COLUMNS:
         cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
@@ -272,6 +423,19 @@ def _apply_pending_alter_table_migrations(conn: sqlite3.Connection) -> None:
             # rolls back.
             if "duplicate column name" not in str(exc).lower():
                 raise
+
+    # f-m3-09: ensure ``orders.event`` carries the CHECK enum. New
+    # databases get this from ``schema.sql`` directly; older
+    # production databases need the recreate dance because SQLite
+    # cannot ADD a CHECK via ALTER TABLE.
+    try:
+        if not _orders_table_has_event_check(conn):
+            _recreate_orders_with_event_check(conn)
+    except sqlite3.OperationalError:
+        # Surface to the caller's transaction so the migration rolls
+        # back atomically — never silently leave the table partially
+        # rebuilt.
+        raise
 
 
 def run_migrations(conn: sqlite3.Connection, target_version: int = CURRENT_VERSION) -> int:

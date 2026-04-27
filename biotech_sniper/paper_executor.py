@@ -83,6 +83,7 @@ from alpaca.trading.requests import LimitOrderRequest, MarketOrderRequest
 
 from biotech_sniper import config as _config
 from biotech_sniper import db as db_module
+from biotech_sniper import hold_policy as _hold_policy
 from biotech_sniper.alpaca_client import (
     AlpacaClient,
     AlpacaClientError,
@@ -1455,6 +1456,227 @@ class PaperExecutor:
 
             if interval > 0:
                 time.sleep(interval)
+
+    # ------------------------------------------------------------------
+    # f-m3-09: hold-policy-gated exit submission
+    # ------------------------------------------------------------------
+
+    def submit_exit(
+        self,
+        play: Mapping[str, Any],
+        event: str,
+        *,
+        today: Optional[Any] = None,
+        sell_qty: Optional[int] = None,
+    ) -> Optional[str]:
+        """Submit an exit (``side='sell'``) for ``play`` tagged with ``event``.
+
+        This is the f-m3-09 entry point that ALL specialised exit
+        triggers (iv_crush_exit, stop_loss, adverse_news, rotation)
+        funnel through. It guarantees:
+
+        * ``event`` is one of the four allowed exit triggers
+          (:data:`hold_policy.ALLOWED_EXIT_EVENTS`); anything else
+          raises :class:`hold_policy.HoldPolicyViolation` BEFORE any
+          network call.
+        * On a non-catalyst date, the sell is refused unless the
+          event is allowed (the hold-rule guard from VAL-M3-047).
+        * ``client_order_id`` is forced to
+          ``f"{ticker}-{event}-{date}"`` so the broker dedupes
+          same-day re-submissions of the same exit.
+        * Idempotency is ALSO enforced locally: if the ``orders``
+          table already has a non-rejected row matching the same
+          ``(ticker, event, date)`` triplet, the call returns the
+          existing ``alpaca_order_id`` (or ``None`` when the persisted
+          row was a sentinel) without contacting the broker.
+
+        Parameters
+        ----------
+        play:
+            Mapping describing the active position to exit. Required
+            keys: ``ticker`` (string) and ``symbol`` (OCC option
+            symbol). Optional but strongly recommended:
+            ``play_card_id`` (string id of the entry play card —
+            used as ``parent_play_card_id`` on the exit row),
+            ``catalyst_date`` (ISO string — used by the hold guard),
+            ``qty`` (current open contract count — defaults to
+            ``sell_qty`` when supplied, otherwise must be present).
+        event:
+            One of :data:`hold_policy.ALLOWED_EXIT_EVENTS`.
+        today:
+            Override for the date used in the
+            ``client_order_id`` and the hold-rule check. Defaults to
+            UTC today.
+        sell_qty:
+            Optional explicit sell quantity. Defaults to the play's
+            ``qty``. Must be ``>= 1``.
+
+        Returns
+        -------
+        str | None
+            The broker-assigned ``alpaca_order_id`` on a fresh
+            submission, or the previously persisted id when the
+            idempotency check short-circuits.
+        """
+        if event not in _hold_policy.ALLOWED_EXIT_EVENTS:
+            raise _hold_policy.HoldPolicyViolation(
+                f"submit_exit: event={event!r} is not an allowed exit "
+                f"trigger; allowed events are "
+                f"{sorted(_hold_policy.ALLOWED_EXIT_EVENTS)}"
+            )
+
+        ticker_raw = play.get("ticker") or play.get("symbol")
+        if not isinstance(ticker_raw, str) or not ticker_raw.strip():
+            raise UnsupportedOrderShape(
+                "submit_exit: play['ticker'] must be a non-empty string"
+            )
+        ticker = ticker_raw.strip().upper()
+
+        symbol_raw = play.get("symbol") or play.get("option_symbol")
+        if not isinstance(symbol_raw, str) or not symbol_raw.strip():
+            raise UnsupportedOrderShape(
+                "submit_exit: play['symbol'] must be a non-empty OCC "
+                "option symbol"
+            )
+        symbol = symbol_raw.strip()
+
+        today_date = _hold_policy.coerce_date(today)
+        catalyst_raw = (
+            play.get("catalyst_date")
+            or play.get("pdufa_date")
+            or play.get("estimated_announcement")
+        )
+
+        # Gate the sell through hold_policy. The arbiter raises when
+        # the event is not allowed for a non-catalyst date.
+        _hold_policy.assert_exit_allowed(
+            event=event,
+            side="sell",
+            catalyst_date=catalyst_raw,
+            today=today_date,
+            play_id=play.get("play_id") or play.get("play_card_id"),
+        )
+
+        # Resolve sell qty.
+        if sell_qty is None:
+            qty_raw = play.get("qty") or play.get("contracts") or play.get(
+                "open_qty"
+            )
+            try:
+                sell_qty = int(qty_raw) if qty_raw is not None else 0
+            except (TypeError, ValueError):
+                sell_qty = 0
+        if not isinstance(sell_qty, int) or sell_qty < 1:
+            raise UnsupportedOrderShape(
+                f"submit_exit: sell_qty must be >= 1, got {sell_qty!r}"
+            )
+
+        client_order_id = _hold_policy.make_exit_client_order_id(
+            ticker, event, today_date
+        )
+        parent_play_card_id = play.get("play_card_id")
+        exit_play_card_id = _hold_policy.make_exit_play_card_id(
+            parent_play_card_id, ticker, event, today_date
+        )
+
+        # Idempotency: if a non-rejected exit row already exists for
+        # this (ticker, event, date), short-circuit. The lookup keys
+        # off the deterministic ``exit_play_card_id`` which already
+        # bakes in (parent, event, date) so a fresh call within the
+        # same day finds the prior row exactly.
+        existing = self._lookup_exit_by_play_card_id(
+            exit_play_card_id, event=event
+        )
+        if existing is not None:
+            logger.info(
+                "paper_executor.submit_exit.idempotent_skip "
+                "ticker=%s event=%s date=%s play_card_id=%s",
+                ticker,
+                event,
+                today_date.isoformat(),
+                parent_play_card_id,
+            )
+            return existing.get("alpaca_order_id")
+
+        sell_card: dict[str, Any] = {
+            "play_card_id": exit_play_card_id,
+            "parent_play_card_id": parent_play_card_id,
+            "ticker": ticker,
+            "event": event,
+            "client_order_id": client_order_id,
+            "option_legs": [
+                {
+                    "symbol": symbol,
+                    "side": "sell",
+                    "qty": int(sell_qty),
+                    "client_order_id": client_order_id,
+                }
+            ],
+        }
+
+        result = self.execute(sell_card)
+        # ``execute`` returns ``str`` for single-leg cards. Defensive
+        # coercion for the (impossible) list path keeps the contract
+        # honest.
+        if isinstance(result, list):
+            return result[0] if result else None
+        return result
+
+    def _lookup_exit_by_play_card_id(
+        self,
+        exit_play_card_id: str,
+        *,
+        event: Optional[str] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Return the persisted ``orders`` row for ``exit_play_card_id``, if any.
+
+        Used by :meth:`submit_exit` to short-circuit a duplicate
+        submission. Rows with ``status='rejected'`` are NOT
+        considered — a previous transient broker rejection should
+        not block a retry. Optionally restricts the lookup by
+        ``event`` so callers do not match an unrelated entry that
+        coincidentally reused the same id namespace.
+
+        The exact-match on ``play_card_id`` works because the f-m3-09
+        helpers (:func:`hold_policy.make_exit_play_card_id` /
+        :func:`hold_policy.make_exit_client_order_id`) bake the
+        ``(parent, event, date)`` triplet into the id deterministically:
+        a same-day re-submission produces the same string and matches
+        exactly.
+        """
+        conn = self._connect()
+        try:
+            if event is not None:
+                cursor = conn.execute(
+                    """
+                    SELECT id, alpaca_order_id, status, event,
+                           parent_play_card_id, symbol, qty
+                    FROM orders
+                    WHERE play_card_id = ?
+                      AND event = ?
+                      AND status != 'rejected'
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT 1
+                    """,
+                    (exit_play_card_id, event),
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    SELECT id, alpaca_order_id, status, event,
+                           parent_play_card_id, symbol, qty
+                    FROM orders
+                    WHERE play_card_id = ?
+                      AND status != 'rejected'
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT 1
+                    """,
+                    (exit_play_card_id,),
+                )
+            row = cursor.fetchone()
+            return dict(row) if row is not None else None
+        finally:
+            conn.close()
 
     def get_orders_for_play(self, play_card_id: str) -> list[dict[str, Any]]:
         """Return all persisted orders for ``play_card_id``.

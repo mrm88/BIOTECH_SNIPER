@@ -32,14 +32,63 @@ LEARNING DATA STORED PER RESOLVED TRADE:
 
 import json
 import datetime
+import logging
 import sys
 from pathlib import Path
+from typing import Any, Mapping
 
+from biotech_sniper import hold_policy as _hold_policy
 from biotech_sniper.paths import BASE_DIR
 LEDGER_FILE = BASE_DIR / "state/performance_ledger.json"
 RESOLVED_FILE = BASE_DIR / "state/resolved_plays.json"
 ACTIVE_PLAYS_FILE = BASE_DIR / "state/active_plays.json"
 SEC_8K_FILE = BASE_DIR / "state/sec_8k_state.json"
+
+logger = logging.getLogger(__name__)
+
+
+def _has_filled_exit(active_play: Mapping[str, Any]) -> bool:
+    """Return ``True`` when the play already has a filled exit order.
+
+    f-m3-09 introduces the ``filled_exit`` flag on the active-plays
+    payload; until the M3 paper-executor poll-loop wires it, the
+    helper falls back to a few legacy signals (``exit_filled``,
+    ``status='RESOLVED'``) so the guard remains useful with the
+    pre-existing JSON shapes.
+    """
+    if not isinstance(active_play, Mapping):
+        return False
+    if active_play.get("filled_exit") is True:
+        return True
+    if active_play.get("exit_filled") is True:
+        return True
+    status = active_play.get("status")
+    if isinstance(status, str) and status.upper() == "RESOLVED":
+        return True
+    return False
+
+
+def hold_policy_blocks_resolution(
+    ledger_entry: Mapping[str, Any],
+    active_play: Mapping[str, Any] | None = None,
+    *,
+    today: Any = None,
+) -> bool:
+    """Return ``True`` when the f-m3-09 hold rule forbids resolving.
+
+    Wraps :func:`hold_policy.should_resolve` for the auto-resolver:
+    we resolve only when the hold policy says we may. The function
+    composes the catalyst date from the ledger entry (which carries
+    ``pdufa_date``) and consults the active-play payload for a
+    filled-exit hint. A ``True`` return means the resolver should
+    skip the play entirely on this run.
+    """
+    has_filled_exit = (
+        _has_filled_exit(active_play or {}) if active_play is not None else False
+    )
+    return not _hold_policy.should_resolve(
+        ledger_entry, today=today, has_filled_exit=has_filled_exit
+    )
 
 
 def load_ledger():
@@ -304,11 +353,24 @@ def run_auto_resolver() -> dict:
             entry["status"] = "RESOLVED"
             continue
 
+        # f-m3-09: do NOT pre-resolve a play while today < catalyst_date
+        # AND no exit order has filled. The hold-policy arbiter is the
+        # single source of truth for this rule (VAL-M3-048).
+        active_play = active.get(ticker, monitor.get(ticker, {}))
+        if hold_policy_blocks_resolution(entry, active_play, today=today):
+            logger.info(
+                "auto_resolver.hold_policy_blocks ticker=%s "
+                "catalyst_date=%s today=%s",
+                ticker,
+                entry.get("pdufa_date") or entry.get("catalyst_date"),
+                today,
+            )
+            continue
+
         resolution = classify_resolution(entry)
         if resolution:
             print(f"  RESOLVED: {ticker} — {resolution['outcome']} | option {resolution.get('option_pnl_pct', 0):+.0f}% | stock {resolution.get('stock_move_pct', 0):+.1f}%")
 
-            active_play = active.get(ticker, monitor.get(ticker, {}))
             record = build_resolved_record(ticker, entry, resolution, active_play)
 
             resolved_list.append(record)

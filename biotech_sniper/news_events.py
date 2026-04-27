@@ -143,6 +143,10 @@ class NewsEvent:
     The watcher modules build these and pass them to
     :func:`record_news_events`. Keeping the wire format as a tiny
     dataclass means tests can construct events without touching SQL.
+
+    f-m3-09 added the optional ``enrichment_label`` field so the LLM
+    enrichment pass can tag headlines downstream consumers act on
+    (e.g. ``'negative_material'`` for the adverse-news exit hook).
     """
 
     ticker: str
@@ -152,8 +156,11 @@ class NewsEvent:
     published_at: str | None = None
     raw_payload: Any = None
     ingested_at: str | None = None  # filled by SQLite default if None
+    enrichment_label: str | None = None  # f-m3-09
 
-    def to_row(self) -> tuple[str, str, str | None, str, str | None, str, str | None]:
+    def to_row(
+        self,
+    ) -> tuple[str, str, str | None, str, str | None, str, str | None, str | None]:
         ticker = _coerce_required_str(self.ticker, field_name="ticker").upper()
         source = _coerce_required_str(self.source, field_name="source")
         title = _coerce_required_str(self.title, field_name="title")
@@ -161,7 +168,17 @@ class NewsEvent:
         published_at = _coerce_str(self.published_at)
         ingested_at = _coerce_str(self.ingested_at) or _now_iso()
         payload = _serialize_payload(self.raw_payload)
-        return (ticker, source, published_at, title, url, ingested_at, payload)
+        enrichment_label = _coerce_str(self.enrichment_label)
+        return (
+            ticker,
+            source,
+            published_at,
+            title,
+            url,
+            ingested_at,
+            payload,
+            enrichment_label,
+        )
 
 
 def record_news_event(
@@ -174,6 +191,7 @@ def record_news_event(
     published_at: str | None = None,
     raw_payload: Any = None,
     ingested_at: str | None = None,
+    enrichment_label: str | None = None,
 ) -> bool:
     """Insert a single news_events row.
 
@@ -194,12 +212,14 @@ def record_news_event(
         published_at=published_at,
         raw_payload=raw_payload,
         ingested_at=ingested_at,
+        enrichment_label=enrichment_label,
     )
     row = event.to_row()
     cursor = conn.execute(
         "INSERT OR IGNORE INTO news_events "
-        "(ticker, source, published_at, title, url, ingested_at, raw_payload) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "(ticker, source, published_at, title, url, ingested_at, "
+        "raw_payload, enrichment_label) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         row,
     )
     return cursor.rowcount > 0
@@ -239,6 +259,7 @@ def record_news_events(
                         published_at=raw.get("published_at"),
                         raw_payload=raw.get("raw_payload"),
                         ingested_at=raw.get("ingested_at"),
+                        enrichment_label=raw.get("enrichment_label"),
                     )
                 else:
                     raise TypeError(
@@ -248,7 +269,8 @@ def record_news_events(
                 cursor = conn.execute(
                     "INSERT OR IGNORE INTO news_events "
                     "(ticker, source, published_at, title, url, ingested_at, "
-                    "raw_payload) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    "raw_payload, enrichment_label) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     row,
                 )
                 if cursor.rowcount > 0:

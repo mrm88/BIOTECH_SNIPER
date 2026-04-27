@@ -530,7 +530,12 @@ def test_get_orders_for_play_chronology_with_event_tagged_exit(
     exit_card = {
         "play_card_id": play["play_card_id"],
         "parent_play_card_id": play["play_card_id"],
-        "event": "iv_crush",
+        # f-m3-09: ``orders.event`` is constrained to the closed enum
+        # {open, iv_crush_exit, stop_loss, adverse_news, rotation}.
+        # The historical ``'iv_crush'`` literal was renamed to
+        # ``'iv_crush_exit'`` in f-m3-05 and the validation contract
+        # locks that value (see VAL-M3-028 evidence + feature spec).
+        "event": "iv_crush_exit",
         "option_legs": [
             {
                 "symbol": play["option_legs"][0]["symbol"],
@@ -547,7 +552,7 @@ def test_get_orders_for_play_chronology_with_event_tagged_exit(
     # Order is chronological; the entry is first, the exit second.
     assert rows[0]["created_at"] <= rows[1]["created_at"]
     assert rows[0]["event"] is None
-    assert rows[1]["event"] == "iv_crush"
+    assert rows[1]["event"] == "iv_crush_exit"
     assert rows[1]["parent_play_card_id"] == play["play_card_id"]
 
 

@@ -107,6 +107,18 @@ MAX_CONCURRENT_PLAYS: Final[int] = 3
 MAX_DEPLOYED_USD: Final[int] = 750
 
 
+# ``STOP_LOSS_PCT`` is the negative percentage drawdown at which the
+# f-m3-09 stop-loss trigger fires. Default is ``-0.50`` (a 50% drop
+# from the entry mid). When ``current_mid / entry_mid - 1`` is less
+# than or equal to this value the trigger submits an exit order with
+# ``event='stop_loss'`` to close 100% of the position.
+#
+# The value is intentionally a float so operators can tune it via a
+# state override without changing the type signature; positive values
+# would never fire and are treated as "stop-loss disabled".
+STOP_LOSS_PCT: Final[float] = -0.50
+
+
 def get_risk_per_play_usd() -> int:
     """Return the effective per-play risk cap in USD.
 
@@ -365,6 +377,7 @@ __all__ = [
     "RISK_PER_PLAY_USD",
     "MAX_CONCURRENT_PLAYS",
     "MAX_DEPLOYED_USD",
+    "STOP_LOSS_PCT",
     "ENSEMBLE_WEIGHTS",
     "MIN_ENSEMBLE_SCORE",
     "MIN_SCIENCE_GRADE",

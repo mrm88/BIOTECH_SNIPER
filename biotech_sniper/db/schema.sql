@@ -184,14 +184,18 @@ CREATE TABLE IF NOT EXISTS universe (
 -- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS news_events (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    ticker          TEXT    NOT NULL,
-    source          TEXT    NOT NULL,
-    published_at    TEXT,
-    title           TEXT    NOT NULL,
-    url             TEXT,
-    ingested_at     TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    raw_payload     TEXT
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker            TEXT    NOT NULL,
+    source            TEXT    NOT NULL,
+    published_at      TEXT,
+    title             TEXT    NOT NULL,
+    url               TEXT,
+    ingested_at       TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    raw_payload       TEXT,
+    -- f-m3-09: optional LLM-enrichment tag attached to the headline
+    -- (e.g. ``'negative_material'`` for an adverse-news exit hook
+    -- target). NULL for un-enriched rows.
+    enrichment_label  TEXT
 );
 
 -- ---------------------------------------------------------------------------
@@ -310,6 +314,18 @@ CREATE INDEX IF NOT EXISTS idx_llm_debate_transcript_complete_at
 -- the M3 validation contract (VAL-M3-031..033) demands.
 -- ---------------------------------------------------------------------------
 
+-- f-m3-09 hardens ``orders.event`` with a CHECK constraint enumerating
+-- the four allowed exit triggers plus the ``'open'`` entry tag. The
+-- enum is intentionally open to NULL so legacy rows written before the
+-- f-m3-09 migration (which were never tagged with an event) remain
+-- valid; new code paths populate ``event`` for every entry and exit.
+--
+-- The wire value ``'iv_crush_exit'`` is preserved (rather than
+-- ``'iv_crush'`` from the original spec) because f-m3-05 already
+-- shipped that exact string per VAL-M3-028 evidence; bumping it
+-- would require a backfill migration. The remaining four values
+-- (``'open'``, ``'stop_loss'``, ``'adverse_news'``, ``'rotation'``)
+-- match the f-m3-09 spec verbatim.
 CREATE TABLE IF NOT EXISTS orders (
     id                    TEXT    NOT NULL PRIMARY KEY,
     play_card_id          TEXT,
@@ -319,7 +335,10 @@ CREATE TABLE IF NOT EXISTS orders (
     qty                   INTEGER,
     status                TEXT    NOT NULL,
     reason                TEXT,
-    event                 TEXT,
+    event                 TEXT    CHECK(
+        event IS NULL OR
+        event IN ('open','iv_crush_exit','stop_loss','adverse_news','rotation')
+    ),
     parent_play_card_id   TEXT,
     created_at            TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
