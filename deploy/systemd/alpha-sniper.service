@@ -10,6 +10,11 @@ User=root
 WorkingDirectory=/root/alpha_sniper/repo
 EnvironmentFile=/root/alpha_sniper/.env
 ExecStart=/root/alpha_sniper/repo/.venv/bin/python -m biotech_sniper.master_unified_run
+# Daily SQLite backup (gzipped snapshot to /root/alpha_sniper/backups/db_YYYY-MM-DD.gz,
+# 30-day rotation). Runs after the main pipeline so the snapshot reflects today's writes.
+# Prefixed with "-" so a backup failure does not mark the daily run as failed
+# (the script logs JSON errors to journald for the watchdog).
+ExecStartPost=-/usr/bin/env bash /root/alpha_sniper/repo/deploy/scripts/backup_db.sh
 StandardOutput=journal
 StandardError=journal
 TimeoutStartSec=30min

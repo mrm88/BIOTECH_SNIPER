@@ -32,6 +32,12 @@ Every service unit:
 
 Daily timer carries `Persistent=true` so missed runs after a reboot are caught up.
 
+The daily service additionally runs `deploy/scripts/backup_db.sh` via
+`ExecStartPost=` to produce a gzipped SQLite snapshot at
+`/root/alpha_sniper/backups/db_YYYY-MM-DD.gz`. The script enforces a
+30-day rotation (by mtime) and a 30-archive hard cap, and is idempotent on
+same-UTC-day re-runs.
+
 ## Verification
 
 On a host with systemd (the VPS):
