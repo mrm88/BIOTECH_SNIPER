@@ -707,6 +707,20 @@ def run_migrations(conn: sqlite3.Connection, target_version: int = CURRENT_VERSI
             # dbs. Idempotent: skipped when ``orders`` is absent or
             # ``paper_orders`` already exists.
             _rename_legacy_orders_to_paper_orders(conn)
+            # f-m3-25: add the f-m3-11 augmentation columns
+            # (``requested_mid_at_submit``, ``purpose``,
+            # ``client_order_id``) to the just-renamed
+            # ``paper_orders`` BEFORE the ``schema.sql`` apply loop.
+            # Otherwise the ``CREATE INDEX IF NOT EXISTS
+            # idx_paper_orders_purpose ON paper_orders(purpose)``
+            # statement in ``schema.sql`` would fail with
+            # ``no such column: purpose`` on legacy databases whose
+            # ``orders`` table predates the f-m3-11 columns, rolling
+            # back the entire migration. Idempotent: the helper
+            # short-circuits cleanly when ``paper_orders`` does not
+            # yet exist (greenfield dbs whose ``paper_orders`` is
+            # created by the schema.sql apply below).
+            _add_f_m3_11_columns_to_paper_orders(conn)
             for stmt in statements:
                 conn.execute(stmt)
             _apply_pending_alter_table_migrations(conn)
