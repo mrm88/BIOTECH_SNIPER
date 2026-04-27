@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 import logging
-import sys, json, datetime, traceback, requests
+import os
+import sys, json, datetime, time, traceback, tempfile
+from pathlib import Path
+from typing import Any, Callable, Optional
+
+import requests
 
 # f-m4-02: route module-level audit output through the project's
 # structured JSON logger instead of bare ``print()`` calls. Importing
@@ -10,6 +15,494 @@ import sys, json, datetime, traceback, requests
 from biotech_sniper import logging_setup  # noqa: F401 — installs JSON formatter on import
 
 log = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# f-m4-03 — M4 audit contract helpers (importable, no network at import time).
+# ---------------------------------------------------------------------------
+#
+# The legacy module-level audit script below performs many ad-hoc network
+# probes and writes ``state/audit_latest.json``. The f-m4-03 contract
+# augments that file with the following required top-level keys:
+#
+# * ``generated_at`` (ISO-8601 UTC timestamp)
+# * ``sources`` — map keyed by ``ct.gov``, ``sec_edgar``, ``news_rss``,
+#   ``alpaca_paper``, ``xai``, ``anthropic``, ``gemini``. Each value
+#   carries ``status`` (one of ``ok`` / ``degraded`` / ``error``),
+#   ``last_checked`` (ISO-8601 UTC), and ``latency_ms`` (int ≥ 0).
+# * ``last_daily_run`` — ISO-8601 UTC of the most recent daily run,
+#   read from db state (``scoring_cache.created_at``).
+# * ``last_intraday_run`` — ISO-8601 UTC of the most recent intraday
+#   run, read from db state (``execution_events.event_at``).
+# * ``db_size_bytes`` — size of ``data/alpha_sniper.db`` on disk.
+# * ``paper_account_equity`` — current Alpaca paper account equity
+#   (float, ``None`` when credentials are missing or unreachable).
+#
+# All probe helpers are pure functions that capture timing internally
+# and never raise to the caller — failure modes surface as
+# ``{"status": "error", ...}`` so the audit JSON always lands.
+# ---------------------------------------------------------------------------
+
+
+_M4_SOURCE_KEYS: tuple[str, ...] = (
+    "ct.gov",
+    "sec_edgar",
+    "news_rss",
+    "alpaca_paper",
+    "xai",
+    "anthropic",
+    "gemini",
+)
+
+
+def _iso_utc_now() -> str:
+    """Return the current time as an ISO-8601 UTC string with ``Z`` suffix."""
+    return datetime.datetime.now(datetime.timezone.utc).isoformat().replace(
+        "+00:00", "Z"
+    )
+
+
+def _classify_http_status(status: int) -> str:
+    """Map an HTTP status code to the M4 ``ok`` / ``degraded`` / ``error`` enum.
+
+    * 2xx → ``ok``
+    * 3xx → ``degraded`` (redirects are reachable but unexpected here)
+    * 4xx → ``degraded`` (auth failures count as reachable but
+      not-fully-functional; mark as degraded so operators investigate
+      without paging on a public-API auth-only endpoint).
+    * 5xx → ``error``
+    * everything else → ``error``
+    """
+    if 200 <= status < 300:
+        return "ok"
+    if 300 <= status < 400:
+        return "degraded"
+    if 400 <= status < 500:
+        return "degraded"
+    return "error"
+
+
+def _atomic_write_json(path: Path, data: Any) -> None:
+    """Write ``data`` as JSON to ``path`` atomically.
+
+    Creates a temp file in the same directory, ``json.dump``s the
+    payload there, calls ``os.replace`` to swap it into place. On any
+    failure the temp file is cleaned up and the destination is
+    untouched (so a partially-written audit JSON is never observable
+    by readers).
+
+    Parameters
+    ----------
+    path:
+        Destination file path. Parent directory is created if missing.
+    data:
+        Any JSON-serializable Python object.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_fd, tmp_name = tempfile.mkstemp(
+        prefix=path.name + ".",
+        suffix=".tmp",
+        dir=str(path.parent),
+    )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2, sort_keys=True, default=str)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(str(tmp_path), str(path))
+    except Exception:
+        try:
+            tmp_path.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def _probe_with_timing(
+    fn: Callable[[], dict[str, Any]],
+) -> dict[str, Any]:
+    """Wrap a probe callable with timing + uniform error handling.
+
+    The probe callable returns a dict carrying at minimum a ``status``
+    key (``ok`` / ``degraded`` / ``error``); additional context (HTTP
+    status, error string, etc.) is preserved verbatim. ``last_checked``
+    and ``latency_ms`` are merged into the returned dict before it is
+    handed back. Any exception thrown by the probe is converted to
+    ``{"status": "error", "error": repr(exc)}`` so callers never need
+    to wrap the call in a try/except themselves.
+    """
+    started = time.monotonic()
+    last_checked = _iso_utc_now()
+    try:
+        result = fn() or {}
+        if not isinstance(result, dict):
+            result = {"status": "error", "error": f"non-dict probe result: {result!r}"}
+    except Exception as exc:  # noqa: BLE001 — probe must not crash audit
+        result = {"status": "error", "error": repr(exc)}
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    result.setdefault("status", "error")
+    result.setdefault("last_checked", last_checked)
+    result.setdefault("latency_ms", elapsed_ms)
+    return result
+
+
+def _probe_ctgov() -> dict[str, Any]:
+    """Lightweight reachability probe for ClinicalTrials.gov v2 API."""
+    r = requests.get(
+        "https://clinicaltrials.gov/api/v2/studies?pageSize=1",
+        timeout=10,
+    )
+    return {
+        "status": _classify_http_status(r.status_code),
+        "http_status": r.status_code,
+    }
+
+
+def _probe_sec_edgar() -> dict[str, Any]:
+    """Lightweight reachability probe for SEC EDGAR (8-K RSS feed)."""
+    r = requests.get(
+        "https://www.sec.gov/cgi-bin/browse-edgar?"
+        "action=getcurrent&type=8-K&dateb=&owner=include&count=1&output=atom",
+        headers={"User-Agent": "BioCatalystBot research@mantisvc.com"},
+        timeout=10,
+    )
+    return {
+        "status": _classify_http_status(r.status_code),
+        "http_status": r.status_code,
+    }
+
+
+def _probe_news_rss() -> dict[str, Any]:
+    """Lightweight reachability probe for the canonical FDA press-releases RSS."""
+    r = requests.get(
+        "https://www.fda.gov/about-fda/contact-fda/stay-informed/"
+        "rss-feeds/press-releases/rss.xml",
+        headers={"User-Agent": "Mozilla/5.0"},
+        timeout=10,
+    )
+    return {
+        "status": _classify_http_status(r.status_code),
+        "http_status": r.status_code,
+    }
+
+
+def _probe_alpaca_paper() -> dict[str, Any]:
+    """Reachability + auth probe for the Alpaca paper trading API.
+
+    Builds an :class:`AlpacaClient` and calls ``get_account``. On
+    success the snapshot's ``equity`` is folded into the result so a
+    single round-trip serves both the ``alpaca_paper`` source status
+    AND the top-level ``paper_account_equity`` field.
+
+    Failure modes:
+    * Missing credentials → ``status='degraded'``, ``reason='credentials_missing'``.
+    * Auth error (HTTP 401/403) → ``status='degraded'``.
+    * Transport error → ``status='error'``.
+    """
+    try:
+        from biotech_sniper.alpaca_client import (
+            AlpacaAuthError,
+            AlpacaClient,
+            AlpacaTransportError,
+        )
+    except Exception as exc:  # pragma: no cover — alpaca-py should always import
+        return {"status": "error", "error": f"import_failed: {exc!r}"}
+
+    try:
+        client = AlpacaClient()
+    except AlpacaAuthError:
+        return {
+            "status": "degraded",
+            "reason": "credentials_missing",
+            "equity": None,
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "error", "error": repr(exc), "equity": None}
+
+    try:
+        account = client.get_account()
+    except AlpacaAuthError as exc:
+        return {
+            "status": "degraded",
+            "reason": "auth_failed",
+            "error": repr(exc),
+            "equity": None,
+        }
+    except AlpacaTransportError as exc:
+        return {"status": "error", "error": repr(exc), "equity": None}
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "error", "error": repr(exc), "equity": None}
+
+    equity = account.get("equity")
+    try:
+        equity_f = float(equity) if equity is not None else None
+    except (TypeError, ValueError):
+        equity_f = None
+    return {
+        "status": "ok",
+        "equity": equity_f,
+        "currency": account.get("currency", "USD"),
+    }
+
+
+def _probe_xai() -> dict[str, Any]:
+    """Lightweight reachability + auth probe for the xAI / Grok API.
+
+    Hits ``GET /v1/api-key`` on ``api.x.ai``. Without a key configured
+    we return ``status='degraded'`` (``reason='api_key_missing'``)
+    rather than fabricating a request — the validator contract
+    requires the field present on every line and degraded reads as
+    "endpoint reachable but not exercised for this run".
+    """
+    from biotech_sniper.config import get_xai_api_key
+
+    api_key = get_xai_api_key()
+    if not api_key:
+        return {"status": "degraded", "reason": "api_key_missing"}
+    r = requests.get(
+        "https://api.x.ai/v1/api-key",
+        headers={"Authorization": f"Bearer {api_key}"},
+        timeout=10,
+    )
+    return {
+        "status": _classify_http_status(r.status_code),
+        "http_status": r.status_code,
+    }
+
+
+def _probe_anthropic() -> dict[str, Any]:
+    """Lightweight reachability + auth probe for the Anthropic API."""
+    from biotech_sniper.config import get_anthropic_api_key
+
+    api_key = get_anthropic_api_key()
+    if not api_key:
+        return {"status": "degraded", "reason": "api_key_missing"}
+    # GET /v1/models lists available models without consuming
+    # generation budget; perfect for a reachability ping.
+    r = requests.get(
+        "https://api.anthropic.com/v1/models",
+        headers={
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        },
+        timeout=10,
+    )
+    return {
+        "status": _classify_http_status(r.status_code),
+        "http_status": r.status_code,
+    }
+
+
+def _probe_gemini() -> dict[str, Any]:
+    """Lightweight reachability + auth probe for the Gemini API."""
+    from biotech_sniper.config import get_gemini_api_key
+
+    api_key = get_gemini_api_key()
+    if not api_key:
+        return {"status": "degraded", "reason": "api_key_missing"}
+    r = requests.get(
+        f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}",
+        timeout=10,
+    )
+    return {
+        "status": _classify_http_status(r.status_code),
+        "http_status": r.status_code,
+    }
+
+
+# Probe registry — preserved as a tuple so the order in which sources
+# appear in the JSON is deterministic. Tests can override individual
+# entries via ``monkeypatch`` on the module-level callables above.
+_M4_PROBES: tuple[tuple[str, Callable[[], dict[str, Any]]], ...] = (
+    ("ct.gov", _probe_ctgov),
+    ("sec_edgar", _probe_sec_edgar),
+    ("news_rss", _probe_news_rss),
+    ("alpaca_paper", _probe_alpaca_paper),
+    ("xai", _probe_xai),
+    ("anthropic", _probe_anthropic),
+    ("gemini", _probe_gemini),
+)
+
+
+def _get_db_size_bytes(db_path: Path) -> int:
+    """Return the on-disk size of the SQLite db (or ``0`` when missing)."""
+    try:
+        return int(db_path.stat().st_size)
+    except (FileNotFoundError, OSError):
+        return 0
+
+
+def _query_max_timestamp(
+    db_path: Path, table: str, column: str
+) -> Optional[str]:
+    """Return ``MAX(<column>)`` from ``<table>`` or ``None`` if unavailable.
+
+    Returns ``None`` for any of:
+    * db file does not exist,
+    * table does not exist,
+    * table is empty,
+    * SQLite raises (corrupt db / locked / permission error).
+    """
+    if not db_path.exists():
+        return None
+    try:
+        import sqlite3 as _sqlite3
+
+        conn = _sqlite3.connect(str(db_path))
+        try:
+            row = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                (table,),
+            ).fetchone()
+            if row is None:
+                return None
+            row = conn.execute(
+                f"SELECT MAX({column}) FROM {table}"  # noqa: S608 — table whitelisted
+            ).fetchone()
+            if row is None or row[0] is None:
+                return None
+            return str(row[0])
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001 — never crash the audit on db issues
+        return None
+
+
+def _get_last_daily_run(db_path: Path) -> Optional[str]:
+    """Return ISO-8601 UTC for the most recent daily run.
+
+    The daily systemd unit (M4) writes ``scoring_cache`` rows per
+    candidate ticker, so ``MAX(scoring_cache.created_at)`` is the
+    canonical "last daily run completed" timestamp.
+    """
+    return _query_max_timestamp(db_path, "scoring_cache", "created_at")
+
+
+def _get_last_intraday_run(db_path: Path) -> Optional[str]:
+    """Return ISO-8601 UTC for the most recent intraday run.
+
+    The intraday systemd unit (M4) writes ``execution_events`` rows
+    when polling Alpaca order state, so ``MAX(execution_events.event_at)``
+    is the canonical "last intraday tick completed" timestamp.
+    """
+    return _query_max_timestamp(db_path, "execution_events", "event_at")
+
+
+def build_m4_audit_payload(
+    *, db_path: Optional[Path] = None
+) -> dict[str, Any]:
+    """Build the f-m4-03 audit JSON payload.
+
+    Runs every probe in :data:`_M4_PROBES` (capturing status / latency
+    individually), reads db-state for ``last_daily_run`` /
+    ``last_intraday_run`` / ``db_size_bytes``, and extracts
+    ``paper_account_equity`` from the ``alpaca_paper`` probe's result.
+
+    The returned dict is the M4 contract surface — callers merge it
+    into the existing ``audit_latest.json`` payload before writing.
+    """
+    from biotech_sniper.paths import DATA_DIR
+
+    if db_path is None:
+        db_path = DATA_DIR / "alpha_sniper.db"
+
+    sources_payload: dict[str, dict[str, Any]] = {}
+    for name, probe in _M4_PROBES:
+        sources_payload[name] = _probe_with_timing(probe)
+
+    paper_equity = sources_payload["alpaca_paper"].get("equity")
+    # ``equity`` in degraded probes may be ``None`` so leave it as-is
+    # (the contract allows ``None`` when credentials are missing).
+    if isinstance(paper_equity, (int, float)):
+        paper_equity_value: Any = float(paper_equity)
+    else:
+        paper_equity_value = None
+
+    return {
+        "generated_at": _iso_utc_now(),
+        "sources": sources_payload,
+        "last_daily_run": _get_last_daily_run(db_path),
+        "last_intraday_run": _get_last_intraday_run(db_path),
+        "db_size_bytes": _get_db_size_bytes(db_path),
+        "paper_account_equity": paper_equity_value,
+    }
+
+
+def write_audit_latest(
+    audit_path: Path,
+    *,
+    extra: Optional[dict[str, Any]] = None,
+    db_path: Optional[Path] = None,
+) -> dict[str, Any]:
+    """Build the M4 payload and write it atomically to ``audit_path``.
+
+    Existing keys in any pre-existing ``audit_latest.json`` (e.g. the
+    legacy module-level probes' richer source data, or
+    ``news_ingestion`` written by the daily news pipeline) are
+    preserved unless overwritten by an M4-contract key.
+
+    Parameters
+    ----------
+    audit_path:
+        Destination file (typically ``state/audit_latest.json``).
+    extra:
+        Optional additional top-level keys to merge into the payload
+        BEFORE writing. The legacy script uses this to fold in
+        ``as_of_date``, ``failures``, ``warnings`` and the rich
+        per-source diagnostics.
+    db_path:
+        Optional override of the SQLite database location. Defaults
+        to ``DATA_DIR/alpha_sniper.db``.
+
+    Returns
+    -------
+    dict
+        The full payload that was written (useful for tests and
+        callers that want to log a summary).
+    """
+    audit_path = Path(audit_path)
+
+    existing: dict[str, Any] = {}
+    if audit_path.is_file():
+        try:
+            existing = json.loads(audit_path.read_text(encoding="utf-8"))
+            if not isinstance(existing, dict):
+                existing = {}
+        except Exception:
+            existing = {}
+
+    payload = dict(existing)
+    if extra:
+        payload.update(extra)
+    m4 = build_m4_audit_payload(db_path=db_path)
+
+    # The M4 contract owns ``sources`` (it must contain the seven
+    # canonical keys with the status/last_checked/latency_ms shape).
+    # If a legacy ``sources`` map exists in the on-disk file, fold its
+    # extra entries in WITHOUT overwriting the M4 ones — that keeps
+    # rich per-source diagnostics for operators while still
+    # satisfying the contract.
+    legacy_sources = payload.get("sources")
+    merged_sources = dict(m4["sources"])
+    if isinstance(legacy_sources, dict):
+        for k, v in legacy_sources.items():
+            if k not in merged_sources:
+                merged_sources[k] = v
+    m4["sources"] = merged_sources
+
+    payload.update(m4)
+    _atomic_write_json(audit_path, payload)
+    return payload
+
+
+# ---------------------------------------------------------------------------
+# Legacy module-level audit script (kept verbatim — runs on
+# ``python -m biotech_sniper.audit``). The block at the bottom now
+# delegates the actual JSON write to :func:`write_audit_latest` so the
+# M4 contract fields land alongside the existing rich source data.
+# ---------------------------------------------------------------------------
 
 # Load .env before paths.py reads BIOTECH_SNIPER_HOME, so audit.py invoked
 # directly via `python -m biotech_sniper.audit` (without sourcing .env in
@@ -524,34 +1017,32 @@ if not failures:
     print('\nALL CRITICAL TESTS PASS')
 
 # ── Write structured audit JSON to state/audit_latest.json ──
+#
+# f-m4-03 contract: the file MUST contain ``generated_at``,
+# ``sources`` (with the seven canonical keys ``ct.gov`` / ``sec_edgar``
+# / ``news_rss`` / ``alpaca_paper`` / ``xai`` / ``anthropic`` /
+# ``gemini``), ``last_daily_run``, ``last_intraday_run``,
+# ``db_size_bytes``, ``paper_account_equity``. The write is atomic
+# (temp + rename) so a crashed audit run never leaves a partially
+# written JSON observable to readers.
+#
+# The legacy ``sources`` dict assembled above is preserved by passing
+# it as ``extra`` — :func:`write_audit_latest` folds its richer
+# per-source diagnostics (``rss_entries``, ``companies``, etc.) into
+# the merged ``sources`` map without overwriting the seven
+# contract-required entries.
 try:
     state_dir = BASE_DIR / 'state'
-    state_dir.mkdir(parents=True, exist_ok=True)
     audit_path = state_dir / 'audit_latest.json'
-
-    # Preserve any keys other modules write into audit_latest.json
-    # (e.g. ``news_ingestion`` / ``news_events_empty`` written by the
-    # daily news ingest pipeline). The audit module always overwrites
-    # its own contract keys (`as_of_date`, `sources`, `failures`,
-    # `warnings`) but never clobbers other consumers' data.
-    existing_audit: dict = {}
-    if audit_path.is_file():
-        try:
-            existing_audit = json.load(open(audit_path))
-            if not isinstance(existing_audit, dict):
-                existing_audit = {}
-        except Exception:
-            existing_audit = {}
-
-    existing_audit.update({
-        'as_of_date': today,
-        'generated_at': datetime.datetime.utcnow().isoformat() + 'Z',
-        'sources': sources,
-        'failures': failures,
-        'warnings': warnings,
-    })
-    with open(audit_path, 'w') as f:
-        json.dump(existing_audit, f, indent=2, sort_keys=True)
+    payload = write_audit_latest(
+        audit_path,
+        extra={
+            'as_of_date': today,
+            'sources': sources,
+            'failures': failures,
+            'warnings': warnings,
+        },
+    )
     print(f'\nAudit JSON written to {audit_path}')
 except Exception as e:
     print(f'\nWARNING: failed to write audit JSON: {e}')

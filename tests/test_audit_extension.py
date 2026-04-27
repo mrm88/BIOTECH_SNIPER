@@ -1,0 +1,594 @@
+"""Unit tests for the f-m4-03 ``audit.py`` extension.
+
+The audit module ships an importable surface
+(:func:`biotech_sniper.audit.build_m4_audit_payload`,
+:func:`biotech_sniper.audit.write_audit_latest`, plus the ``_probe_*``
+helpers) on top of the legacy module-level script. These tests cover
+that importable surface in isolation:
+
+* :func:`_atomic_write_json` writes via temp + rename, leaves no
+  partial state on failure.
+* :func:`_classify_http_status` maps HTTP codes to the contract enum.
+* :func:`_probe_with_timing` decorates probes with timing + uniform
+  error handling.
+* Each ``_probe_*`` helper returns the contract shape (``status`` /
+  ``last_checked`` / ``latency_ms``) under success, failure, and
+  missing-credential conditions.
+* :func:`build_m4_audit_payload` produces every required top-level
+  field with all seven canonical source keys populated.
+* :func:`write_audit_latest` merges the M4 payload over an existing
+  ``audit_latest.json`` without clobbering legacy sibling keys.
+
+Importing :mod:`biotech_sniper.audit` runs the legacy module-level
+script (network probes + SQLite probes + JSON write). To keep tests
+fast and offline we patch ``requests.get`` / ``requests.post`` BEFORE
+the import in a session-level fixture.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _import_audit_offline():
+    """Import :mod:`biotech_sniper.audit` with all network calls stubbed.
+
+    The legacy module body runs ~10 HTTP probes at import time. We
+    monkeypatch :mod:`requests` BEFORE the import so the test session
+    stays hermetic and fast. Subsequent re-imports (via
+    ``importlib.reload``) hit the patched session unless a test
+    explicitly overrides ``requests.get`` / ``requests.post``.
+    """
+    import requests
+
+    class _StubResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):  # noqa: D401
+            return {"studies": [], "results": []}
+
+    with patch.object(requests, "get", return_value=_StubResponse()), patch.object(
+        requests, "post", return_value=_StubResponse()
+    ):
+        # Force a fresh import so the patched ``requests`` actually
+        # services the module-level probes.
+        sys.modules.pop("biotech_sniper.audit", None)
+        import biotech_sniper.audit  # noqa: F401
+    yield
+
+
+@pytest.fixture
+def audit_module():
+    """Return the live :mod:`biotech_sniper.audit` module."""
+    import biotech_sniper.audit as audit
+
+    return audit
+
+
+# ---------------------------------------------------------------------------
+# _atomic_write_json
+# ---------------------------------------------------------------------------
+
+
+def test_atomic_write_creates_file_with_expected_contents(audit_module, tmp_path):
+    target = tmp_path / "out.json"
+    audit_module._atomic_write_json(target, {"a": 1, "b": [2, 3]})
+    assert target.is_file()
+    assert json.loads(target.read_text(encoding="utf-8")) == {"a": 1, "b": [2, 3]}
+
+
+def test_atomic_write_creates_parent_dir(audit_module, tmp_path):
+    target = tmp_path / "missing" / "subdir" / "out.json"
+    audit_module._atomic_write_json(target, {"x": True})
+    assert target.is_file()
+
+
+def test_atomic_write_replaces_existing_file(audit_module, tmp_path):
+    target = tmp_path / "out.json"
+    target.write_text(json.dumps({"old": True}), encoding="utf-8")
+    audit_module._atomic_write_json(target, {"new": True})
+    assert json.loads(target.read_text(encoding="utf-8")) == {"new": True}
+
+
+def test_atomic_write_no_partial_state_on_failure(audit_module, tmp_path, monkeypatch):
+    """When ``os.replace`` fails the destination must be unchanged."""
+    target = tmp_path / "existing.json"
+    target.write_text(json.dumps({"keep": "this"}), encoding="utf-8")
+
+    # Capture the temp file path that the helper produces, then simulate
+    # a rename failure to verify cleanup + no-clobber behavior.
+    real_replace = os.replace
+
+    def boom(*args, **kwargs):  # noqa: ANN001 — match os.replace signature
+        raise OSError("simulated rename failure")
+
+    monkeypatch.setattr("os.replace", boom)
+    with pytest.raises(OSError, match="simulated rename failure"):
+        audit_module._atomic_write_json(target, {"new": "value"})
+
+    # Destination preserved.
+    assert json.loads(target.read_text(encoding="utf-8")) == {"keep": "this"}
+
+    # Temp file should have been cleaned up — no ``.tmp`` siblings linger.
+    leftovers = list(tmp_path.glob("existing.json.*.tmp"))
+    assert leftovers == [], f"temp files leaked: {leftovers}"
+
+    # Sanity-check the helper still works after the monkeypatch is undone
+    # (no permanent state corruption from the failed write).
+    monkeypatch.setattr("os.replace", real_replace)
+    audit_module._atomic_write_json(target, {"after": "ok"})
+    assert json.loads(target.read_text(encoding="utf-8")) == {"after": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# _classify_http_status
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        (200, "ok"),
+        (201, "ok"),
+        (299, "ok"),
+        (301, "degraded"),
+        (302, "degraded"),
+        (400, "degraded"),
+        (401, "degraded"),
+        (403, "degraded"),
+        (404, "degraded"),
+        (499, "degraded"),
+        (500, "error"),
+        (502, "error"),
+        (599, "error"),
+        (0, "error"),
+        (-1, "error"),
+    ],
+)
+def test_classify_http_status(audit_module, status, expected):
+    assert audit_module._classify_http_status(status) == expected
+
+
+# ---------------------------------------------------------------------------
+# _probe_with_timing
+# ---------------------------------------------------------------------------
+
+
+def test_probe_with_timing_decorates_success(audit_module):
+    out = audit_module._probe_with_timing(lambda: {"status": "ok", "extra": 7})
+    assert out["status"] == "ok"
+    assert out["extra"] == 7
+    assert "last_checked" in out
+    assert isinstance(out["latency_ms"], int)
+    assert out["latency_ms"] >= 0
+
+
+def test_probe_with_timing_catches_exceptions(audit_module):
+    def boom():
+        raise RuntimeError("nope")
+
+    out = audit_module._probe_with_timing(boom)
+    assert out["status"] == "error"
+    assert "nope" in out["error"]
+    assert "last_checked" in out
+    assert isinstance(out["latency_ms"], int)
+
+
+def test_probe_with_timing_handles_non_dict_return(audit_module):
+    out = audit_module._probe_with_timing(lambda: "not-a-dict")
+    assert out["status"] == "error"
+    assert "non-dict" in out["error"]
+
+
+# ---------------------------------------------------------------------------
+# Individual probes — exercise success, http-error, and missing-key paths.
+# ---------------------------------------------------------------------------
+
+
+class _FakeResp:
+    def __init__(self, status_code: int = 200):
+        self.status_code = status_code
+
+
+def test_probe_ctgov_ok(audit_module, monkeypatch):
+    monkeypatch.setattr(
+        "biotech_sniper.audit.requests.get", lambda *a, **kw: _FakeResp(200)
+    )
+    out = audit_module._probe_ctgov()
+    assert out["status"] == "ok"
+    assert out["http_status"] == 200
+
+
+def test_probe_sec_edgar_5xx_is_error(audit_module, monkeypatch):
+    monkeypatch.setattr(
+        "biotech_sniper.audit.requests.get", lambda *a, **kw: _FakeResp(503)
+    )
+    out = audit_module._probe_sec_edgar()
+    assert out["status"] == "error"
+    assert out["http_status"] == 503
+
+
+def test_probe_news_rss_4xx_is_degraded(audit_module, monkeypatch):
+    monkeypatch.setattr(
+        "biotech_sniper.audit.requests.get", lambda *a, **kw: _FakeResp(429)
+    )
+    out = audit_module._probe_news_rss()
+    assert out["status"] == "degraded"
+    assert out["http_status"] == 429
+
+
+def test_probe_xai_missing_key_is_degraded(audit_module, monkeypatch):
+    monkeypatch.setattr("biotech_sniper.config.get_xai_api_key", lambda: None)
+    out = audit_module._probe_xai()
+    assert out["status"] == "degraded"
+    assert out["reason"] == "api_key_missing"
+
+
+def test_probe_xai_with_key(audit_module, monkeypatch):
+    monkeypatch.setattr(
+        "biotech_sniper.config.get_xai_api_key", lambda: "xai-fake"
+    )
+    monkeypatch.setattr(
+        "biotech_sniper.audit.requests.get", lambda *a, **kw: _FakeResp(200)
+    )
+    out = audit_module._probe_xai()
+    assert out["status"] == "ok"
+    assert out["http_status"] == 200
+
+
+def test_probe_anthropic_missing_key(audit_module, monkeypatch):
+    monkeypatch.setattr(
+        "biotech_sniper.config.get_anthropic_api_key", lambda: None
+    )
+    out = audit_module._probe_anthropic()
+    assert out == {"status": "degraded", "reason": "api_key_missing"}
+
+
+def test_probe_gemini_missing_key(audit_module, monkeypatch):
+    monkeypatch.setattr(
+        "biotech_sniper.config.get_gemini_api_key", lambda: None
+    )
+    out = audit_module._probe_gemini()
+    assert out == {"status": "degraded", "reason": "api_key_missing"}
+
+
+def test_probe_alpaca_paper_credentials_missing(audit_module, monkeypatch):
+    """Without ALPACA creds the probe degrades gracefully without raising."""
+    from biotech_sniper.alpaca_client import AlpacaAuthError
+
+    def raise_auth(*a, **kw):
+        raise AlpacaAuthError("creds missing")
+
+    monkeypatch.setattr(
+        "biotech_sniper.alpaca_client.AlpacaClient.__init__", raise_auth
+    )
+    out = audit_module._probe_alpaca_paper()
+    assert out["status"] == "degraded"
+    assert out["reason"] == "credentials_missing"
+    assert out["equity"] is None
+
+
+def test_probe_alpaca_paper_success(audit_module, monkeypatch):
+    """When ``get_account`` succeeds the equity is folded into the result."""
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        def get_account(self):
+            return {"equity": 12345.67, "currency": "USD"}
+
+    monkeypatch.setattr("biotech_sniper.alpaca_client.AlpacaClient", _FakeClient)
+    out = audit_module._probe_alpaca_paper()
+    assert out["status"] == "ok"
+    assert out["equity"] == pytest.approx(12345.67)
+    assert out["currency"] == "USD"
+
+
+# ---------------------------------------------------------------------------
+# build_m4_audit_payload — full contract shape with mocked probes.
+# ---------------------------------------------------------------------------
+
+
+def _patch_all_probes_ok(monkeypatch):
+    """Stub every probe to succeed so we can exercise the payload builder."""
+    monkeypatch.setattr(
+        "biotech_sniper.audit._probe_ctgov", lambda: {"status": "ok"}
+    )
+    monkeypatch.setattr(
+        "biotech_sniper.audit._probe_sec_edgar", lambda: {"status": "ok"}
+    )
+    monkeypatch.setattr(
+        "biotech_sniper.audit._probe_news_rss", lambda: {"status": "ok"}
+    )
+    monkeypatch.setattr(
+        "biotech_sniper.audit._probe_alpaca_paper",
+        lambda: {"status": "ok", "equity": 25000.0},
+    )
+    monkeypatch.setattr(
+        "biotech_sniper.audit._probe_xai", lambda: {"status": "ok"}
+    )
+    monkeypatch.setattr(
+        "biotech_sniper.audit._probe_anthropic", lambda: {"status": "ok"}
+    )
+    monkeypatch.setattr(
+        "biotech_sniper.audit._probe_gemini", lambda: {"status": "ok"}
+    )
+
+    # Re-bind the registry so it picks up the patched callables.
+    monkeypatch.setattr(
+        "biotech_sniper.audit._M4_PROBES",
+        tuple(
+            (name, getattr(__import__("biotech_sniper.audit", fromlist=["_x"]), fn_name))
+            for name, fn_name in (
+                ("ct.gov", "_probe_ctgov"),
+                ("sec_edgar", "_probe_sec_edgar"),
+                ("news_rss", "_probe_news_rss"),
+                ("alpaca_paper", "_probe_alpaca_paper"),
+                ("xai", "_probe_xai"),
+                ("anthropic", "_probe_anthropic"),
+                ("gemini", "_probe_gemini"),
+            )
+        ),
+    )
+
+
+def _seed_db(db_path: Path) -> None:
+    """Initialise a fresh SQLite db with the project schema + 1 row each.
+
+    Used by the payload-builder tests so ``last_daily_run`` and
+    ``last_intraday_run`` are non-null, exercising the
+    ``MAX(<column>)`` query helpers.
+    """
+    from biotech_sniper.db import connect, run_migrations
+
+    conn = connect(db_path)
+    try:
+        run_migrations(conn)
+        conn.execute(
+            "INSERT INTO scoring_cache (ticker, as_of_date, ensemble_score, "
+            "created_at) VALUES (?, ?, ?, ?)",
+            ("TEST", "2026-04-27", 0.6, "2026-04-27T13:00:00.000Z"),
+        )
+        # ``execution_events`` requires a parent ``paper_orders`` row
+        # because of the FK. Insert a sentinel paper_orders row first.
+        conn.execute(
+            "INSERT INTO paper_orders (id, status, client_order_id) "
+            "VALUES (?, ?, ?)",
+            ("ord-1", "submitted", "test-co-1"),
+        )
+        conn.execute(
+            "INSERT INTO execution_events (paper_order_id, event_type, "
+            "event_at) VALUES (?, ?, ?)",
+            ("ord-1", "submitted", "2026-04-27T18:30:00.000Z"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_build_m4_audit_payload_contains_all_required_keys(
+    audit_module, tmp_path, monkeypatch
+):
+    _patch_all_probes_ok(monkeypatch)
+    db_path = tmp_path / "alpha_sniper.db"
+    _seed_db(db_path)
+
+    payload = audit_module.build_m4_audit_payload(db_path=db_path)
+
+    # All M4 contract top-level keys present.
+    for key in (
+        "generated_at",
+        "sources",
+        "last_daily_run",
+        "last_intraday_run",
+        "db_size_bytes",
+        "paper_account_equity",
+    ):
+        assert key in payload, f"missing top-level key: {key}"
+
+    # Sources map carries every canonical key with the contract shape.
+    for src_name in (
+        "ct.gov",
+        "sec_edgar",
+        "news_rss",
+        "alpaca_paper",
+        "xai",
+        "anthropic",
+        "gemini",
+    ):
+        assert src_name in payload["sources"], f"missing source: {src_name}"
+        entry = payload["sources"][src_name]
+        assert "status" in entry
+        assert entry["status"] in ("ok", "degraded", "error")
+        assert "last_checked" in entry
+        assert isinstance(entry["latency_ms"], int)
+        assert entry["latency_ms"] >= 0
+
+    # Db-state-derived fields populated from the seeded rows.
+    assert payload["last_daily_run"] == "2026-04-27T13:00:00.000Z"
+    assert payload["last_intraday_run"] == "2026-04-27T18:30:00.000Z"
+    assert payload["db_size_bytes"] > 0
+    assert payload["paper_account_equity"] == pytest.approx(25000.0)
+
+
+def test_build_m4_audit_payload_handles_missing_db(audit_module, tmp_path, monkeypatch):
+    """All db-derived fields tolerate a missing ``alpha_sniper.db``."""
+    _patch_all_probes_ok(monkeypatch)
+    payload = audit_module.build_m4_audit_payload(
+        db_path=tmp_path / "nonexistent.db"
+    )
+    assert payload["last_daily_run"] is None
+    assert payload["last_intraday_run"] is None
+    assert payload["db_size_bytes"] == 0
+
+
+def test_build_m4_audit_payload_paper_equity_none_on_credential_failure(
+    audit_module, tmp_path, monkeypatch
+):
+    """Equity is ``None`` when alpaca probe degrades."""
+    monkeypatch.setattr(
+        "biotech_sniper.audit._probe_ctgov", lambda: {"status": "ok"}
+    )
+    monkeypatch.setattr(
+        "biotech_sniper.audit._probe_sec_edgar", lambda: {"status": "ok"}
+    )
+    monkeypatch.setattr(
+        "biotech_sniper.audit._probe_news_rss", lambda: {"status": "ok"}
+    )
+    monkeypatch.setattr(
+        "biotech_sniper.audit._probe_alpaca_paper",
+        lambda: {
+            "status": "degraded",
+            "reason": "credentials_missing",
+            "equity": None,
+        },
+    )
+    monkeypatch.setattr(
+        "biotech_sniper.audit._probe_xai", lambda: {"status": "ok"}
+    )
+    monkeypatch.setattr(
+        "biotech_sniper.audit._probe_anthropic", lambda: {"status": "ok"}
+    )
+    monkeypatch.setattr(
+        "biotech_sniper.audit._probe_gemini", lambda: {"status": "ok"}
+    )
+    monkeypatch.setattr(
+        "biotech_sniper.audit._M4_PROBES",
+        tuple(
+            (name, getattr(audit_module, fn_name))
+            for name, fn_name in (
+                ("ct.gov", "_probe_ctgov"),
+                ("sec_edgar", "_probe_sec_edgar"),
+                ("news_rss", "_probe_news_rss"),
+                ("alpaca_paper", "_probe_alpaca_paper"),
+                ("xai", "_probe_xai"),
+                ("anthropic", "_probe_anthropic"),
+                ("gemini", "_probe_gemini"),
+            )
+        ),
+    )
+
+    payload = audit_module.build_m4_audit_payload(
+        db_path=tmp_path / "nonexistent.db"
+    )
+    assert payload["paper_account_equity"] is None
+    assert payload["sources"]["alpaca_paper"]["status"] == "degraded"
+    assert payload["sources"]["alpaca_paper"]["reason"] == "credentials_missing"
+
+
+# ---------------------------------------------------------------------------
+# write_audit_latest — integration over the helpers.
+# ---------------------------------------------------------------------------
+
+
+def test_write_audit_latest_round_trip(audit_module, tmp_path, monkeypatch):
+    _patch_all_probes_ok(monkeypatch)
+    db_path = tmp_path / "alpha_sniper.db"
+    _seed_db(db_path)
+
+    audit_path = tmp_path / "state" / "audit_latest.json"
+
+    payload = audit_module.write_audit_latest(audit_path, db_path=db_path)
+
+    # File was written atomically (no .tmp leftovers).
+    assert audit_path.is_file()
+    leftovers = list(audit_path.parent.glob("audit_latest.json.*.tmp"))
+    assert leftovers == []
+
+    # The on-disk contents match what was returned.
+    on_disk = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert on_disk == payload
+
+    # All M4 contract fields present in the file.
+    for key in (
+        "generated_at",
+        "sources",
+        "last_daily_run",
+        "last_intraday_run",
+        "db_size_bytes",
+        "paper_account_equity",
+    ):
+        assert key in on_disk
+
+    for src in (
+        "ct.gov",
+        "sec_edgar",
+        "news_rss",
+        "alpaca_paper",
+        "xai",
+        "anthropic",
+        "gemini",
+    ):
+        assert src in on_disk["sources"]
+
+
+def test_write_audit_latest_preserves_legacy_keys(audit_module, tmp_path, monkeypatch):
+    """Sibling keys like ``news_ingestion`` survive the M4 overlay."""
+    _patch_all_probes_ok(monkeypatch)
+
+    audit_path = tmp_path / "state" / "audit_latest.json"
+    audit_path.parent.mkdir(parents=True)
+    audit_path.write_text(
+        json.dumps(
+            {
+                "news_ingestion": {"daily_count": 42},
+                "as_of_date": "old",
+                "sources": {
+                    "legacy_extra_key": {"ok": True, "note": "kept"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = audit_module.write_audit_latest(
+        audit_path,
+        extra={"as_of_date": "new"},
+        db_path=tmp_path / "missing.db",
+    )
+
+    # Legacy non-contract key preserved.
+    assert payload["news_ingestion"] == {"daily_count": 42}
+    # ``extra`` overrides the existing key.
+    assert payload["as_of_date"] == "new"
+    # Legacy ``sources`` entry preserved alongside the seven canonical ones.
+    assert "legacy_extra_key" in payload["sources"]
+    assert payload["sources"]["legacy_extra_key"] == {"ok": True, "note": "kept"}
+    # All seven canonical sources still present.
+    for src in (
+        "ct.gov",
+        "sec_edgar",
+        "news_rss",
+        "alpaca_paper",
+        "xai",
+        "anthropic",
+        "gemini",
+    ):
+        assert src in payload["sources"]
+
+
+def test_write_audit_latest_handles_corrupt_existing_json(
+    audit_module, tmp_path, monkeypatch
+):
+    """A pre-existing un-parseable JSON file is treated as if it were absent."""
+    _patch_all_probes_ok(monkeypatch)
+    audit_path = tmp_path / "state" / "audit_latest.json"
+    audit_path.parent.mkdir(parents=True)
+    audit_path.write_text("not-json", encoding="utf-8")
+
+    payload = audit_module.write_audit_latest(
+        audit_path, db_path=tmp_path / "missing.db"
+    )
+
+    on_disk = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert on_disk == payload
+    assert "generated_at" in payload
