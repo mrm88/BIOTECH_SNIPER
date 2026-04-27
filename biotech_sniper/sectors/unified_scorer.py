@@ -35,6 +35,26 @@ import subprocess
 from pathlib import Path
 
 from biotech_sniper.paths import BASE_DIR
+
+# ---------------------------------------------------------------------------
+# Re-export the M2 ensemble symbols at this module's namespace so
+# downstream callers (M3 selection, M5 ranker training) and validators
+# (VAL-M2-044 / VAL-M2-079) can import via the historically-canonical
+# location without breaking::
+#
+#     from biotech_sniper.sectors.unified_scorer import compute_ensemble
+#
+# The canonical implementation lives in :mod:`biotech_sniper.llm.ensemble`
+# (per f-m2-05). This module does NOT duplicate the logic — it only
+# re-exports the public surface so legacy import sites keep working.
+# ---------------------------------------------------------------------------
+from biotech_sniper.llm.ensemble import (  # noqa: F401 (re-exported)
+    DIVERGENCE_THRESHOLD,
+    EnsembleScorer,
+    compute_ensemble,
+    letter_grade_distance,
+)
+
 ACTIVE_PLAYS_FILE = BASE_DIR / "state/active_plays.json"
 SCORING_CACHE_FILE = BASE_DIR / "state/scoring_cache.json"
 
@@ -549,26 +569,127 @@ def add_play_if_qualifies(ticker, sector, p_success, p_source, direction,
     print(f"  ADDED to active plays: {ticker} ({sector}) | P={p_success}% | {direction} | expiry {expiry} | catalyst_type={catalyst_type}")
     return True
 
-def score_candidate_with_models(prompt, ticker, cache_key=None):
+def _read_scoring_cache_row(ticker: str, as_of_date: str):
+    """Return the persisted ``scoring_cache`` row for ``(ticker, as_of_date)``.
+
+    Returns ``None`` when the SQLite database does not exist yet (fresh
+    checkouts), when the row is absent, or when the connection fails
+    for any reason. The helper is intentionally forgiving so that
+    callers can treat a missing cache as a cold-start and proceed to
+    score via the ensemble.
     """
-    Score a binary catalyst using Claude Opus 4 + Gemini 2.5 Pro.
-    Returns: (claude_p, gemini_p, ensemble_p, model_divergence_flag)
-    
-    In the cron environment, this spawns two subagent calls.
-    Here we provide the prompt structure for the cron to use.
+    # Imports are kept local so importing this module does not require
+    # the SQLite layer to be set up yet (e.g. during smoke imports on
+    # a fresh checkout where ``data/alpha_sniper.db`` is absent).
+    from biotech_sniper import db as _db
+    from biotech_sniper.paths import DATA_DIR
+
+    db_path = DATA_DIR / "alpha_sniper.db"
+    if not db_path.exists():
+        return None
+    try:
+        conn = _db.connect(db_path)
+    except Exception:
+        return None
+    try:
+        try:
+            _db.run_migrations(conn)
+        except Exception:
+            # If migrations cannot be applied (schema lock, mid-write,
+            # permissions), treat the cache as a miss rather than
+            # crashing the scorer.
+            return None
+        try:
+            row = conn.execute(
+                "SELECT claude_probability, gemini_probability, "
+                "ensemble_score, divergence_flag "
+                "FROM scoring_cache WHERE ticker=? AND as_of_date=?",
+                (ticker, as_of_date),
+            ).fetchone()
+        except Exception:
+            return None
+        return dict(row) if row is not None else None
+    finally:
+        conn.close()
+
+
+def score_candidate_with_models(
+    prompt,
+    ticker,
+    cache_key=None,
+    *,
+    as_of_date=None,
+    fast_context=None,
+    science_profile=None,
+    full_context=None,
+    scorer=None,
+):
+    """Score a binary catalyst via the M2 :class:`EnsembleScorer`.
+
+    Replaces the legacy cron-agent file-based stub (which left the
+    actual model calls to the external ``cron-agent`` and read the
+    results from per-ticker text files dropped under the legacy
+    ``scores/`` directory) with a direct in-process call to the
+    :class:`biotech_sniper.llm.ensemble.EnsembleScorer`. The ensemble
+    persists every successful score into the SQLite ``scoring_cache``
+    table keyed on ``(ticker, as_of_date)``; re-running on the same
+    date is idempotent (UPSERT on the unique index).
+
+    Returns:
+        ``(claude_probability, gemini_probability, ensemble_score,
+        divergence_flag)``. Each numeric component is a float in
+        ``[0, 1]`` (or ``None`` when the corresponding provider is
+        disabled / unavailable). ``divergence_flag`` is a bool.
+
+    Args:
+        prompt: Free-form prompt text. Forwarded into the fast and
+            full-context payloads when callers do not supply
+            structured contexts.
+        ticker: Ticker the candidate is being scored against.
+        cache_key: Legacy parameter retained for compatibility; when
+            present, it is forwarded into the contexts so callers can
+            tag a logical scoring round.
+        as_of_date: Optional ISO date used for the SQLite cache
+            primary key. Defaults to ``datetime.date.today()``.
+        fast_context, science_profile, full_context: Optional
+            structured payloads passed to the per-tier clients. When
+            omitted the helper falls back to ``{"prompt": prompt}``.
+        scorer: Optional pre-built :class:`EnsembleScorer` (used by
+            tests to inject fake clients). When ``None``, the function
+            calls :meth:`EnsembleScorer.from_config` which gracefully
+            skips providers without API keys.
     """
-    # Check cache first
-    cache = load_scoring_cache()
-    if cache_key and cache_key in cache:
-        cached = cache[cache_key]
-        age_days = (datetime.date.today() - datetime.date.fromisoformat(cached["date"])).days
-        if age_days < 7:  # Cache valid for 7 days
-            print(f"  📋 Using cached score for {ticker}: {cached['ensemble']}%")
-            return cached["claude"], cached["gemini"], cached["ensemble"], cached["divergence"]
-    
-    # Return the prompt for the cron agent to execute
-    # The cron agent will call both models and extract P(success) from each response
-    return None, None, None, False  # Cron agent handles actual model calls
+    today = as_of_date or datetime.date.today().isoformat()
+
+    cached = _read_scoring_cache_row(ticker, today)
+    if cached is not None:
+        print(f"  📋 scoring_cache hit for {ticker} ({today})")
+        return (
+            cached.get("claude_probability"),
+            cached.get("gemini_probability"),
+            cached.get("ensemble_score"),
+            bool(cached.get("divergence_flag")),
+        )
+
+    if scorer is None:
+        scorer = EnsembleScorer.from_config()
+
+    candidate_payload = {
+        "ticker": ticker,
+        "as_of_date": today,
+        "fast_context": fast_context
+        or {"prompt": prompt or "", "cache_key": cache_key},
+        "science_profile": science_profile or {},
+        "full_context": full_context
+        or {"prompt": prompt or "", "cache_key": cache_key},
+    }
+    result = scorer.score(candidate_payload)
+    return (
+        result.get("claude_probability"),
+        result.get("gemini_probability"),
+        result.get("ensemble_score"),
+        bool(result.get("divergence_flag")),
+    )
 
 def format_scoring_instructions(signals_needing_scoring):
     """

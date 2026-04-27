@@ -228,7 +228,7 @@ def assemble_card(play: dict, live_price: float, option_fill: float,
         orders_line = ""
 
     # Calibration warnings (IV crush, science grade, spread recommendation)
-    from sectors.unified_scorer import (
+    from biotech_sniper.sectors.unified_scorer import (
         check_iv_crush_risk, apply_science_size_modifier, should_use_spread,
         detect_catalyst_type
     )

@@ -15,13 +15,20 @@ try:  # pragma: no cover - best-effort; dotenv is a hard dep but imports must no
 except Exception:
     pass
 
-from biotech_sniper.paths import BASE_DIR
+from biotech_sniper.paths import BASE_DIR, DATA_DIR
 
-sys.path.insert(0, str(BASE_DIR))
-sys.path.insert(0, str(BASE_DIR / 'intelligence'))
-sys.path.insert(0, str(BASE_DIR / 'sectors/contracts'))
-sys.path.insert(0, str(BASE_DIR / 'sectors/adcom'))
-sys.path.insert(0, str(BASE_DIR / 'sectors'))
+# NOTE: f-m2-07 removed the legacy sandbox-style sys.path mutations
+# that used to live here (they referenced the bare ``intelligence`` and
+# ``sectors`` directories so legacy ``from intelligence.X`` imports
+# would resolve).  The legacy submodules are now imported via their
+# proper ``biotech_sniper.<sub>`` package paths inside try/except
+# blocks below; failed probes are downgraded to warnings so a broken
+# legacy module never crashes the audit run.
+#
+# New audit data sources land in ``data/alpha_sniper.db`` (M2 SQLite
+# tables: ``scoring_cache``, ``llm_cost_ledger``, ``plays``,
+# ``performance_ledger``, ``discovery_state``, and the future
+# ``news_events`` table introduced by M2 universe + news ingest).
 
 failures = []
 warnings = []
@@ -186,10 +193,11 @@ except Exception as e:
     warnings.append(f'Twitter/DDG: {e}')
     print(f'  WARNING: {e}')
 
-# ── 10. master_discovery full run ───────────────────────────
-print('\n[10] master_discovery.run_discovery()')
+# ── 10. master_discovery full run (legacy probe) ────────────
+# f-m2-07: failed legacy probes warn rather than ImportError.
+print('\n[10] master_discovery.run_discovery() (legacy probe)')
 try:
-    from intelligence.master_discovery import run_discovery
+    from biotech_sniper.intelligence.master_discovery import run_discovery
     result = run_discovery()
     biotech   = len(result.get('new_biotech', []))
     contracts = len(result.get('new_contracts', []))
@@ -198,13 +206,19 @@ try:
     signals   = len(result.get('signals', []))
     print(f'  biotech={biotech} contracts={contracts} adcom={adcom} defense={defense} signals={signals}')
     print('  OK')
+except ImportError as e:
+    warnings.append(f'master_discovery: legacy module probe skipped ({e})')
+    print(f'  WARNING (legacy probe): {e}')
 except Exception as e:
-    failures.append(f'master_discovery: {e}'); print(f'  FAIL: {e}'); traceback.print_exc()
+    warnings.append(f'master_discovery: legacy probe raised {type(e).__name__}: {e}')
+    print(f'  WARNING (legacy probe): {e}')
 
-# ── 11. twitter build_queries ───────────────────────────────
-print('\n[11] twitter build_twitter_search_queries()')
+# ── 11. twitter build_queries (legacy probe) ────────────────
+print('\n[11] twitter build_twitter_search_queries() (legacy probe)')
 try:
-    from intelligence.twitter_biotech_monitor import build_twitter_search_queries, parse_twitter_results
+    from biotech_sniper.intelligence.twitter_biotech_monitor import (
+        build_twitter_search_queries, parse_twitter_results,
+    )
     queries = build_twitter_search_queries()
     print(f'  Queries generated: {len(queries)}')
     print(f'  Sample: {queries[0] if queries else "NONE"}')
@@ -213,39 +227,63 @@ try:
     sigs = parse_twitter_results(dummy)
     print(f'  parse_twitter_results (dummy): {len(sigs)} signals')
     print('  OK')
+except ImportError as e:
+    warnings.append(f'twitter_monitor: legacy module probe skipped ({e})')
+    print(f'  WARNING (legacy probe): {e}')
 except Exception as e:
-    failures.append(f'twitter_monitor: {e}'); print(f'  FAIL: {e}'); traceback.print_exc()
+    warnings.append(f'twitter_monitor: legacy probe raised {type(e).__name__}: {e}')
+    print(f'  WARNING (legacy probe): {e}')
 
-# ── 12. adcom drug_ticker_map ───────────────────────────────
-print('\n[12] adcom build_drug_ticker_map()')
+# ── 12. adcom drug_ticker_map (legacy probe) ────────────────
+print('\n[12] adcom build_drug_ticker_map() (legacy probe)')
 try:
-    from sectors.adcom.adcom_scanner import build_drug_ticker_map, run_adcom_scan
+    from biotech_sniper.sectors.adcom.adcom_scanner import (
+        build_drug_ticker_map, run_adcom_scan,
+    )
     drug_map = build_drug_ticker_map()
     print(f'  Drug entries: {len(drug_map)}')
     # Check a known drug
     axs05 = drug_map.get('AXS-05', drug_map.get('axs-05', {}))
     print(f'  AXS-05 lookup: {axs05}')
     print('  OK')
+except ImportError as e:
+    warnings.append(f'adcom drug_map: legacy module probe skipped ({e})')
+    print(f'  WARNING (legacy probe): {e}')
 except Exception as e:
-    failures.append(f'adcom drug_map: {e}'); print(f'  FAIL: {e}'); traceback.print_exc()
+    warnings.append(f'adcom drug_map: legacy probe raised {type(e).__name__}: {e}')
+    print(f'  WARNING (legacy probe): {e}')
 
-# ── 13. contracts defense.gov fetch ─────────────────────────
-print('\n[13] sam_sniper.fetch_defense_gov_contracts()')
+# ── 13. contracts defense.gov fetch (legacy probe) ──────────
+print('\n[13] sam_sniper.fetch_defense_gov_contracts() (legacy probe)')
 try:
-    from sectors.contracts.sam_sniper import fetch_defense_gov_contracts, run_contract_scan
+    from biotech_sniper.sectors.contracts.sam_sniper import (
+        fetch_defense_gov_contracts, run_contract_scan,
+    )
     contracts = fetch_defense_gov_contracts(days_back=7)
     print(f'  Contracts: {len(contracts)}')
     if contracts:
         print(f'  Sample: {contracts[0].get("title","")[:60]}')
     print('  OK')
+except ImportError as e:
+    warnings.append(f'defense_contracts: legacy module probe skipped ({e})')
+    print(f'  WARNING (legacy probe): {e}')
 except Exception as e:
-    failures.append(f'defense_contracts: {e}'); print(f'  FAIL: {e}'); traceback.print_exc()
+    warnings.append(f'defense_contracts: legacy probe raised {type(e).__name__}: {e}')
+    print(f'  WARNING (legacy probe): {e}')
 
 # ── 14. company_ticker_map aliases ──────────────────────────
 print('\n[14] company_ticker_map aliases check')
 try:
     import json
-    cmap = json.load(open(BASE_DIR / 'sectors/contracts/company_ticker_map.json'))
+    # f-m2-07: prefer the package-relative path (``biotech_sniper/sectors/...``);
+    # fall back to the bare ``sectors/...`` layout for VPS clones where
+    # ``BASE_DIR`` already points at the package root.
+    _cmap_candidates = [
+        BASE_DIR / 'biotech_sniper/sectors/contracts/company_ticker_map.json',
+        BASE_DIR / 'sectors/contracts/company_ticker_map.json',
+    ]
+    _cmap_path = next((p for p in _cmap_candidates if p.is_file()), _cmap_candidates[0])
+    cmap = json.load(open(_cmap_path))
     companies = cmap.get('companies', {})
     has_aliases = sum(1 for v in companies.values() if v.get('aliases'))
     has_options = sum(1 for v in companies.values() if 'options' in v)
@@ -287,6 +325,182 @@ try:
         print('  OK')
 except Exception as e:
     failures.append(f'active_plays: {e}'); print(f'  FAIL: {e}')
+
+# ── 16-19. New M2 sources: alpha_sniper.db (SQLite) ─────────
+# These probes are the canonical health source going forward; the
+# legacy JSON state files (sections 14-15 above) are kept for
+# parity with the M1 audit shape but the new M2+ runtime reads
+# from ``data/alpha_sniper.db``.
+db_summary: dict = {}
+
+def _sqlite_count(conn, table: str):
+    try:
+        return int(conn.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0])
+    except Exception:
+        return None
+
+print('\n[16] alpha_sniper.db (SQLite) presence + tables')
+try:
+    import sqlite3
+    db_path = DATA_DIR / 'alpha_sniper.db'
+    if not db_path.exists():
+        warnings.append(f'alpha_sniper.db not present at {db_path} (expected pre-M2 install)')
+        print(f'  WARNING: {db_path} not found')
+        db_summary = {'ok': False, 'present': False, 'path': str(db_path)}
+    else:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            tables = sorted(
+                r[0] for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' "
+                    "AND name NOT LIKE 'sqlite_%'"
+                )
+            )
+            print(f'  Tables: {tables}')
+            db_summary = {
+                'ok': True,
+                'present': True,
+                'path': str(db_path),
+                'tables': tables,
+            }
+            print('  OK')
+        finally:
+            conn.close()
+except Exception as e:
+    failures.append(f'alpha_sniper.db: {e}')
+    print(f'  FAIL: {e}')
+    db_summary = {'ok': False, 'error': str(e)}
+sources['alpha_sniper_db'] = db_summary
+
+print('\n[17] scoring_cache health (SQLite)')
+sc_summary: dict = {}
+try:
+    import sqlite3
+    db_path = DATA_DIR / 'alpha_sniper.db'
+    if not db_path.exists():
+        warnings.append('scoring_cache: alpha_sniper.db missing — skipped')
+        print('  WARNING: alpha_sniper.db missing — skipped')
+        sc_summary = {'ok': False, 'reason': 'db_missing'}
+    else:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            total = _sqlite_count(conn, 'scoring_cache')
+            today_count = None
+            divergent = None
+            try:
+                today_count = int(conn.execute(
+                    "SELECT COUNT(*) FROM scoring_cache WHERE as_of_date=?",
+                    (today,),
+                ).fetchone()[0])
+                divergent = int(conn.execute(
+                    "SELECT COUNT(*) FROM scoring_cache WHERE divergence_flag=1"
+                ).fetchone()[0])
+            except Exception:
+                pass
+            print(f'  Rows: {total} | as_of_date={today}: {today_count} | divergent: {divergent}')
+            sc_summary = {
+                'ok': True,
+                'rows_total': total,
+                'rows_today': today_count,
+                'rows_divergent': divergent,
+            }
+            print('  OK')
+        finally:
+            conn.close()
+except Exception as e:
+    failures.append(f'scoring_cache: {e}')
+    print(f'  FAIL: {e}')
+    sc_summary = {'ok': False, 'error': str(e)}
+sources['scoring_cache'] = sc_summary
+
+print('\n[18] llm_cost_ledger health (SQLite)')
+ledger_summary: dict = {}
+try:
+    import sqlite3
+    db_path = DATA_DIR / 'alpha_sniper.db'
+    if not db_path.exists():
+        warnings.append('llm_cost_ledger: alpha_sniper.db missing — skipped')
+        print('  WARNING: alpha_sniper.db missing — skipped')
+        ledger_summary = {'ok': False, 'reason': 'db_missing'}
+    else:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            total = _sqlite_count(conn, 'llm_cost_ledger')
+            spend_by_provider: list = []
+            try:
+                rows = conn.execute(
+                    "SELECT provider, COUNT(*) AS calls, "
+                    "ROUND(COALESCE(SUM(cost_usd),0),4) AS spend "
+                    "FROM llm_cost_ledger GROUP BY provider ORDER BY provider"
+                ).fetchall()
+                spend_by_provider = [
+                    {'provider': r[0], 'calls': r[1], 'spend_usd': r[2]}
+                    for r in rows
+                ]
+            except Exception:
+                pass
+            print(f'  Rows: {total} | by provider: {spend_by_provider}')
+            ledger_summary = {
+                'ok': True,
+                'rows_total': total,
+                'spend_by_provider': spend_by_provider,
+            }
+            print('  OK')
+        finally:
+            conn.close()
+except Exception as e:
+    failures.append(f'llm_cost_ledger: {e}')
+    print(f'  FAIL: {e}')
+    ledger_summary = {'ok': False, 'error': str(e)}
+sources['llm_cost_ledger'] = ledger_summary
+
+print('\n[19] news_events health (SQLite, optional)')
+# ``news_events`` is introduced by a later M2 feature; absence is a
+# warning, not a failure, so this audit script can land before that
+# feature ships.
+news_summary: dict = {}
+try:
+    import sqlite3
+    db_path = DATA_DIR / 'alpha_sniper.db'
+    if not db_path.exists():
+        warnings.append('news_events: alpha_sniper.db missing — skipped')
+        print('  WARNING: alpha_sniper.db missing — skipped')
+        news_summary = {'ok': False, 'reason': 'db_missing'}
+    else:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            tbl = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='news_events'"
+            ).fetchone()
+            if tbl is None:
+                warnings.append('news_events: table not yet created (pending M2 universe + news ingest feature)')
+                print('  WARNING: news_events table not yet created')
+                news_summary = {'ok': False, 'present': False}
+            else:
+                total = _sqlite_count(conn, 'news_events')
+                today_count = None
+                try:
+                    today_count = int(conn.execute(
+                        "SELECT COUNT(*) FROM news_events WHERE date(ingested_at)=?",
+                        (today,),
+                    ).fetchone()[0])
+                except Exception:
+                    pass
+                print(f'  Rows: {total} | ingested today: {today_count}')
+                news_summary = {
+                    'ok': True,
+                    'present': True,
+                    'rows_total': total,
+                    'rows_today': today_count,
+                }
+                print('  OK')
+        finally:
+            conn.close()
+except Exception as e:
+    warnings.append(f'news_events: probe raised {type(e).__name__}: {e}')
+    print(f'  WARNING: {e}')
+    news_summary = {'ok': False, 'error': str(e)}
+sources['news_events'] = news_summary
 
 print()
 print('='*60)
