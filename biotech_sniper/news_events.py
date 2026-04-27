@@ -51,6 +51,7 @@ from biotech_sniper.paths import BASE_DIR, DATA_DIR, STATE_DIR
 __all__ = [
     "NewsEvent",
     "DailyIngestResult",
+    "AdverseNewsScanFn",
     "default_db_path",
     "record_news_event",
     "record_news_events",
@@ -345,6 +346,15 @@ class DailyIngestResult:
         }
 
 
+#: Type alias for the optional ``adverse_news_scan`` injection point.
+#: Implementations receive the resolved DB path and return the list of
+#: result dicts emitted by :func:`adverse_news.scan_and_trigger` (or any
+#: equivalent shape with ``status`` keys). Tests use this hook to wire
+#: a fake :class:`PaperExecutor` + canned active-plays list into the
+#: ingest run without touching live Alpaca creds.
+AdverseNewsScanFn = Callable[[Path], Sequence[Mapping[str, Any]]]
+
+
 def daily_news_ingest(
     *,
     db_path: Path | str | None = None,
@@ -353,6 +363,7 @@ def daily_news_ingest(
     audit_path: Path | str | None = None,
     write_audit: bool = True,
     empty_feed_reason: str = "no_feed_match",
+    adverse_news_scan: AdverseNewsScanFn | None = None,
 ) -> DailyIngestResult:
     """Run the daily news ingest pipeline.
 
@@ -378,6 +389,17 @@ def daily_news_ingest(
     empty_feed_reason:
         String stored in ``news_events_empty`` for tickers with zero
         rows after every watcher has run.
+    adverse_news_scan:
+        Optional callable invoked AFTER the watchers complete to
+        fan out adverse-news exits for any ``negative_material``
+        rows just persisted. Defaults to
+        :func:`_default_adverse_news_scan`, which builds a
+        production :class:`PaperExecutor` and calls
+        :func:`adverse_news.scan_and_trigger`. Tests inject a
+        fake here to exercise the wiring without live Alpaca
+        credentials. Failures inside the scan are caught and
+        logged so the news ingest itself never aborts (per the
+        f-m3-17 contract).
 
     Returns
     -------
@@ -447,6 +469,36 @@ def daily_news_ingest(
     finally:
         conn.close()
 
+    # f-m3-17: now that record_news_events writes are durable, fan
+    # out the adverse-news exit hook so a freshly-ingested
+    # ``enrichment_label='negative_material'`` headline on an active
+    # play triggers the required ``submit_exit(event='adverse_news')``
+    # automatically. The scan is wrapped in a broad try/except so a
+    # scan failure (missing Alpaca creds in a fresh checkout, broker
+    # outage, etc.) never aborts the ingest pipeline — the contract
+    # requires daily_news_ingest to still complete and return a
+    # populated DailyIngestResult.
+    try:
+        scan_results = (
+            adverse_news_scan(target)
+            if adverse_news_scan is not None
+            else _default_adverse_news_scan(target)
+        )
+    except Exception as exc:  # noqa: BLE001 - by-design swallow
+        logger.warning(
+            "adverse_news.scan_and_trigger raised %s: %s — "
+            "continuing daily_news_ingest",
+            type(exc).__name__,
+            exc,
+        )
+    else:
+        triggered = _count_triggered_exits(scan_results)
+        if triggered > 0:
+            logger.info(
+                "adverse_news.scan_and_trigger: triggered=%d exits",
+                triggered,
+            )
+
     result.completed_at = _now_iso()
 
     if write_audit:
@@ -456,6 +508,59 @@ def daily_news_ingest(
             logger.warning("Failed to write audit summary: %s", exc)
 
     return result
+
+
+def _count_triggered_exits(
+    scan_results: Sequence[Mapping[str, Any]] | None,
+) -> int:
+    """Count rows in ``scan_results`` whose ``status == 'submitted'``.
+
+    :func:`adverse_news.scan_and_trigger` returns a list of dicts
+    whose ``status`` is one of ``'submitted'``, ``'skipped'``, or
+    ``'error'``. Only ``submitted`` rows correspond to a real exit
+    landing in ``paper_orders`` (the f-m3-17 INFO log only fires
+    when at least one exit was actually submitted).
+    """
+    if not scan_results:
+        return 0
+    count = 0
+    for entry in scan_results:
+        if isinstance(entry, Mapping) and entry.get("status") == "submitted":
+            count += 1
+    return count
+
+
+def _default_adverse_news_scan(
+    db_path: Path,
+) -> list[dict[str, Any]]:
+    """Production wiring for :func:`adverse_news.scan_and_trigger`.
+
+    Builds a paper-only :class:`PaperExecutor`, loads active plays
+    from the SQLite ``plays`` table, and dispatches the scan. Imports
+    are deferred to avoid a circular dependency with the
+    :mod:`biotech_sniper.adverse_news` module (which itself imports
+    helpers from this module).
+
+    Returns an empty list when no active plays exist so the cron
+    has nothing to do — which is the steady-state on a fresh deploy.
+    """
+    # Deferred imports — adverse_news depends on news_events, so we
+    # cannot import at module load without inducing a cycle.
+    from biotech_sniper.adverse_news import scan_and_trigger
+    from biotech_sniper.alpaca_client import AlpacaClient
+    from biotech_sniper.iv_crush_exit_rules import (
+        load_active_plays_from_db,
+    )
+    from biotech_sniper.paper_executor import PaperExecutor
+
+    active_plays = load_active_plays_from_db(db_path=db_path)
+    if not active_plays:
+        return []
+    client = AlpacaClient()
+    executor = PaperExecutor(client, db_path=db_path)
+    return list(
+        scan_and_trigger(executor, active_plays, db_path=db_path) or []
+    )
 
 
 def _normalise_item(
@@ -500,6 +605,11 @@ def _normalise_item(
         or item.get("detected_date")
     )
     source = item.get("source") or default_source
+    # Preserve any LLM-enrichment label set upstream (e.g.
+    # ``'negative_material'``) so the f-m3-17 adverse-news fan-out
+    # downstream can react. Without this passthrough, dict-shaped
+    # watcher payloads silently lose the tag during normalisation.
+    enrichment_label = item.get("enrichment_label")
     return NewsEvent(
         ticker=str(ticker).upper(),
         source=str(source),
@@ -507,6 +617,7 @@ def _normalise_item(
         url=str(url) if url else None,
         published_at=str(published_at) if published_at else None,
         raw_payload=item,
+        enrichment_label=str(enrichment_label) if enrichment_label else None,
     )
 
 
