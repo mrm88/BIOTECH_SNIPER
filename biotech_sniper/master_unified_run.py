@@ -521,5 +521,59 @@ def format_unified_email_summary(all_signals, critical, high, active_plays,
     return "\n".join(lines)
 
 
+def run_paper_execute(date_iso: str) -> dict:
+    """Submit paper orders for play cards in ``play_cards/<date>/`` (f-m3-07)."""
+    from biotech_sniper.alpaca_client import AlpacaClient
+    from biotech_sniper.paper_executor import PaperExecutor
+    out: dict = {"date": date_iso, "orders_submitted": 0, "candidates": []}
+    cards_dir = BASE_DIR / "play_cards" / date_iso
+    cards = sorted(cards_dir.glob("*.json")) if cards_dir.exists() else []
+    if not cards:
+        out["reason"] = "no qualifying play cards for date"
+        return out
+    client, executor = AlpacaClient(), None
+    for path in cards:
+        ticker = path.stem
+        try:
+            chain = client.get_options_chain(ticker)
+        except Exception as e:
+            out["candidates"].append({"ticker": ticker, "status": "skip", "reason": f"chain_error: {e}"})
+            continue
+        leg = None
+        for row in chain:
+            bid, ask = row.get("bid") or 0.0, row.get("ask") or 0.0
+            if row.get("type") == "call" and bid > 0.05 and ask > 0.05 and (bid + ask) * 50.0 <= 250:
+                leg = {"symbol": row["symbol"], "side": "buy", "option_type": "call", "bid": bid, "ask": ask}
+                break
+        if leg is None:
+            out["candidates"].append({"ticker": ticker, "status": "skip", "reason": f"no_viable_call rows={len(chain)}"})
+            continue
+        if executor is None:
+            executor = PaperExecutor(client)
+        try:
+            oid = executor.execute({"play_card_id": f"{ticker}-{date_iso}", "option_legs": [leg]})
+            out["orders_submitted"] += 1
+            out["candidates"].append({"ticker": ticker, "status": "submitted", "alpaca_order_id": oid})
+        except Exception as e:
+            out["candidates"].append({"ticker": ticker, "status": "rejected", "reason": str(e)})
+    return out
+
+
 if __name__ == "__main__":
-    run_unified_scan()
+    import argparse as _ap
+    _p = _ap.ArgumentParser(description="Master unified alpha scanner")
+    _p.add_argument("--date", default=None)
+    _p.add_argument("--paper-execute", action="store_true")
+    _args = _p.parse_args()
+    if _args.date:
+        datetime.date.fromisoformat(_args.date)
+    _date_iso = _args.date or datetime.date.today().isoformat()
+    if _args.paper_execute:
+        _result = run_paper_execute(_date_iso)
+        _audit_dir = BASE_DIR / "state"
+        _audit_dir.mkdir(parents=True, exist_ok=True)
+        _audit_path = _audit_dir / f"paper_execute_{_date_iso}.json"
+        _audit_path.write_text(json.dumps(_result, indent=2))
+        print(f"[paper-execute] orders_submitted={_result['orders_submitted']} -> {_audit_path}")
+    else:
+        run_unified_scan()
