@@ -286,10 +286,12 @@ def test_explicit_risk_per_play_usd_override_argument():
 
 
 def test_three_active_positions_block_fourth_submission(db_path: Path):
+    # f-m3-07b: caps count OPTION positions only — tag the synthetic
+    # positions so the filter recognises them as option contracts.
     positions = [
-        {"symbol": "X1", "qty": 1, "avg_entry_price": 1.0},
-        {"symbol": "X2", "qty": 1, "avg_entry_price": 1.0},
-        {"symbol": "X3", "qty": 1, "avg_entry_price": 1.0},
+        {"symbol": "X1", "qty": 1, "avg_entry_price": 1.0, "asset_class": "us_option"},
+        {"symbol": "X2", "qty": 1, "avg_entry_price": 1.0, "asset_class": "us_option"},
+        {"symbol": "X3", "qty": 1, "avg_entry_price": 1.0, "asset_class": "us_option"},
     ]
     fake = _FakeAlpacaClient(positions=positions)
     executor = PaperExecutor(fake, db_path=db_path)  # type: ignore[arg-type]
@@ -300,8 +302,8 @@ def test_three_active_positions_block_fourth_submission(db_path: Path):
 
 def test_two_active_positions_allow_third_submission(db_path: Path):
     positions = [
-        {"symbol": "X1", "qty": 1, "avg_entry_price": 1.0},
-        {"symbol": "X2", "qty": 1, "avg_entry_price": 1.0},
+        {"symbol": "X1", "qty": 1, "avg_entry_price": 1.0, "asset_class": "us_option"},
+        {"symbol": "X2", "qty": 1, "avg_entry_price": 1.0, "asset_class": "us_option"},
     ]
     fake = _FakeAlpacaClient(positions=positions)
     executor = PaperExecutor(fake, db_path=db_path)  # type: ignore[arg-type]
@@ -313,9 +315,9 @@ def test_two_active_positions_allow_third_submission(db_path: Path):
 def test_concurrency_cap_persists_rejection_row(db_path: Path):
     fake = _FakeAlpacaClient(
         positions=[
-            {"symbol": "X1", "qty": 1, "avg_entry_price": 1.0},
-            {"symbol": "X2", "qty": 1, "avg_entry_price": 1.0},
-            {"symbol": "X3", "qty": 1, "avg_entry_price": 1.0},
+            {"symbol": "X1", "qty": 1, "avg_entry_price": 1.0, "asset_class": "us_option"},
+            {"symbol": "X2", "qty": 1, "avg_entry_price": 1.0, "asset_class": "us_option"},
+            {"symbol": "X3", "qty": 1, "avg_entry_price": 1.0, "asset_class": "us_option"},
         ]
     )
     executor = PaperExecutor(fake, db_path=db_path)  # type: ignore[arg-type]
@@ -344,9 +346,10 @@ def test_concurrency_cap_persists_rejection_row(db_path: Path):
 def _positions_totaling_620() -> list[dict[str, Any]]:
     """Return two synthetic positions whose deployed capital sums to $620."""
     # 2 contracts at $2.10 mid + 2 contracts at $1.00 mid = $420 + $200 = $620.
+    # f-m3-07b: tag as us_option so the deployed-cap filter counts them.
     return [
-        {"symbol": "Y1", "qty": 2, "avg_entry_price": 2.10},
-        {"symbol": "Y2", "qty": 2, "avg_entry_price": 1.00},
+        {"symbol": "Y1", "qty": 2, "avg_entry_price": 2.10, "asset_class": "us_option"},
+        {"symbol": "Y2", "qty": 2, "avg_entry_price": 1.00, "asset_class": "us_option"},
     ]
 
 
@@ -450,7 +453,9 @@ def test_paper_executor_has_no_hardcoded_cap_literals():
 def test_caps_are_referenced_via_config_module(db_path: Path):
     """Live monkey-patch: changing config caps changes executor behaviour."""
     fake = _FakeAlpacaClient(
-        positions=[{"symbol": "Z", "qty": 1, "avg_entry_price": 1.0}]
+        positions=[
+            {"symbol": "Z", "qty": 1, "avg_entry_price": 1.0, "asset_class": "us_option"}
+        ]
     )
     executor = PaperExecutor(fake, db_path=db_path)  # type: ignore[arg-type]
     # Lower the concurrency cap to 1; with 1 active position, the next

@@ -102,6 +102,7 @@ __all__ = [
     "DeployedCapExceeded",
     "MissingQuoteData",
     "size_position",
+    "_options_positions",
     "DEFAULT_DB_PATH",
     "TERMINAL_STATUSES",
     "FILLED_STATUSES",
@@ -474,6 +475,51 @@ def _planned_cost_usd(leg: Mapping[str, Any], qty: int) -> float:
         except (TypeError, ValueError):
             per_contract = 0.0
     return float(qty) * per_contract * 100.0
+
+
+def _options_positions(
+    positions: Sequence[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    """Return only the option positions from an Alpaca positions list.
+
+    Alpaca position dicts carry an ``asset_class`` field whose value
+    is ``'us_option'`` for option contracts and ``'us_equity'`` for
+    shares (the SDK enum is rendered as a lowercase string by
+    :func:`biotech_sniper.alpaca_client._enum_value`). The
+    :class:`PaperExecutor` caps (``MAX_CONCURRENT_PLAYS`` and
+    ``MAX_DEPLOYED_USD``) MUST count only option contracts:
+
+    * Concurrency: a paper account that holds 6 unrelated equities
+      from earlier manual sandbox testing must not block a fresh
+      single-leg options entry that would still leave the operator
+      below the 3-option concurrency cap.
+    * Deployed capital: equity share positions are denominated in
+      shares, not contracts. Multiplying ``qty * avg_entry_price *
+      100`` (the option-contract math) over a 1000-share, $200-avg
+      equity holding fabricates a $20M "deployed" sum that has no
+      basis in reality and trips
+      :class:`DeployedCapExceeded` on every entry.
+
+    Positions whose ``asset_class`` field is missing or unrecognised
+    are treated as **non-options** (skipped). This is the
+    conservative default: when in doubt, do not count it as an
+    option contract — refusing to size in the rare ambiguous case
+    is preferable to artificially inflating the cap.
+    """
+    out: list[Mapping[str, Any]] = []
+    for position in positions or ():
+        if not isinstance(position, Mapping):
+            continue
+        asset_class = position.get("asset_class")
+        if asset_class is None:
+            # Legacy / older payloads with no asset_class field at
+            # all are treated as non-options. This matches the
+            # f-m3-07b spec: "accept legacy ``asset_class`` absent →
+            # treat as not-options (skip)".
+            continue
+        if str(asset_class).strip().lower() == "us_option":
+            out.append(position)
+    return out
 
 
 def _deployed_capital_usd(positions: Sequence[Mapping[str, Any]]) -> float:
@@ -866,18 +912,33 @@ class PaperExecutor:
                     ) from exc
                 positions = list(raw_positions)
 
+        # f-m3-07b: caps apply to OPTION positions only. A paper
+        # account often holds unrelated equity holdings from manual
+        # sandbox testing; those must not trip
+        # :class:`ConcurrencyCapExceeded` or
+        # :class:`DeployedCapExceeded` against an options-only
+        # strategy. Filter the broker payload before either cap
+        # arithmetic runs. The filter helper
+        # :func:`_options_positions` keeps only entries whose
+        # ``asset_class == 'us_option'`` (case-insensitive); equities,
+        # crypto, and any payload missing ``asset_class`` are
+        # excluded. The unfiltered list is no longer referenced past
+        # this point.
+        option_positions = _options_positions(positions) if is_entry else []
+
         cap_concurrent = _config.MAX_CONCURRENT_PLAYS
-        if is_entry and len(positions) >= cap_concurrent:
+        if is_entry and len(option_positions) >= cap_concurrent:
             msg = (
-                f"ConcurrencyCapExceeded: {len(positions)} active positions "
-                f"meets/exceeds MAX_CONCURRENT_PLAYS={cap_concurrent}"
+                f"ConcurrencyCapExceeded: {len(option_positions)} active "
+                f"option positions meets/exceeds "
+                f"MAX_CONCURRENT_PLAYS={cap_concurrent}"
             )
             logger.warning(
                 "paper_executor.concurrency_cap_exceeded play_card_id=%s "
-                "symbol=%s active=%s cap=%s",
+                "symbol=%s active_options=%s cap=%s",
                 play_card_id,
                 symbol,
-                len(positions),
+                len(option_positions),
                 cap_concurrent,
             )
             self._persist_order_row(
@@ -895,7 +956,9 @@ class PaperExecutor:
             raise ConcurrencyCapExceeded(msg)
 
         cap_deployed = _config.MAX_DEPLOYED_USD
-        deployed = _deployed_capital_usd(positions) if is_entry else 0.0
+        deployed = (
+            _deployed_capital_usd(option_positions) if is_entry else 0.0
+        )
         planned_cost = _planned_cost_usd(leg, qty) if is_entry else 0.0
         if is_entry and (deployed + planned_cost) > cap_deployed:
             msg = (

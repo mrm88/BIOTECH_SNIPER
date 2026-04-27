@@ -325,6 +325,7 @@ def _account_to_dict(account: Any) -> dict[str, Any]:
 def _position_to_dict(position: Any) -> dict[str, Any]:
     return {
         "asset_id": _attr(position, "asset_id"),
+        "asset_class": _enum_value(_attr(position, "asset_class")),
         "symbol": _attr(position, "symbol"),
         "qty": _maybe_float(_attr(position, "qty")),
         "qty_available": _maybe_float(_attr(position, "qty_available")),

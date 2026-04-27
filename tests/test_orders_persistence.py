@@ -434,8 +434,16 @@ def test_concurrency_cap_writes_rejected_row(
     from biotech_sniper import config as cfg
     from biotech_sniper.paper_executor import ConcurrencyCapExceeded
 
+    # f-m3-07b: caps count OPTION positions only — tag the synthetic
+    # filler positions as ``us_option`` so the executor's filter
+    # recognises them when applying the concurrency cap.
     positions = [
-        {"symbol": f"FILLER{i}", "qty": 1, "avg_entry_price": 1.0}
+        {
+            "symbol": f"FILLER{i}",
+            "qty": 1,
+            "avg_entry_price": 1.0,
+            "asset_class": "us_option",
+        }
         for i in range(cfg.MAX_CONCURRENT_PLAYS)
     ]
     fake = _FakeAlpacaClient(positions=positions)
