@@ -132,6 +132,36 @@ CREATE TABLE IF NOT EXISTS llm_cost_ledger (
 );
 
 -- ---------------------------------------------------------------------------
+-- ``universe`` — two-tier biotech ticker universe (M2 universe expansion).
+--
+-- Rows split between two tiers:
+--   * ``tier='watch'``     — broad watch pool (SECTORS seed merged with
+--                            auto-discovered NCT-sponsor tickers from the
+--                            CT.gov delta-scan). Covers 550+ tickers.
+--   * ``tier='tradeable'`` — strict subset of watch with
+--                            ``has_options_chain=1``. Only this subset is
+--                            eligible for full LLM scoring + paper trades.
+--
+-- Liquidity filter is intentionally permissive: any chain row from the
+-- options-chain probe (seed-backed in M2, Alpaca-backed in M3) is enough
+-- to flip the row to ``tier='tradeable'``. Spread / OI / volume filters
+-- are explicitly NOT applied here per AGENTS.md "Universe boundaries".
+--
+-- Idempotency is enforced by the ``ticker`` PRIMARY KEY: re-running
+-- ``build_universe()`` upserts each ticker rather than appending.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS universe (
+    ticker               TEXT    NOT NULL PRIMARY KEY,
+    tier                 TEXT    NOT NULL CHECK(tier IN ('watch', 'tradeable')),
+    has_options_chain    BOOLEAN NOT NULL DEFAULT 0,
+    last_chain_check_at  TEXT,
+    source               TEXT,
+    created_at           TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at           TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+-- ---------------------------------------------------------------------------
 -- Hot-path indices.
 -- ---------------------------------------------------------------------------
 
@@ -147,3 +177,6 @@ CREATE INDEX IF NOT EXISTS idx_llm_cost_ledger_called_at ON llm_cost_ledger(call
 CREATE INDEX IF NOT EXISTS idx_llm_cost_ledger_provider  ON llm_cost_ledger(provider);
 
 CREATE INDEX IF NOT EXISTS idx_discovery_state_nct_id    ON discovery_state(nct_id);
+
+CREATE INDEX IF NOT EXISTS idx_universe_tier             ON universe(tier);
+CREATE INDEX IF NOT EXISTS idx_universe_has_options      ON universe(has_options_chain);

@@ -45,7 +45,7 @@ SCHEMA_PATH: Final[Path] = Path(__file__).resolve().parent / "schema.sql"
 # Schema revision shipped by this codebase. Bump when ``schema.sql``
 # changes shape. The migration script writes this value into
 # ``schema_version`` after a successful apply.
-CURRENT_VERSION: Final[int] = 1
+CURRENT_VERSION: Final[int] = 2
 
 
 PathLike = Union[str, Path]
