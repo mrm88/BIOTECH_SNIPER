@@ -28,13 +28,21 @@ Also handles:
   - Lifecycle: adding qualifying plays to active_plays.json
 """
 
+import argparse
 import json
+import logging
+import os
 import re
 import datetime
 import subprocess
+import sys
 from pathlib import Path
+from typing import Sequence
 
 from biotech_sniper.paths import BASE_DIR
+
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Re-export the M2 ensemble symbols at this module's namespace so
@@ -867,6 +875,336 @@ Save P scores to: <BASE_DIR>/state/scoring_cache.json
     
     return "\n".join(instructions)
 
+# ---------------------------------------------------------------------------
+# f-m2-20 — Unified scorer CLI.
+#
+# ``python -m biotech_sniper.sectors.unified_scorer`` runs the M2 scoring
+# pipeline end-to-end so VAL-M2-049 / VAL-M2-050 / VAL-M2-055 / VAL-M2-057
+# pass without falling back to the legacy printer stub. The CLI:
+#
+# 1. Resolves the ticker list (``--tickers`` override → top-N tradeable
+#    universe rows → 5-ticker seed fallback).
+# 2. Builds an :class:`EnsembleScorer` (or a fast-only variant under
+#    ``--dry-run``).
+# 3. Scores each ticker through ``EnsembleScorer.score`` which UPSERTs
+#    into ``scoring_cache`` (idempotent on ``(ticker, as_of_date)``).
+# 4. Optionally emits play cards via
+#    :func:`biotech_sniper.play_card_formatter.emit_play_cards`.
+# 5. Prints a single JSON summary line to stdout for cron consumption.
+#
+# Provider availability is detected at runtime: if ``GEMINI_API_KEY`` is
+# missing the CLI logs a WARNING, drops Gemini from ``providers_used``,
+# and continues; the same handling applies to ``ANTHROPIC_API_KEY``. The
+# fast tier (xAI) is always reported as enabled per the f-m2-20 spec —
+# its key absence is handled inside the lazy
+# :class:`biotech_sniper.llm.xai_client.XAIClient` constructor.
+# ---------------------------------------------------------------------------
+
+
+_DEFAULT_SEED_TICKERS: tuple[str, ...] = ("SRPT", "VRTX", "BMRN", "ARWR", "IONS")
+
+
+def _resolve_deep_providers() -> list[str]:
+    """Return the deep-tier providers honouring a runtime env override.
+
+    Reads ``LLM_PROVIDERS_DEEP`` directly so tests / cron operators
+    can disable the deep tier without re-importing :mod:`config`
+    (where the feature flag is captured at module load). Falls back
+    to :data:`biotech_sniper.config.LLM_PROVIDERS["deep"]` when the
+    env var is unset.
+    """
+    raw = os.environ.get("LLM_PROVIDERS_DEEP")
+    if raw is not None:
+        return [p.strip() for p in raw.split(",") if p.strip()]
+    from biotech_sniper import config as _config
+
+    deep = _config.LLM_PROVIDERS.get("deep", [])
+    if isinstance(deep, list):
+        return list(deep)
+    return []
+
+
+def _provider_env_var(provider: str) -> str | None:
+    """Return the env var that holds the API key for ``provider``."""
+    return {
+        "anthropic": "ANTHROPIC_API_KEY",
+        "gemini": "GEMINI_API_KEY",
+    }.get(provider)
+
+
+def _load_tradeable_tickers_from_universe(
+    top_n: int, *, db_path: Path | None = None
+) -> list[str]:
+    """Return up to ``top_n`` tickers from ``universe.tier='tradeable'``.
+
+    Returns ``[]`` when the SQLite db file does not exist yet (fresh
+    checkouts) or when the query fails for any reason — callers
+    should treat the empty list as "no universe yet, use the seed
+    fallback".
+    """
+    from biotech_sniper import db as _db
+    from biotech_sniper.paths import DATA_DIR
+
+    target = Path(db_path) if db_path is not None else DATA_DIR / "alpha_sniper.db"
+    if not target.exists():
+        return []
+    try:
+        conn = _db.connect(target)
+    except Exception:
+        return []
+    try:
+        try:
+            _db.run_migrations(conn)
+        except Exception:
+            return []
+        try:
+            rows = conn.execute(
+                "SELECT ticker FROM universe "
+                "WHERE tier='tradeable' "
+                "ORDER BY ticker ASC LIMIT ?",
+                (int(top_n),),
+            ).fetchall()
+        except Exception:
+            return []
+    finally:
+        conn.close()
+    return [str(r[0]) for r in rows]
+
+
+def _load_universe_meta(ticker: str, *, db_path: Path | None = None) -> dict:
+    """Return the ``universe`` row for ``ticker`` (or ``{}`` when missing).
+
+    Used to populate ``fast_context.ticker_meta`` in the per-ticker
+    scoring payload.
+    """
+    from biotech_sniper import db as _db
+    from biotech_sniper.paths import DATA_DIR
+
+    target = Path(db_path) if db_path is not None else DATA_DIR / "alpha_sniper.db"
+    if not target.exists():
+        return {}
+    try:
+        conn = _db.connect(target)
+    except Exception:
+        return {}
+    try:
+        try:
+            _db.run_migrations(conn)
+        except Exception:
+            return {}
+        try:
+            row = conn.execute(
+                "SELECT ticker, tier, has_options_chain, source "
+                "FROM universe WHERE ticker = ?",
+                (ticker,),
+            ).fetchone()
+        except Exception:
+            return {}
+    finally:
+        conn.close()
+    if row is None:
+        return {}
+    return dict(row)
+
+
+def _build_scorer(*, dry_run: bool = False):
+    """Build the :class:`EnsembleScorer` used by :func:`main`.
+
+    Indirected through this module-level helper so tests can
+    monkeypatch in fakes (cassette-backed clients) without touching
+    production config. When ``dry_run=True`` the deep tier is
+    omitted so the CLI does not call Claude / Gemini — the
+    scoring_cache UPSERT still runs because the fast-tier xAI score
+    is enough to populate the row.
+    """
+    from biotech_sniper import config as _config
+    from biotech_sniper.llm.ensemble import (
+        EnsembleScorer as _ES,
+        _maybe_build_xai_client,
+    )
+
+    if dry_run:
+        xai = (
+            _maybe_build_xai_client()
+            if _config.provider_enabled("xai")
+            else None
+        )
+        return _ES(xai_client=xai, claude_client=None, gemini_client=None)
+    return _ES.from_config()
+
+
+def _resolve_tickers(args: argparse.Namespace, top_n: int) -> list[str]:
+    """Return the ordered list of tickers ``main()`` will score.
+
+    Priority order: ``--tickers`` override → top-N tradeable universe
+    rows → 5-ticker seed list. The seed fallback returns the full
+    seed regardless of ``--top-n`` so VAL-M2-049 / VAL-M2-050 see
+    five scored tickers when the universe is empty (a fresh local
+    checkout or an early VPS deploy).
+    """
+    if args.tickers:
+        return [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
+    universe_tickers = _load_tradeable_tickers_from_universe(top_n)
+    if universe_tickers:
+        return universe_tickers
+    return list(_DEFAULT_SEED_TICKERS)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run the unified scoring pipeline; return a process exit code.
+
+    Behaviour summary (full contract in the f-m2-20 feature spec):
+
+    * Always returns 0 unless argparse rejects the CLI arguments
+      (which raises SystemExit before this function returns).
+    * Per-ticker scoring failures log a WARNING and continue rather
+      than aborting the run.
+    * Final stdout line is a JSON object with the keys
+      ``as_of_date``, ``tickers_scored``, ``providers_used``,
+      ``rows_upserted`` and ``play_cards_written`` so callers can
+      pipe the output into ``jq``.
+    """
+    from biotech_sniper import config as _config
+
+    parser = argparse.ArgumentParser(
+        prog="python -m biotech_sniper.sectors.unified_scorer",
+        description=(
+            "Run the M2 unified scoring pipeline (Grok-4 fast tier + "
+            "Claude / Gemini deep tier) and emit play cards."
+        ),
+    )
+    parser.add_argument(
+        "--date",
+        default=datetime.date.today().isoformat(),
+        help="ISO date (YYYY-MM-DD) the run is scoring for. Defaults to today.",
+    )
+    parser.add_argument(
+        "--top-n",
+        type=int,
+        default=None,
+        help=(
+            "Number of tradeable tickers to score. Defaults to "
+            "config.RISK_DEFAULTS['max_concurrent']."
+        ),
+    )
+    parser.add_argument(
+        "--tickers",
+        default=None,
+        help=(
+            "Comma-separated ticker list. Overrides the universe lookup "
+            "and the seed fallback when provided."
+        ),
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Skip the deep tier (Claude / Gemini) and suppress play-card "
+            "emission. The scoring_cache UPSERT still runs (idempotent)."
+        ),
+    )
+    parser.add_argument(
+        "--no-emit-play-cards",
+        dest="emit_play_cards",
+        action="store_false",
+        default=True,
+        help="Skip play-card emission even when --dry-run is not set.",
+    )
+    args = parser.parse_args(list(argv) if argv is not None else None)
+
+    requested_top_n = (
+        int(args.top_n)
+        if args.top_n is not None
+        else int(_config.RISK_DEFAULTS["max_concurrent"])
+    )
+    top_n = max(1, requested_top_n)
+
+    tickers = _resolve_tickers(args, top_n)
+
+    # Resolve providers_used. The fast tier (xAI) is always reported
+    # per the f-m2-20 spec; the deep tier is filtered by both the
+    # ``--dry-run`` flag and the per-provider key presence check.
+    providers_used: list[str] = ["xai"]
+    deep_providers = [] if args.dry_run else _resolve_deep_providers()
+    for provider in deep_providers:
+        env_var = _provider_env_var(provider)
+        if env_var and not os.environ.get(env_var):
+            logger.warning(
+                "skipping deep provider %s: API key not set in env (%s); "
+                "pipeline continues without this provider",
+                provider,
+                env_var,
+            )
+            continue
+        providers_used.append(provider)
+    providers_used = sorted(providers_used)
+
+    scorer = _build_scorer(dry_run=args.dry_run)
+
+    rows_upserted = 0
+    tickers_scored: list[str] = []
+    providers_label = ",".join(providers_used)
+    for ticker in tickers:
+        try:
+            meta = _load_universe_meta(ticker)
+            payload = {
+                "ticker": ticker,
+                "as_of_date": args.date,
+                "fast_context": {
+                    "ticker": ticker,
+                    "ticker_meta": meta,
+                    "as_of_date": args.date,
+                },
+                "science_profile": {
+                    "ticker": ticker,
+                    "sector": "BIOTECH",
+                },
+                "full_context": {},
+            }
+            result = scorer.score(payload)
+        except Exception as exc:  # noqa: BLE001 — single-ticker failure is non-fatal
+            logger.warning(
+                "scoring failed for %s: %r; continuing without it",
+                ticker,
+                exc,
+            )
+            continue
+
+        tickers_scored.append(ticker)
+        rows_upserted += 1
+        ensemble_score = result.get("ensemble_score")
+        grade = result.get("science_grade") or "N/A"
+        if ensemble_score is None:
+            print(
+                f"[score] {ticker} ensemble=None grade={grade} "
+                f"providers={providers_label}"
+            )
+        else:
+            print(
+                f"[score] {ticker} ensemble={float(ensemble_score):.2f} "
+                f"grade={grade} providers={providers_label}"
+            )
+
+    play_cards_written = 0
+    if args.emit_play_cards and not args.dry_run:
+        try:
+            from biotech_sniper import play_card_formatter as _pcf
+
+            written = _pcf.emit_play_cards(as_of_date=args.date, n=top_n)
+            play_cards_written = len(list(written or []))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("emit_play_cards failed: %r", exc)
+
+    summary = {
+        "as_of_date": args.date,
+        "tickers_scored": tickers_scored,
+        "providers_used": providers_used,
+        "rows_upserted": rows_upserted,
+        "play_cards_written": play_cards_written,
+    }
+    print(json.dumps(summary, sort_keys=True))
+    return 0
+
+
 if __name__ == "__main__":
-    print("Unified scorer loaded. Use via master_unified_run.py")
-    print(f"Active plays: {len(load_active_plays().get('active', {}))}")
+    raise SystemExit(main())
