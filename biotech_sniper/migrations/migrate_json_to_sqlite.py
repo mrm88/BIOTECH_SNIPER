@@ -46,7 +46,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from biotech_sniper import db
-from biotech_sniper.paths import DATA_DIR, STATE_DIR
+from biotech_sniper.paths import BASE_DIR, DATA_DIR
 
 __all__ = [
     "MigrationResult",
@@ -554,9 +554,15 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--source",
         type=Path,
-        default=STATE_DIR,
+        # f-m2-16 fix #3: default --source points at the canonical
+        # backfill seed directory ``migrations/seed/`` (the historical
+        # JSONs that f-m1-03 moved out of the live runtime ``state/``
+        # path) so a fresh VPS deploy does not need an explicit
+        # override to migrate the seed data.
+        default=BASE_DIR / "migrations" / "seed",
         help="Directory containing the legacy state JSON files. "
-        "Defaults to STATE_DIR (the project ``state/`` directory).",
+        "Defaults to ``BASE_DIR/migrations/seed`` (the historical "
+        "backfill snapshot moved out of the runtime state path).",
     )
     parser.add_argument(
         "--db",

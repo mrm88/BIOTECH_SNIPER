@@ -624,9 +624,15 @@ def test_disabled_via_flag(monkeypatch):
     The module remains importable in this state — disabling Gemini
     must NEVER crash the pipeline.
     """
-    # Ensure no API key is present so provider_enabled('gemini')
-    # would be False even if the flag were set.
+    # Ensure no provider key is present so ``provider_enabled`` returns
+    # False purely from the feature-flag and missing-credential gate.
+    # f-m2-16 fix #1: a clean VPS .env can legitimately carry
+    # ANTHROPIC_API_KEY (and XAI_API_KEY) — without delenv'ing all
+    # three keys this test fails on a fresh deploy because
+    # ``provider_enabled('anthropic')`` would return True.
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
     # Restrict deep tier to anthropic only.
     monkeypatch.setenv("LLM_PROVIDERS_DEEP", "anthropic")
 
@@ -658,7 +664,12 @@ def test_disabled_via_flag_pipeline_does_not_crash_when_key_missing(monkeypatch)
     via config.LLM_PROVIDERS.deep without 'gemini' does not crash the
     pipeline".
     """
+    # f-m2-16 fix #1: delenv all three provider keys so the env on a
+    # fresh VPS deploy (which legitimately carries some of them) does
+    # not leak into ``provider_enabled``.
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
     monkeypatch.setenv("LLM_PROVIDERS_DEEP", "anthropic")
 
     from biotech_sniper import config as _config

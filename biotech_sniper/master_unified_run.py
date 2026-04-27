@@ -412,6 +412,10 @@ def run_unified_scan():
         "learning_results": learning_results,
     }
 
+    # f-m2-16 fix #2: ensure the output directory exists. ``intelligence/``
+    # is not committed to the git tree, so a clean clone has no such dir
+    # and the bare ``open(..., "w")`` would raise FileNotFoundError.
+    OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(OUTPUT_FILE, "w") as f:
         json.dump(master, f, indent=2)
 
