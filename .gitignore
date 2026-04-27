@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Environment / secrets
+.env
+.env.local
+*.pem
+*.key
+i-understand-this-trades-real-money
+
+# State, data, db, logs
+data/*.db
+data/*.db-wal
+data/*.db-shm
+state/*.json
+state/*.jsonl
+logs/
+*.log
+
+# Reports (generated)
+reports/
+
+# Backups
+backups/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# M1 bootstrap: the unzipped reference project is staged here for the
+# paths.py refactor in the next feature; do not commit it as-is.
+/biotech_sniper/
