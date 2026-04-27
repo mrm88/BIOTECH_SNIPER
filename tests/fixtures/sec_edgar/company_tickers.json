@@ -1,0 +1,17 @@
+{
+  "0": {
+    "cik_str": 1000001,
+    "ticker": "TBSI",
+    "title": "Test Biotech Sponsor Inc."
+  },
+  "1": {
+    "cik_str": 1000002,
+    "ticker": "STCO",
+    "title": "Sample Therapeutics Co"
+  },
+  "2": {
+    "cik_str": 1000003,
+    "ticker": "DBPI",
+    "title": "Demo Biopharma Inc"
+  }
+}

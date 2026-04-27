@@ -1,0 +1,82 @@
+{
+  "protocolSection": {
+    "identificationModule": {
+      "nctId": "NCT05123456",
+      "briefTitle": "A Phase 3 Study of Test Compound TC-001 in MTAP-Deleted NSCLC",
+      "officialTitle": "A Phase 3, Randomized, Open-Label Study of TC-001 vs. Investigator's Choice in MTAP-Deleted Non-Small Cell Lung Cancer",
+      "organization": {
+        "fullName": "Test Biotech Sponsor Inc.",
+        "class": "INDUSTRY"
+      },
+      "secondaryIdInfos": [
+        {"id": "TBS-TC001-301", "type": "OTHER", "domain": "Sponsor"}
+      ]
+    },
+    "statusModule": {
+      "statusVerifiedDate": "2026-04-15",
+      "overallStatus": "ACTIVE_NOT_RECRUITING",
+      "lastKnownStatus": "ACTIVE_NOT_RECRUITING",
+      "startDateStruct": {"date": "2024-02-01", "type": "ACTUAL"},
+      "primaryCompletionDateStruct": {"date": "2026-06-15", "type": "ESTIMATED"},
+      "completionDateStruct": {"date": "2027-12-01", "type": "ESTIMATED"},
+      "studyFirstSubmitDate": "2023-12-04",
+      "studyFirstPostDateStruct": {"date": "2024-01-15", "type": "ACTUAL"},
+      "lastUpdatePostDateStruct": {"date": "2026-04-15", "type": "ACTUAL"}
+    },
+    "sponsorCollaboratorsModule": {
+      "responsibleParty": {"type": "SPONSOR"},
+      "leadSponsor": {"name": "Test Biotech Sponsor Inc.", "class": "INDUSTRY"}
+    },
+    "conditionsModule": {
+      "conditions": ["Non-Small Cell Lung Cancer"],
+      "keywords": ["MTAP-deleted", "synthetic lethality", "MAT2A inhibitor"]
+    },
+    "designModule": {
+      "studyType": "INTERVENTIONAL",
+      "phases": ["PHASE3"],
+      "designInfo": {
+        "allocation": "RANDOMIZED",
+        "interventionModel": "PARALLEL",
+        "primaryPurpose": "TREATMENT",
+        "maskingInfo": {"masking": "NONE"}
+      },
+      "enrollmentInfo": {"count": 312, "type": "ESTIMATED"}
+    },
+    "armsInterventionsModule": {
+      "armGroups": [
+        {
+          "label": "TC-001",
+          "type": "EXPERIMENTAL",
+          "description": "TC-001 200 mg PO BID until disease progression"
+        },
+        {
+          "label": "Investigator's Choice",
+          "type": "ACTIVE_COMPARATOR",
+          "description": "Docetaxel or pemetrexed per investigator selection"
+        }
+      ]
+    },
+    "outcomesModule": {
+      "primaryOutcomes": [
+        {
+          "measure": "Progression-Free Survival",
+          "description": "PFS by blinded independent central review",
+          "timeFrame": "Up to 24 months"
+        }
+      ],
+      "secondaryOutcomes": [
+        {
+          "measure": "Overall Response Rate",
+          "description": "RECIST v1.1",
+          "timeFrame": "Up to 24 months"
+        },
+        {
+          "measure": "Overall Survival",
+          "description": "OS",
+          "timeFrame": "Up to 36 months"
+        }
+      ]
+    }
+  },
+  "hasResults": false
+}

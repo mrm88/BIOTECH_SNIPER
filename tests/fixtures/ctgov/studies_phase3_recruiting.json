@@ -1,0 +1,81 @@
+{
+  "studies": [
+    {
+      "protocolSection": {
+        "identificationModule": {
+          "nctId": "NCT05123456",
+          "briefTitle": "A Phase 3 Study of Test Compound TC-001 in MTAP-Deleted NSCLC",
+          "organization": {"fullName": "Test Biotech Sponsor Inc.", "class": "INDUSTRY"}
+        },
+        "statusModule": {
+          "overallStatus": "ACTIVE_NOT_RECRUITING",
+          "primaryCompletionDateStruct": {"date": "2026-06-15", "type": "ESTIMATED"},
+          "lastUpdatePostDateStruct": {"date": "2026-04-15", "type": "ACTUAL"}
+        },
+        "designModule": {"phases": ["PHASE3"]}
+      }
+    },
+    {
+      "protocolSection": {
+        "identificationModule": {
+          "nctId": "NCT04987654",
+          "briefTitle": "A Phase 3 Study of TC-002 vs Standard of Care in HER2-Low Breast Cancer",
+          "organization": {"fullName": "Sample Therapeutics Co.", "class": "INDUSTRY"}
+        },
+        "statusModule": {
+          "overallStatus": "ACTIVE_NOT_RECRUITING",
+          "primaryCompletionDateStruct": {"date": "2026-08-30", "type": "ESTIMATED"},
+          "lastUpdatePostDateStruct": {"date": "2026-04-12", "type": "ACTUAL"}
+        },
+        "designModule": {"phases": ["PHASE3"]}
+      }
+    },
+    {
+      "protocolSection": {
+        "identificationModule": {
+          "nctId": "NCT04567890",
+          "briefTitle": "A Phase 3 Study of TC-003 in Refractory Multiple Myeloma",
+          "organization": {"fullName": "Demo Biopharma Inc.", "class": "INDUSTRY"}
+        },
+        "statusModule": {
+          "overallStatus": "ACTIVE_NOT_RECRUITING",
+          "primaryCompletionDateStruct": {"date": "2026-09-15", "type": "ESTIMATED"},
+          "lastUpdatePostDateStruct": {"date": "2026-04-10", "type": "ACTUAL"}
+        },
+        "designModule": {"phases": ["PHASE3"]}
+      }
+    },
+    {
+      "protocolSection": {
+        "identificationModule": {
+          "nctId": "NCT05010203",
+          "briefTitle": "Phase 3 Trial of TC-004 vs SoC in IgA Nephropathy",
+          "organization": {"fullName": "Renal Sciences Inc.", "class": "INDUSTRY"}
+        },
+        "statusModule": {
+          "overallStatus": "ACTIVE_NOT_RECRUITING",
+          "primaryCompletionDateStruct": {"date": "2026-11-01", "type": "ESTIMATED"},
+          "lastUpdatePostDateStruct": {"date": "2026-04-08", "type": "ACTUAL"}
+        },
+        "designModule": {"phases": ["PHASE3"]}
+      }
+    },
+    {
+      "protocolSection": {
+        "identificationModule": {
+          "nctId": "NCT05044556",
+          "briefTitle": "Phase 3 Study of TC-005 in Chronic Hepatitis B",
+          "organization": {"fullName": "Hepatic Therapeutics", "class": "INDUSTRY"}
+        },
+        "statusModule": {
+          "overallStatus": "ACTIVE_NOT_RECRUITING",
+          "primaryCompletionDateStruct": {"date": "2026-12-15", "type": "ESTIMATED"},
+          "lastUpdatePostDateStruct": {"date": "2026-04-05", "type": "ACTUAL"}
+        },
+        "designModule": {"phases": ["PHASE3"]}
+      }
+    }
+  ],
+  "totalCount": 5,
+  "nextPageToken": null
+}

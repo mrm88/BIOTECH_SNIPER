@@ -1,0 +1,12 @@
+{
+  "symbol": "TESTX",
+  "interval": "1d",
+  "period": "5d",
+  "rows": [
+    {"date": "2026-04-21", "open": 41.20, "high": 42.10, "low": 40.95, "close": 41.85, "volume": 1820000, "adj_close": 41.85},
+    {"date": "2026-04-22", "open": 41.90, "high": 42.55, "low": 41.65, "close": 42.30, "volume": 1955000, "adj_close": 42.30},
+    {"date": "2026-04-23", "open": 42.40, "high": 43.00, "low": 41.85, "close": 42.10, "volume": 2110000, "adj_close": 42.10},
+    {"date": "2026-04-24", "open": 42.05, "high": 43.20, "low": 41.95, "close": 42.95, "volume": 2340000, "adj_close": 42.95},
+    {"date": "2026-04-25", "open": 43.00, "high": 43.40, "low": 42.45, "close": 42.85, "volume": 1875000, "adj_close": 42.85}
+  ]
+}
