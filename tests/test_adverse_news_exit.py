@@ -154,7 +154,7 @@ def test_adverse_news_fires_on_negative_material(
     try:
         rows = conn.execute(
             "SELECT event, side, qty, parent_play_card_id "
-            "FROM orders WHERE event = ?",
+            "FROM paper_orders WHERE event = ?",
             ("adverse_news",),
         ).fetchall()
     finally:
@@ -254,7 +254,7 @@ def test_adverse_news_idempotent_on_same_day(
     conn = sqlite3.connect(db_path)
     try:
         count = conn.execute(
-            "SELECT COUNT(*) FROM orders WHERE event = ?",
+            "SELECT COUNT(*) FROM paper_orders WHERE event = ?",
             ("adverse_news",),
         ).fetchone()[0]
     finally:

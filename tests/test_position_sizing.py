@@ -229,7 +229,7 @@ def test_contract_too_expensive_persists_rejection_row(db_path: Path):
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(
-            "SELECT status, reason FROM orders WHERE play_card_id = ?",
+            "SELECT status, reason FROM paper_orders WHERE play_card_id = ?",
             ("AXSM-2025-04-27",),
         ).fetchall()
     finally:
@@ -328,7 +328,7 @@ def test_concurrency_cap_persists_rejection_row(db_path: Path):
     conn.row_factory = sqlite3.Row
     try:
         row = conn.execute(
-            "SELECT status, reason FROM orders WHERE play_card_id = ?",
+            "SELECT status, reason FROM paper_orders WHERE play_card_id = ?",
             ("AXSM-2025-04-27",),
         ).fetchone()
     finally:
@@ -409,7 +409,7 @@ def test_deployed_cap_persists_rejection_row(db_path: Path):
     conn.row_factory = sqlite3.Row
     try:
         row = conn.execute(
-            "SELECT status, reason FROM orders WHERE play_card_id = ?",
+            "SELECT status, reason FROM paper_orders WHERE play_card_id = ?",
             ("AXSM-2025-04-27",),
         ).fetchone()
     finally:

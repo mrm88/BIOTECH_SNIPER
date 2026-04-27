@@ -290,7 +290,16 @@ CREATE INDEX IF NOT EXISTS idx_llm_debate_transcript_complete_at
     ON llm_debate(transcript_complete_at);
 
 -- ---------------------------------------------------------------------------
--- ``orders`` — persisted Alpaca paper-trading order lifecycle (f-m3-03).
+-- ``paper_orders`` — persisted Alpaca paper-trading order lifecycle.
+--
+-- Originally named ``orders`` (f-m3-03..f-m3-09), renamed to
+-- ``paper_orders`` in f-m3-11 to align with the M3 validation
+-- contract VAL-M3-061+ which makes the broker target explicit
+-- (paper sandbox) and to free the unqualified ``orders`` namespace
+-- for any future shared/internal order ledger. The
+-- :func:`run_migrations` helper performs an idempotent
+-- ``ALTER TABLE orders RENAME TO paper_orders`` for legacy
+-- databases; new dbs land directly on the ``paper_orders`` name.
 --
 -- One row per order intent. Successful submissions write a row with
 -- ``status`` reflecting the broker's last-known state (typically
@@ -308,42 +317,127 @@ CREATE INDEX IF NOT EXISTS idx_llm_debate_transcript_complete_at
 -- exit orders (e.g. iv_crush_exit) to point at the parent entry's
 -- ``play_card_id``.
 --
--- The schema is intentionally minimal at f-m3-03 — f-m3-06 widens it
--- with execution telemetry columns (``requested_mid_at_submit``,
--- ``client_order_id`` etc.). The columns below are the floor that
--- the M3 validation contract (VAL-M3-031..033) demands.
--- ---------------------------------------------------------------------------
-
--- f-m3-09 hardens ``orders.event`` with a CHECK constraint enumerating
--- the four allowed exit triggers plus the ``'open'`` entry tag. The
--- enum is intentionally open to NULL so legacy rows written before the
--- f-m3-09 migration (which were never tagged with an event) remain
--- valid; new code paths populate ``event`` for every entry and exit.
+-- f-m3-11 augmentation
+-- ~~~~~~~~~~~~~~~~~~~~
+-- * ``requested_mid_at_submit REAL`` — snapshot of the option mid
+--   ((bid+ask)/2) at the moment the row is written. Used by
+--   :mod:`biotech_sniper.execution_fills` to compute side-aware
+--   slippage when a fill arrives.
+-- * ``purpose TEXT CHECK(...)`` — disambiguates entry vs exit vs
+--   liquidity-probe orders so downstream consumers can filter
+--   probe traffic out of real-entry analytics. Allowed values:
+--   ``'entry'``, ``'exit'``, ``'liquidity_probe'``.
+-- * ``client_order_id TEXT NOT NULL UNIQUE`` — deterministic id
+--   stamped by the executor BEFORE submission. Enables the
+--   write-then-submit invariant (VAL-M3-069): a row exists locally
+--   before any Alpaca call, and a same-day re-submission of the
+--   same logical exit short-circuits on the UNIQUE conflict instead
+--   of double-submitting to the broker.
 --
--- The wire value ``'iv_crush_exit'`` is preserved (rather than
--- ``'iv_crush'`` from the original spec) because f-m3-05 already
--- shipped that exact string per VAL-M3-028 evidence; bumping it
--- would require a backfill migration. The remaining four values
--- (``'open'``, ``'stop_loss'``, ``'adverse_news'``, ``'rotation'``)
--- match the f-m3-09 spec verbatim.
-CREATE TABLE IF NOT EXISTS orders (
-    id                    TEXT    NOT NULL PRIMARY KEY,
-    play_card_id          TEXT,
-    alpaca_order_id       TEXT,
-    symbol                TEXT,
-    side                  TEXT,
-    qty                   INTEGER,
-    status                TEXT    NOT NULL,
-    reason                TEXT,
-    event                 TEXT    CHECK(
+-- f-m3-09 ``event`` CHECK constraint
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- The ``event`` enum is intentionally open to NULL so legacy rows
+-- written before the f-m3-09 migration remain valid. The wire
+-- value ``'iv_crush_exit'`` is preserved (rather than ``'iv_crush'``
+-- from the original spec) because f-m3-05 already shipped that
+-- exact string per VAL-M3-028 evidence.
+CREATE TABLE IF NOT EXISTS paper_orders (
+    id                          TEXT    NOT NULL PRIMARY KEY,
+    play_card_id                TEXT,
+    alpaca_order_id             TEXT,
+    symbol                      TEXT,
+    side                        TEXT,
+    qty                         INTEGER,
+    status                      TEXT    NOT NULL,
+    reason                      TEXT,
+    event                       TEXT    CHECK(
         event IS NULL OR
         event IN ('open','iv_crush_exit','stop_loss','adverse_news','rotation')
     ),
-    parent_play_card_id   TEXT,
-    created_at            TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    parent_play_card_id         TEXT,
+    requested_mid_at_submit     REAL,
+    purpose                     TEXT    CHECK(
+        purpose IS NULL OR
+        purpose IN ('entry','exit','liquidity_probe')
+    ),
+    client_order_id             TEXT    NOT NULL UNIQUE,
+    created_at                  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_orders_play_card_id   ON orders(play_card_id);
-CREATE INDEX IF NOT EXISTS idx_orders_alpaca_id      ON orders(alpaca_order_id);
-CREATE INDEX IF NOT EXISTS idx_orders_status         ON orders(status);
-CREATE INDEX IF NOT EXISTS idx_orders_event          ON orders(event);
+CREATE INDEX IF NOT EXISTS idx_paper_orders_play_card_id      ON paper_orders(play_card_id);
+CREATE INDEX IF NOT EXISTS idx_paper_orders_alpaca_id         ON paper_orders(alpaca_order_id);
+CREATE INDEX IF NOT EXISTS idx_paper_orders_status            ON paper_orders(status);
+CREATE INDEX IF NOT EXISTS idx_paper_orders_event             ON paper_orders(event);
+CREATE INDEX IF NOT EXISTS idx_paper_orders_purpose           ON paper_orders(purpose);
+CREATE INDEX IF NOT EXISTS idx_paper_orders_client_order_id   ON paper_orders(client_order_id);
+
+-- ---------------------------------------------------------------------------
+-- ``execution_events`` — per-order lifecycle events (f-m3-11).
+--
+-- One row per Alpaca order-state change, written by
+-- :mod:`biotech_sniper.execution_subscriber` as it observes the
+-- broker (poll or stream). The ``event_type`` enum mirrors the
+-- closed set of broker states the executor cares about; anything
+-- outside the enum is rejected by the CHECK constraint at insert
+-- time. ``raw_payload`` captures the broker JSON (best-effort) for
+-- post-hoc forensics — the DB stays self-contained for replay.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS execution_events (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    paper_order_id    TEXT    NOT NULL,
+    event_type        TEXT    NOT NULL CHECK(
+        event_type IN ('submitted','accepted','partial_fill',
+                       'filled','canceled','expired','rejected')
+    ),
+    event_at          TEXT    NOT NULL,
+    raw_payload       TEXT,
+    FOREIGN KEY (paper_order_id) REFERENCES paper_orders(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_execution_events_paper_order_id
+    ON execution_events(paper_order_id);
+CREATE INDEX IF NOT EXISTS idx_execution_events_event_at
+    ON execution_events(event_at);
+CREATE INDEX IF NOT EXISTS idx_execution_events_event_type
+    ON execution_events(event_type);
+
+-- ---------------------------------------------------------------------------
+-- ``execution_fills`` — per-fill records with side-aware slippage
+-- (f-m3-11).
+--
+-- One row per fill (partial OR full). ``slippage_bps`` is computed
+-- with the mid snapshot stored on the parent ``paper_orders`` row at
+-- submit time:
+--
+--     slippage_bps = ((filled_price - requested_mid_at_submit) /
+--                     requested_mid_at_submit) * 10000
+--                 * (+1 if side='buy' else -1)
+--
+-- The side-orientation flips sign so a ``buy`` filled ABOVE mid is
+-- reported as positive bps (worse-than-mid slippage), and a
+-- ``sell`` filled BELOW mid is also positive bps. Validators
+-- (VAL-M3-063) recompute this and assert equality within 1e-6.
+-- ``time_to_fill_ms`` is measured from the parent
+-- ``paper_orders.created_at`` to the fill timestamp. ``partial_qty_remaining``
+-- is the open contract count after this fill (0 once fully filled).
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS execution_fills (
+    id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+    paper_order_id              TEXT    NOT NULL,
+    filled_at                   TEXT    NOT NULL,
+    filled_price                REAL    NOT NULL,
+    filled_qty                  INTEGER NOT NULL,
+    requested_mid_at_submit     REAL    NOT NULL,
+    slippage_bps                REAL    NOT NULL,
+    slippage_usd                REAL    NOT NULL,
+    time_to_fill_ms             INTEGER NOT NULL,
+    partial_qty_remaining       INTEGER NOT NULL,
+    FOREIGN KEY (paper_order_id) REFERENCES paper_orders(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_execution_fills_paper_order_id
+    ON execution_fills(paper_order_id);
+CREATE INDEX IF NOT EXISTS idx_execution_fills_filled_at
+    ON execution_fills(filled_at);

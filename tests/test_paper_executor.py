@@ -207,13 +207,14 @@ def test_constructor_accepts_paper_client(db_path: Path):
     assert executor.client is fake
     assert executor.db_path == db_path
 
-    # Schema migration ran → orders table exists.
+    # Schema migration ran → paper_orders table exists.
     conn = sqlite3.connect(db_path)
     try:
         rows = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='orders'"
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name='paper_orders'"
         ).fetchall()
-        assert rows, "orders table missing after PaperExecutor construction"
+        assert rows, "paper_orders table missing after PaperExecutor construction"
     finally:
         conn.close()
 
@@ -257,7 +258,7 @@ def test_execute_call_persists_orders_row(make_executor, db_path: Path):
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(
-            "SELECT * FROM orders WHERE play_card_id = ?",
+            "SELECT * FROM paper_orders WHERE play_card_id = ?",
             ("AXSM-2025-04-27",),
         ).fetchall()
     finally:
@@ -313,7 +314,7 @@ def test_execute_put_side_qty_order_class(make_executor, db_path: Path):
     conn.row_factory = sqlite3.Row
     try:
         row = conn.execute(
-            "SELECT * FROM orders WHERE play_card_id = ?",
+            "SELECT * FROM paper_orders WHERE play_card_id = ?",
             ("NTLA-2025-04-27",),
         ).fetchone()
     finally:
@@ -356,7 +357,7 @@ def test_wait_for_fill_walks_accepted_to_filled(make_executor, db_path: Path):
     conn.row_factory = sqlite3.Row
     try:
         row = conn.execute(
-            "SELECT status FROM orders WHERE alpaca_order_id = ?",
+            "SELECT status FROM paper_orders WHERE alpaca_order_id = ?",
             (order_id,),
         ).fetchone()
     finally:
@@ -421,7 +422,7 @@ def test_multi_leg_play_card_raises_unsupported_order_shape(
     # No row persisted (rejection from shape validation is pre-persistence).
     conn = sqlite3.connect(db_path)
     try:
-        count = conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM paper_orders").fetchone()[0]
     finally:
         conn.close()
     assert count == 0
@@ -507,7 +508,7 @@ def test_rejection_persists_status_rejected_with_reason(
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(
-            "SELECT status, reason FROM orders WHERE play_card_id = ?",
+            "SELECT status, reason FROM paper_orders WHERE play_card_id = ?",
             ("AXSM-2025-04-27",),
         ).fetchall()
     finally:
@@ -532,7 +533,7 @@ def test_rejection_does_not_persist_submitted_row(make_executor, db_path: Path):
     try:
         # No 'submitted' or 'accepted' row should exist for this play.
         count = conn.execute(
-            "SELECT COUNT(*) FROM orders "
+            "SELECT COUNT(*) FROM paper_orders "
             "WHERE play_card_id = ? AND status IN ('submitted','accepted')",
             ("AXSM-2025-04-27",),
         ).fetchone()[0]
@@ -569,17 +570,42 @@ def test_rejection_logs_structured_warning(make_executor, caplog):
 def test_get_orders_for_play_returns_chronological_rows(
     make_executor, db_path: Path
 ):
-    """Helper returns rows in created_at ASC order."""
+    """Helper returns rows in created_at ASC order.
+
+    Under f-m3-11 the executor short-circuits on duplicate
+    ``client_order_id`` derived from the play_card. To exercise
+    chronological ordering we submit two *distinct* legs (entry +
+    exit) under the same ``play_card_id`` — both rows map to the
+    same play but each derives a unique ``client_order_id`` (the
+    purpose differs).
+    """
     cassette = _load_cassette("order_call_roundtrip.json")
+    submit_two = dict(cassette["submit"])
+    submit_two = dict(submit_two)
+    submit_two["id"] = "44444444-4444-4444-4444-444444444444"
     fake = _FakeAlpacaClient(
-        submit_order_results=[cassette["submit"], cassette["submit"]]
+        submit_order_results=[cassette["submit"], submit_two]
     )
     executor, _ = make_executor(client=fake)
 
-    play = _call_play_card()
-    executor.execute(play)
-    # Submit a second order under the same play_card_id for ordering check.
-    executor.execute(play)
+    entry = _call_play_card()
+    executor.execute(entry)
+
+    # Submit an exit-purpose order under the same play_card_id; the
+    # f-m3-11 client_order_id derivation includes ``event`` and
+    # ``parent_play_card_id`` so this row gets a distinct
+    # client_order_id and is NOT short-circuited.
+    exit_play = dict(entry)
+    exit_play["event"] = "iv_crush_exit"
+    exit_play["parent_play_card_id"] = "AXSM-2025-04-27"
+    exit_leg = dict(entry["option_legs"][0])
+    exit_leg["side"] = "sell"
+    # The entry leg ships an explicit client_order_id; override it
+    # on the exit leg so the f-m3-11 idempotency lookup does NOT
+    # short-circuit the second submission.
+    exit_leg["client_order_id"] = "test-exit-AXSM-call-2025-04-27"
+    exit_play["option_legs"] = [exit_leg]
+    executor.execute(exit_play)
 
     rows = executor.get_orders_for_play("AXSM-2025-04-27")
     assert len(rows) == 2
@@ -602,7 +628,7 @@ def test_orders_table_columns_match_spec(db_path: Path):
     PaperExecutor(fake, db_path=db_path)  # type: ignore[arg-type]
     conn = sqlite3.connect(db_path)
     try:
-        cols = {row[1] for row in conn.execute("PRAGMA table_info(orders)").fetchall()}
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(paper_orders)").fetchall()}
     finally:
         conn.close()
     expected = {

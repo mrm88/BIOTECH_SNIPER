@@ -60,7 +60,7 @@ SCHEMA_PATH: Final[Path] = Path(__file__).resolve().parent / "schema.sql"
 #     connect (every CREATE statement uses ``IF NOT EXISTS``), so even
 #     if a db drifts to a stale version row, re-running
 #     :func:`run_migrations` will restore any missing tables.
-CURRENT_VERSION: Final[int] = 6
+CURRENT_VERSION: Final[int] = 7
 
 
 # File mode applied to the on-disk SQLite database after every
@@ -254,145 +254,333 @@ _ALTER_TABLE_ADD_COLUMNS: tuple[tuple[str, str, str], ...] = (
 )
 
 
-# f-m3-09: required CHECK clause on ``orders.event``. New databases get
-# this from ``schema.sql``; production databases that pre-date f-m3-09
-# need a recreate migration because SQLite cannot add a CHECK
-# constraint via ``ALTER TABLE``.
-_ORDERS_EVENT_CHECK_FRAGMENT: Final[str] = (
+# f-m3-09: required CHECK clause on ``paper_orders.event``. New
+# databases get this from ``schema.sql``; production databases that
+# pre-date f-m3-09 need a recreate migration because SQLite cannot
+# add a CHECK constraint via ``ALTER TABLE``.
+_PAPER_ORDERS_EVENT_CHECK_FRAGMENT: Final[str] = (
     "event IN ('open','iv_crush_exit','stop_loss','adverse_news','rotation')"
 )
 
+# f-m3-11: required CHECK clause on ``paper_orders.purpose``. Same
+# pattern — new dbs get it from schema.sql, legacy dbs (which had
+# only the f-m3-03/-09 column set) need the recreate migration.
+_PAPER_ORDERS_PURPOSE_CHECK_FRAGMENT: Final[str] = (
+    "purpose IN ('entry','exit','liquidity_probe')"
+)
 
-def _orders_table_has_event_check(conn: sqlite3.Connection) -> bool:
-    """Return ``True`` when the ``orders`` table already enforces the
-    f-m3-09 CHECK constraint on the ``event`` column.
+# f-m3-11: required NOT NULL UNIQUE on ``paper_orders.client_order_id``.
+_PAPER_ORDERS_CLIENT_ORDER_ID_FRAGMENT: Final[str] = (
+    "client_order_id TEXT    NOT NULL UNIQUE"
+)
 
-    Inspects the live DDL stored in ``sqlite_master.sql`` because
-    ``PRAGMA table_info`` does not surface column-level CHECK
-    constraints. The check is purely textual — it looks for the
-    canonical enum fragment :data:`_ORDERS_EVENT_CHECK_FRAGMENT`. A
-    stricter parser would require sqlite_schema introspection that
-    has no benefit here: the migration always emits this exact
-    fragment so the substring check is sufficient.
+
+def _legacy_orders_table_exists(conn: sqlite3.Connection) -> bool:
+    """Return ``True`` when the pre-f-m3-11 ``orders`` table is present."""
+    row = conn.execute(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='table' AND name='orders'"
+    ).fetchone()
+    return row is not None
+
+
+def _paper_orders_table_exists(conn: sqlite3.Connection) -> bool:
+    """Return ``True`` when the f-m3-11 ``paper_orders`` table is present."""
+    row = conn.execute(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='table' AND name='paper_orders'"
+    ).fetchone()
+    return row is not None
+
+
+def _rename_legacy_orders_to_paper_orders(conn: sqlite3.Connection) -> None:
+    """Rename a legacy ``orders`` table to ``paper_orders`` if needed.
+
+    Called BEFORE :data:`SCHEMA_PATH` is applied so the idempotent
+    ``CREATE TABLE IF NOT EXISTS paper_orders`` statement in
+    ``schema.sql`` becomes a no-op for production dbs (which arrive
+    with ``orders``) and a fresh-create for greenfield dbs.
+
+    Idempotent — only runs when ``orders`` exists AND ``paper_orders``
+    does not. SQLite preserves any indexes/foreign keys that
+    referenced ``orders`` after the rename (since SQLite 3.25), so
+    we only need to drop the old explicitly-named indexes; the
+    ``CREATE INDEX IF NOT EXISTS`` statements in ``schema.sql``
+    will re-create them under the new naming convention.
     """
+    if not _legacy_orders_table_exists(conn):
+        return
+    if _paper_orders_table_exists(conn):
+        # Both tables exist — production drift we should not touch.
+        # Leave both in place; subsequent ALTER/recreate steps target
+        # ``paper_orders`` and the ``orders`` table is left as-is.
+        return
+    conn.execute("ALTER TABLE orders RENAME TO paper_orders")
+    for legacy_index in (
+        "idx_orders_play_card_id",
+        "idx_orders_alpaca_id",
+        "idx_orders_status",
+        "idx_orders_event",
+    ):
+        try:
+            conn.execute(f"DROP INDEX IF EXISTS {legacy_index}")
+        except sqlite3.OperationalError:
+            # Best-effort cleanup; the new indexes will be created
+            # by the schema.sql apply step regardless.
+            pass
+
+
+def _paper_orders_table_has_event_check(conn: sqlite3.Connection) -> bool:
+    """Return ``True`` when ``paper_orders`` has the f-m3-09 event CHECK."""
     row = conn.execute(
         "SELECT sql FROM sqlite_master "
-        "WHERE type='table' AND name='orders'"
+        "WHERE type='table' AND name='paper_orders'"
     ).fetchone()
     if row is None:
         return False
     sql = row["sql"] if isinstance(row, sqlite3.Row) else row[0]
     if not isinstance(sql, str):
         return False
-    return _ORDERS_EVENT_CHECK_FRAGMENT in sql
+    return _PAPER_ORDERS_EVENT_CHECK_FRAGMENT in sql
 
 
-def _recreate_orders_with_event_check(conn: sqlite3.Connection) -> None:
-    """Re-create the ``orders`` table with the f-m3-09 CHECK constraint.
+def _paper_orders_table_has_f_m3_11_constraints(
+    conn: sqlite3.Connection,
+) -> bool:
+    """Return ``True`` when ``paper_orders`` already enforces all f-m3-11 constraints.
 
-    SQLite supports column-level CHECK only at table creation time;
-    promoting an existing table requires the CREATE-COPY-DROP-RENAME
-    pattern. We:
+    The check is textual and looks for the canonical fragments emitted
+    by :data:`SCHEMA_PATH` after collapsing all runs of whitespace to
+    a single space (so the matcher is robust to the multi-space
+    column-alignment used in ``schema.sql``):
 
-    1. Create ``orders__new`` with the canonical schema (matches the
-       f-m3-09 ``schema.sql`` definition).
-    2. Copy every row from ``orders`` into ``orders__new``. Rows whose
-       ``event`` is ``NULL`` or in the allowed enum copy verbatim;
-       rows with an unknown legacy value are coerced to ``NULL`` so
-       the CHECK does not abort the migration. The coercion is
-       logged at WARNING via :func:`logging.getLogger(__name__)` for
-       operator visibility.
-    3. ``DROP TABLE orders`` and ``ALTER TABLE orders__new RENAME TO
-       orders``.
-    4. Re-create the index set the original table carried.
+    * ``client_order_id TEXT NOT NULL UNIQUE``
+    * ``purpose IN ('entry','exit','liquidity_probe')``
 
-    The whole sequence runs inside the caller's transaction (started
-    by :func:`run_migrations`) so a failure rolls back cleanly.
+    A stricter SQL parser is unnecessary because the migration
+    always emits these exact fragments — substring matching against
+    normalised whitespace is sufficient for self-healing detection.
+    """
+    import re as _re
+
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master "
+        "WHERE type='table' AND name='paper_orders'"
+    ).fetchone()
+    if row is None:
+        return False
+    sql = row["sql"] if isinstance(row, sqlite3.Row) else row[0]
+    if not isinstance(sql, str):
+        return False
+    normalised = _re.sub(r"\s+", " ", sql)
+    return (
+        "client_order_id TEXT NOT NULL UNIQUE" in normalised
+        and "purpose IN ('entry','exit','liquidity_probe')" in normalised
+    )
+
+
+def _add_f_m3_11_columns_to_paper_orders(conn: sqlite3.Connection) -> None:
+    """ALTER TABLE ADD COLUMN for the f-m3-11 augmentation columns.
+
+    Each column is added only when missing (PRAGMA pre-check). The
+    columns are nullable at this stage; the recreate dance below
+    promotes ``client_order_id`` to ``NOT NULL UNIQUE`` after
+    backfilling sentinel values for any legacy rows.
+
+    Skipping the helper entirely when ``paper_orders`` does not yet
+    exist (e.g. brand-new db before ``schema.sql`` has been applied)
+    keeps it idempotent.
+    """
+    if not _paper_orders_table_exists(conn):
+        return
+    cols = {
+        row[1]
+        for row in conn.execute(
+            "PRAGMA table_info(paper_orders)"
+        ).fetchall()
+    }
+    if "requested_mid_at_submit" not in cols:
+        try:
+            conn.execute(
+                "ALTER TABLE paper_orders ADD COLUMN "
+                "requested_mid_at_submit REAL"
+            )
+        except sqlite3.OperationalError as exc:
+            if "duplicate column name" not in str(exc).lower():
+                raise
+    if "purpose" not in cols:
+        try:
+            conn.execute(
+                "ALTER TABLE paper_orders ADD COLUMN purpose TEXT"
+            )
+        except sqlite3.OperationalError as exc:
+            if "duplicate column name" not in str(exc).lower():
+                raise
+    if "client_order_id" not in cols:
+        try:
+            conn.execute(
+                "ALTER TABLE paper_orders ADD COLUMN client_order_id TEXT"
+            )
+        except sqlite3.OperationalError as exc:
+            if "duplicate column name" not in str(exc).lower():
+                raise
+        # Backfill NULL values with a deterministic sentinel so the
+        # later UNIQUE recreate doesn't trip over duplicates. Legacy
+        # rows are tagged ``legacy:<id>`` so operators can audit them.
+        conn.execute(
+            "UPDATE paper_orders "
+            "SET client_order_id = 'legacy:' || id "
+            "WHERE client_order_id IS NULL OR client_order_id = ''"
+        )
+
+
+def _recreate_paper_orders_with_full_constraints(
+    conn: sqlite3.Connection,
+) -> None:
+    """Re-create ``paper_orders`` with the canonical f-m3-11 schema.
+
+    SQLite supports column-level CHECK / NOT NULL UNIQUE only at
+    table creation time; promoting an existing table requires the
+    CREATE-COPY-DROP-RENAME pattern (mirrors the f-m3-09 helper for
+    the ``event`` CHECK constraint).
+
+    1. Create ``paper_orders__new`` with the canonical schema
+       (matches ``schema.sql`` exactly).
+    2. Copy every row from ``paper_orders`` into ``paper_orders__new``.
+       Rows with NULL/empty ``client_order_id`` get the sentinel
+       ``'legacy:<id>'``. Rows with an unrecognised ``purpose``
+       (defensive) are coerced to NULL.
+    3. ``DROP TABLE paper_orders`` and rename the new table.
+    4. Re-create the index set declared in ``schema.sql``.
+
+    The whole sequence runs inside the caller's transaction so a
+    failure rolls back cleanly.
     """
     import logging as _logging
 
     log = _logging.getLogger(__name__)
 
-    # 1. Create the new table.
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS orders__new (
-            id                    TEXT    NOT NULL PRIMARY KEY,
-            play_card_id          TEXT,
-            alpaca_order_id       TEXT,
-            symbol                TEXT,
-            side                  TEXT,
-            qty                   INTEGER,
-            status                TEXT    NOT NULL,
-            reason                TEXT,
-            event                 TEXT    CHECK(
+        CREATE TABLE IF NOT EXISTS paper_orders__new (
+            id                          TEXT    NOT NULL PRIMARY KEY,
+            play_card_id                TEXT,
+            alpaca_order_id             TEXT,
+            symbol                      TEXT,
+            side                        TEXT,
+            qty                         INTEGER,
+            status                      TEXT    NOT NULL,
+            reason                      TEXT,
+            event                       TEXT    CHECK(
                 event IS NULL OR
                 event IN ('open','iv_crush_exit','stop_loss',
                           'adverse_news','rotation')
             ),
-            parent_play_card_id   TEXT,
-            created_at            TEXT    NOT NULL DEFAULT
+            parent_play_card_id         TEXT,
+            requested_mid_at_submit     REAL,
+            purpose                     TEXT    CHECK(
+                purpose IS NULL OR
+                purpose IN ('entry','exit','liquidity_probe')
+            ),
+            client_order_id             TEXT    NOT NULL UNIQUE,
+            created_at                  TEXT    NOT NULL DEFAULT
                 (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
         )
         """
     )
 
-    # 2. Copy rows. Coerce unknown legacy event values to NULL so the
-    # CHECK passes; the operator gets a structured log of every
-    # coerced row id so the audit trail survives.
-    allowed = ("open", "iv_crush_exit", "stop_loss", "adverse_news", "rotation")
-    rows_to_coerce = list(
+    allowed_events = (
+        "open",
+        "iv_crush_exit",
+        "stop_loss",
+        "adverse_news",
+        "rotation",
+    )
+    allowed_purposes = ("entry", "exit", "liquidity_probe")
+
+    # Audit-log any legacy event/purpose values that will be coerced
+    # to NULL by the CASE expressions below — operator visibility for
+    # forensic reviews.
+    coerced_events = list(
         conn.execute(
-            "SELECT id, event FROM orders "
+            "SELECT id, event FROM paper_orders "
             "WHERE event IS NOT NULL AND event NOT IN "
-            f"({', '.join('?' * len(allowed))})",
-            allowed,
+            f"({', '.join('?' * len(allowed_events))})",
+            allowed_events,
         ).fetchall()
     )
-    for row in rows_to_coerce:
+    for row in coerced_events:
         rid = row["id"] if isinstance(row, sqlite3.Row) else row[0]
         rev = row["event"] if isinstance(row, sqlite3.Row) else row[1]
         log.warning(
-            "orders.event_coerced_to_null id=%s legacy_event=%s reason=f-m3-09",
+            "paper_orders.event_coerced_to_null id=%s legacy_event=%s "
+            "reason=f-m3-11_recreate",
             rid,
             rev,
         )
 
     conn.execute(
         f"""
-        INSERT INTO orders__new (
+        INSERT INTO paper_orders__new (
             id, play_card_id, alpaca_order_id, symbol, side, qty,
-            status, reason, event, parent_play_card_id, created_at
+            status, reason, event, parent_play_card_id,
+            requested_mid_at_submit, purpose, client_order_id,
+            created_at
         )
         SELECT id, play_card_id, alpaca_order_id, symbol, side, qty,
                status, reason,
                CASE
                    WHEN event IS NULL THEN NULL
-                   WHEN event IN ({', '.join('?' * len(allowed))}) THEN event
+                   WHEN event IN ({', '.join('?' * len(allowed_events))})
+                       THEN event
                    ELSE NULL
                END AS event,
-               parent_play_card_id, created_at
-        FROM orders
+               parent_play_card_id,
+               requested_mid_at_submit,
+               CASE
+                   WHEN purpose IS NULL THEN NULL
+                   WHEN purpose IN ({', '.join('?' * len(allowed_purposes))})
+                       THEN purpose
+                   ELSE NULL
+               END AS purpose,
+               CASE
+                   WHEN client_order_id IS NULL OR client_order_id = ''
+                       THEN 'legacy:' || id
+                   ELSE client_order_id
+               END AS client_order_id,
+               created_at
+        FROM paper_orders
         """,
-        allowed,
+        (*allowed_events, *allowed_purposes),
     )
 
-    # 3. Drop the old table and rename.
-    conn.execute("DROP TABLE orders")
-    conn.execute("ALTER TABLE orders__new RENAME TO orders")
+    conn.execute("DROP TABLE paper_orders")
+    conn.execute("ALTER TABLE paper_orders__new RENAME TO paper_orders")
 
-    # 4. Restore indices declared in schema.sql.
+    # Restore the index set declared by ``schema.sql``.
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_orders_play_card_id   ON orders(play_card_id)"
+        "CREATE INDEX IF NOT EXISTS idx_paper_orders_play_card_id   "
+        "ON paper_orders(play_card_id)"
     )
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_orders_alpaca_id      ON orders(alpaca_order_id)"
+        "CREATE INDEX IF NOT EXISTS idx_paper_orders_alpaca_id      "
+        "ON paper_orders(alpaca_order_id)"
     )
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_orders_status         ON orders(status)"
+        "CREATE INDEX IF NOT EXISTS idx_paper_orders_status         "
+        "ON paper_orders(status)"
     )
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_orders_event          ON orders(event)"
+        "CREATE INDEX IF NOT EXISTS idx_paper_orders_event          "
+        "ON paper_orders(event)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_paper_orders_purpose        "
+        "ON paper_orders(purpose)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_paper_orders_client_order_id "
+        "ON paper_orders(client_order_id)"
     )
 
 
@@ -424,13 +612,25 @@ def _apply_pending_alter_table_migrations(conn: sqlite3.Connection) -> None:
             if "duplicate column name" not in str(exc).lower():
                 raise
 
-    # f-m3-09: ensure ``orders.event`` carries the CHECK enum. New
+    # f-m3-11: add the augmentation columns (``requested_mid_at_submit``,
+    # ``purpose``, ``client_order_id``) to ``paper_orders`` if missing.
+    # Brand-new dbs already have them via ``schema.sql``; legacy dbs
+    # (pre-f-m3-11) gain them here as nullable columns and then have
+    # ``client_order_id`` promoted to NOT NULL UNIQUE in the
+    # subsequent recreate dance.
+    _add_f_m3_11_columns_to_paper_orders(conn)
+
+    # f-m3-09 + f-m3-11: ensure ``paper_orders`` carries every CHECK
+    # constraint and the NOT NULL UNIQUE on ``client_order_id``. New
     # databases get this from ``schema.sql`` directly; older
     # production databases need the recreate dance because SQLite
-    # cannot ADD a CHECK via ALTER TABLE.
+    # cannot ADD a CHECK / NOT NULL UNIQUE via ALTER TABLE.
     try:
-        if not _orders_table_has_event_check(conn):
-            _recreate_orders_with_event_check(conn)
+        if _paper_orders_table_exists(conn) and not (
+            _paper_orders_table_has_event_check(conn)
+            and _paper_orders_table_has_f_m3_11_constraints(conn)
+        ):
+            _recreate_paper_orders_with_full_constraints(conn)
     except sqlite3.OperationalError:
         # Surface to the caller's transaction so the migration rolls
         # back atomically — never silently leave the table partially
@@ -499,6 +699,14 @@ def run_migrations(conn: sqlite3.Connection, target_version: int = CURRENT_VERSI
     try:
         conn.execute("BEGIN")
         try:
+            # f-m3-11: rename a legacy ``orders`` table to
+            # ``paper_orders`` BEFORE applying ``schema.sql`` so the
+            # idempotent ``CREATE TABLE IF NOT EXISTS paper_orders``
+            # statement is a no-op for production dbs (which arrive
+            # with ``orders``) and a fresh-create for greenfield
+            # dbs. Idempotent: skipped when ``orders`` is absent or
+            # ``paper_orders`` already exists.
+            _rename_legacy_orders_to_paper_orders(conn)
             for stmt in statements:
                 conn.execute(stmt)
             _apply_pending_alter_table_migrations(conn)

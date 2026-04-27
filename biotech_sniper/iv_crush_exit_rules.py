@@ -488,7 +488,7 @@ def _already_iv_crush_exited(
         cursor = conn.execute(
             """
             SELECT id
-            FROM orders
+            FROM paper_orders
             WHERE event = ?
               AND parent_play_card_id = ?
               AND status != 'rejected'

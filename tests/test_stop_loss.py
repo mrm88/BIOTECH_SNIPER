@@ -201,7 +201,7 @@ def test_stop_loss_fires_at_minus_50_percent(make_runner, db_path: Path) -> None
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(
-            "SELECT event, side, qty, parent_play_card_id FROM orders "
+            "SELECT event, side, qty, parent_play_card_id FROM paper_orders "
             "WHERE event = ?",
             ("stop_loss",),
         ).fetchall()
@@ -236,7 +236,7 @@ def test_stop_loss_does_not_fire_above_threshold(
     conn = sqlite3.connect(db_path)
     try:
         count = conn.execute(
-            "SELECT COUNT(*) FROM orders WHERE event = ?", ("stop_loss",)
+            "SELECT COUNT(*) FROM paper_orders WHERE event = ?", ("stop_loss",)
         ).fetchone()[0]
     finally:
         conn.close()
@@ -291,7 +291,7 @@ def test_stop_loss_idempotent_on_same_day(
     conn = sqlite3.connect(db_path)
     try:
         count = conn.execute(
-            "SELECT COUNT(*) FROM orders WHERE event = ?", ("stop_loss",)
+            "SELECT COUNT(*) FROM paper_orders WHERE event = ?", ("stop_loss",)
         ).fetchone()[0]
     finally:
         conn.close()

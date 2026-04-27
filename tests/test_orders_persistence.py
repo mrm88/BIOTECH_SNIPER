@@ -207,11 +207,11 @@ def test_orders_table_present_after_migration(db_path: Path) -> None:
     try:
         rows = conn.execute(
             "SELECT name FROM sqlite_master "
-            "WHERE type='table' AND name='orders'"
+            "WHERE type='table' AND name='paper_orders'"
         ).fetchall()
     finally:
         conn.close()
-    assert rows, "orders table is missing after PaperExecutor migration"
+    assert rows, "paper_orders table is missing after PaperExecutor migration"
 
 
 def test_orders_table_full_column_set(db_path: Path) -> None:
@@ -228,7 +228,7 @@ def test_orders_table_full_column_set(db_path: Path) -> None:
         cols = {
             row[1]
             for row in conn.execute(
-                "PRAGMA table_info(orders)"
+                "PRAGMA table_info(paper_orders)"
             ).fetchall()
         }
     finally:
@@ -246,7 +246,7 @@ def test_orders_id_is_primary_key_text(db_path: Path) -> None:
 
     conn = sqlite3.connect(db_path)
     try:
-        info = conn.execute("PRAGMA table_info(orders)").fetchall()
+        info = conn.execute("PRAGMA table_info(paper_orders)").fetchall()
     finally:
         conn.close()
     by_name = {row[1]: row for row in info}
@@ -300,7 +300,7 @@ def test_successful_submission_writes_exactly_one_row(
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(
-            "SELECT * FROM orders WHERE play_card_id = ?",
+            "SELECT * FROM paper_orders WHERE play_card_id = ?",
             (play_card["play_card_id"],),
         ).fetchall()
     finally:
@@ -345,7 +345,7 @@ def test_successful_submission_persists_filled_status_after_poll(
     conn.row_factory = sqlite3.Row
     try:
         row = conn.execute(
-            "SELECT status FROM orders WHERE alpaca_order_id = ?",
+            "SELECT status FROM paper_orders WHERE alpaca_order_id = ?",
             (order_id,),
         ).fetchone()
     finally:
@@ -380,7 +380,7 @@ def test_broker_rejection_writes_rejected_row_with_reason(
     try:
         rows = conn.execute(
             "SELECT status, reason, alpaca_order_id "
-            "FROM orders WHERE play_card_id = ?",
+            "FROM paper_orders WHERE play_card_id = ?",
             ("AXSM-2025-04-27",),
         ).fetchall()
     finally:
@@ -417,7 +417,7 @@ def test_rejection_does_not_leave_submitted_row_behind(
     conn = sqlite3.connect(db_path)
     try:
         leftover = conn.execute(
-            "SELECT COUNT(*) FROM orders "
+            "SELECT COUNT(*) FROM paper_orders "
             "WHERE play_card_id = ? AND status IN ('submitted','accepted')",
             ("AXSM-2025-04-27",),
         ).fetchone()[0]
@@ -459,7 +459,7 @@ def test_concurrency_cap_writes_rejected_row(
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(
-            "SELECT status, reason FROM orders WHERE play_card_id = ?",
+            "SELECT status, reason FROM paper_orders WHERE play_card_id = ?",
             ("AXSM-2025-04-27",),
         ).fetchall()
     finally:
@@ -498,9 +498,25 @@ def test_get_orders_for_play_returns_rows_chronologically(
 
     # Second attempt rejects; we swap the queued error in place
     # (``_FakeAlpacaClient`` exposes the field directly for tests).
+    # Under f-m3-11 idempotency the executor short-circuits on a
+    # duplicate client_order_id, so we synthesise a *distinct*
+    # second submission (an exit on the same play card) — the
+    # exit derives its own client_order_id and is *not* short-
+    # circuited. The broker then surfaces the queued error.
+    exit_play = dict(play)
+    exit_play["event"] = "stop_loss"
+    exit_play["parent_play_card_id"] = play["play_card_id"]
+    exit_play["option_legs"] = [
+        {
+            "symbol": play["option_legs"][0]["symbol"],
+            "side": "sell",
+            "qty": 1,
+            "option_type": "call",
+        }
+    ]
     fake._submit_error = AlpacaClientError("Alpaca API error: 503")
     with pytest.raises(OrderRejected):
-        executor.execute(play)
+        executor.execute(exit_play)
     fake._submit_error = None  # reset for hygiene
 
     rows = executor.get_orders_for_play(play["play_card_id"])

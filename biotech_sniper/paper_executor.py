@@ -625,6 +625,110 @@ def _deployed_capital_usd(positions: Sequence[Mapping[str, Any]]) -> float:
     return total
 
 
+#: f-m3-09 exit-event values that map to ``paper_orders.purpose='exit'``.
+#: ``'open'`` and ``None`` map to ``'entry'``.
+_EXIT_EVENT_VALUES: frozenset[str] = frozenset(
+    {"iv_crush_exit", "stop_loss", "adverse_news", "rotation"}
+)
+
+
+def _infer_purpose(play_card: Mapping[str, Any]) -> Optional[str]:
+    """Return the f-m3-11 ``purpose`` value implied by ``play_card``.
+
+    Resolution order:
+
+    1. Explicit ``play_card['purpose']`` if set to one of
+       ``'entry'``, ``'exit'``, ``'liquidity_probe'``.
+    2. Otherwise mapped from ``play_card['event']``:
+
+       * ``'iv_crush_exit'`` / ``'stop_loss'`` / ``'adverse_news'`` /
+         ``'rotation'`` → ``'exit'``.
+       * ``'open'`` → ``'entry'``.
+       * any other / missing → ``'entry'`` (the default for all
+         non-tagged entry submissions).
+
+    Returns ``None`` only when the play card explicitly carries an
+    unrecognised ``purpose`` value (defensive — the persistence
+    layer's CHECK constraint allows NULL but rejects unknown
+    strings).
+    """
+    explicit = play_card.get("purpose")
+    if isinstance(explicit, str):
+        normalised = explicit.strip().lower()
+        if normalised in {"entry", "exit", "liquidity_probe"}:
+            return normalised
+        return None
+    event = play_card.get("event")
+    if isinstance(event, str):
+        if event in _EXIT_EVENT_VALUES:
+            return "exit"
+        if event == "open":
+            return "entry"
+    return "entry"
+
+
+def _compute_mid_at_submit(leg: Mapping[str, Any]) -> Optional[float]:
+    """Return the option mid implied by ``leg``'s bid/ask quote.
+
+    The mid is ``(bid + ask) / 2`` when both are populated. A
+    one-sided quote (only bid OR ask) returns the populated value
+    (a defensive heuristic — the slippage computation will treat
+    this as the best-known submit-time benchmark). When both bid
+    and ask are missing, the helper falls back to ``limit_price``
+    if present, and finally to ``None`` (no mid recoverable).
+
+    Returns ``None`` only when neither side of the quote nor the
+    limit price is available; the caller still writes the
+    ``paper_orders`` row but ``requested_mid_at_submit`` stays NULL
+    and the slippage computation downstream is skipped.
+    """
+    bid = _coerce_quote(leg.get("bid"))
+    ask = _coerce_quote(leg.get("ask"))
+    if bid > 0.0 and ask > 0.0:
+        return (bid + ask) / 2.0
+    if bid > 0.0 or ask > 0.0:
+        return bid + ask  # one-sided
+    try:
+        limit = float(leg.get("limit_price") or 0.0)
+    except (TypeError, ValueError):
+        return None
+    if limit > 0.0:
+        return limit
+    return None
+
+
+def _derive_client_order_id(
+    play_card: Mapping[str, Any],
+    leg: Mapping[str, Any],
+    *,
+    fallback_seed: Optional[str] = None,
+) -> str:
+    """Return the ``client_order_id`` to stamp on the new ``paper_orders`` row.
+
+    Resolution order:
+
+    1. Explicit ``play_card['client_order_id']`` (preferred — the
+       caller already computed a deterministic id, e.g. an exit
+       trigger via :func:`hold_policy.make_exit_client_order_id`).
+    2. Explicit ``leg['client_order_id']`` (legacy callers that
+       stamp the id on the leg directly).
+    3. Auto-generated ``f"auto-{fallback_seed or uuid.uuid4().hex}"``
+       so each submission still satisfies the
+       ``NOT NULL UNIQUE`` constraint without forcing every
+       legacy caller to supply an id explicitly.
+
+    The auto-generated form is intentionally distinguishable from
+    a deterministic id so audit consumers can tell at a glance
+    which orders went through the f-m3-11 idempotency-aware path
+    versus the auto-id fallback.
+    """
+    explicit = play_card.get("client_order_id") or leg.get("client_order_id")
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit.strip()
+    seed = fallback_seed or uuid.uuid4().hex
+    return f"auto-{seed}"
+
+
 def _broker_reason(exc: BaseException) -> str:
     """Extract a short human-readable reason from a broker exception.
 
@@ -742,8 +846,12 @@ class PaperExecutor:
         reason: Optional[str],
         event: Optional[str],
         parent_play_card_id: Optional[str],
+        client_order_id: str,
+        requested_mid_at_submit: Optional[float] = None,
+        purpose: Optional[str] = None,
+        created_at: Optional[str] = None,
     ) -> None:
-        """Insert (or replace) a row in the ``orders`` table.
+        """Insert (or replace) a row in the ``paper_orders`` table.
 
         ``id`` is the executor-generated UUID4; ``alpaca_order_id`` is
         the broker-assigned id (NULL on rejection paths). The replace
@@ -751,17 +859,28 @@ class PaperExecutor:
         retries with the same internal ``id`` (rare; only happens if
         the executor is re-invoked after a partial crash) the row is
         overwritten rather than duplicated.
+
+        f-m3-11 augmentation: ``client_order_id`` is required (the
+        ``paper_orders.client_order_id`` column is ``NOT NULL UNIQUE``);
+        ``requested_mid_at_submit`` and ``purpose`` are nullable but
+        strongly encouraged for all new submissions so downstream
+        slippage analytics has the data it needs.
+
+        ``created_at`` is optional; when provided the helper preserves
+        it (used by :meth:`_update_order_after_submit` to keep the
+        same row's submit-time timestamp through the lifecycle).
         """
         conn = self._connect()
         try:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO orders (
+                INSERT OR REPLACE INTO paper_orders (
                     id, play_card_id, alpaca_order_id, symbol, side,
                     qty, status, reason, event, parent_play_card_id,
+                    requested_mid_at_submit, purpose, client_order_id,
                     created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     order_id,
@@ -774,8 +893,78 @@ class PaperExecutor:
                     reason,
                     event,
                     parent_play_card_id,
-                    _utc_now_iso(),
+                    requested_mid_at_submit,
+                    purpose,
+                    client_order_id,
+                    created_at if created_at is not None else _utc_now_iso(),
                 ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _lookup_by_client_order_id(
+        self, client_order_id: str
+    ) -> Optional[dict[str, Any]]:
+        """Return the persisted ``paper_orders`` row matching ``client_order_id``.
+
+        Used by :meth:`execute` to enforce the f-m3-11 idempotency
+        invariant: a duplicate write-then-submit attempt on the same
+        ``client_order_id`` short-circuits without contacting the
+        broker. Rejected rows are NOT excluded — a previous local
+        rejection (cap-exceeded etc.) blocks a retry under the same
+        deterministic id; the caller supplies a fresh client_order_id
+        when retrying after an explicit policy adjustment.
+        """
+        if not client_order_id:
+            return None
+        conn = self._connect()
+        try:
+            cursor = conn.execute(
+                """
+                SELECT id, play_card_id, alpaca_order_id, symbol, side,
+                       qty, status, reason, event, parent_play_card_id,
+                       requested_mid_at_submit, purpose, client_order_id,
+                       created_at
+                FROM paper_orders
+                WHERE client_order_id = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (client_order_id,),
+            )
+            row = cursor.fetchone()
+            return dict(row) if row is not None else None
+        finally:
+            conn.close()
+
+    def _update_order_after_submit(
+        self,
+        order_id: str,
+        *,
+        alpaca_order_id: Optional[str],
+        status: str,
+        qty: Optional[int],
+        reason: Optional[str] = None,
+    ) -> None:
+        """Update the row written by :meth:`_persist_order_row` with broker outcome.
+
+        Called by :meth:`execute` AFTER the Alpaca submission call
+        returns. Preserves the original ``created_at`` (which is the
+        write-then-submit timestamp; the f-m3-11 invariant requires
+        ``paper_orders.created_at <= execution_events.event_at`` for
+        the corresponding ``submitted`` event).
+        """
+        conn = self._connect()
+        try:
+            conn.execute(
+                """
+                UPDATE paper_orders
+                SET alpaca_order_id = ?, status = ?, qty = COALESCE(?, qty),
+                    reason = ?
+                WHERE id = ?
+                """,
+                (alpaca_order_id, status, qty, reason, order_id),
             )
             conn.commit()
         finally:
@@ -935,8 +1124,9 @@ class PaperExecutor:
                     mid,
                     cap,
                 )
+                _internal_id = uuid.uuid4().hex
                 self._persist_order_row(
-                    order_id=uuid.uuid4().hex,
+                    order_id=_internal_id,
                     play_card_id=play_card_id,
                     alpaca_order_id=None,
                     symbol=str(leg_preview.get("symbol") or "") or None,
@@ -946,6 +1136,11 @@ class PaperExecutor:
                     reason=msg,
                     event=event,
                     parent_play_card_id=parent_play_card_id,
+                    client_order_id=_derive_client_order_id(
+                        play_card, leg_preview, fallback_seed=_internal_id
+                    ),
+                    requested_mid_at_submit=mid if mid > 0 else None,
+                    purpose=_infer_purpose(play_card),
                 )
                 raise ContractTooExpensive(msg)
 
@@ -958,16 +1153,46 @@ class PaperExecutor:
 
         leg = _validate_single_leg(play_card)
 
-        client_order_id = play_card.get("client_order_id") or leg.get(
-            "client_order_id"
-        )
-
         symbol = str(leg["symbol"])
         qty = int(leg["qty"])
         side = _coerce_side(leg.get("side", "buy"))
         tif = _coerce_tif(leg.get("time_in_force"))
         limit_price = leg.get("limit_price")
         side_str = side.value if hasattr(side, "value") else str(side)
+
+        # f-m3-11: compute the mid snapshot, purpose and the
+        # deterministic ``client_order_id`` up-front so every
+        # persistence call (success OR rejection) carries the
+        # augmented fields. ``internal_id`` is the SAME UUID4 for
+        # the lifetime of this single execute() call so the
+        # write-then-submit + post-submit UPDATE land on the same
+        # paper_orders row.
+        requested_mid_at_submit = _compute_mid_at_submit(leg)
+        purpose = _infer_purpose(play_card)
+        internal_id = uuid.uuid4().hex
+        client_order_id = _derive_client_order_id(
+            play_card, leg, fallback_seed=internal_id
+        )
+
+        # f-m3-11 idempotency: if a non-rejected paper_orders row
+        # already exists for this client_order_id, short-circuit.
+        # Same-day re-submissions of the same logical exit / probe
+        # never double-submit to the broker. Note: this lookup runs
+        # AFTER the cap checks and sizing rejection above so a
+        # transient cap-rejected row does not block a later retry
+        # under a fresh client_order_id.
+        existing = self._lookup_by_client_order_id(client_order_id)
+        if existing is not None and (
+            (existing.get("status") or "").lower() != "rejected"
+        ):
+            logger.info(
+                "paper_executor.idempotent_skip client_order_id=%s "
+                "existing_status=%s play_card_id=%s",
+                client_order_id,
+                existing.get("status"),
+                play_card_id,
+            )
+            return existing.get("alpaca_order_id") or ""
 
         # f-m3-04: Concurrency + deployed-capital caps. Both are
         # sourced from :mod:`biotech_sniper.config` so this module
@@ -1007,7 +1232,7 @@ class PaperExecutor:
                         reason,
                     )
                     self._persist_order_row(
-                        order_id=uuid.uuid4().hex,
+                        order_id=internal_id,
                         play_card_id=play_card_id,
                         alpaca_order_id=None,
                         symbol=symbol,
@@ -1017,6 +1242,9 @@ class PaperExecutor:
                         reason=f"OrderRejected: {reason}",
                         event=event,
                         parent_play_card_id=parent_play_card_id,
+                        client_order_id=client_order_id,
+                        requested_mid_at_submit=requested_mid_at_submit,
+                        purpose=purpose,
                     )
                     raise OrderRejected(
                         f"Failed to read positions before submission: {reason}"
@@ -1053,7 +1281,7 @@ class PaperExecutor:
                 cap_concurrent,
             )
             self._persist_order_row(
-                order_id=uuid.uuid4().hex,
+                order_id=internal_id,
                 play_card_id=play_card_id,
                 alpaca_order_id=None,
                 symbol=symbol,
@@ -1063,6 +1291,9 @@ class PaperExecutor:
                 reason=msg,
                 event=event,
                 parent_play_card_id=parent_play_card_id,
+                client_order_id=client_order_id,
+                requested_mid_at_submit=requested_mid_at_submit,
+                purpose=purpose,
             )
             raise ConcurrencyCapExceeded(msg)
 
@@ -1088,7 +1319,7 @@ class PaperExecutor:
                 cap_deployed,
             )
             self._persist_order_row(
-                order_id=uuid.uuid4().hex,
+                order_id=internal_id,
                 play_card_id=play_card_id,
                 alpaca_order_id=None,
                 symbol=symbol,
@@ -1098,6 +1329,9 @@ class PaperExecutor:
                 reason=msg,
                 event=event,
                 parent_play_card_id=parent_play_card_id,
+                client_order_id=client_order_id,
+                requested_mid_at_submit=requested_mid_at_submit,
+                purpose=purpose,
             )
             raise DeployedCapExceeded(msg)
 
@@ -1127,7 +1361,33 @@ class PaperExecutor:
                 client_order_id=client_order_id,
             )
 
-        internal_id = uuid.uuid4().hex
+        # f-m3-11 write-then-submit invariant (VAL-M3-069): persist a
+        # ``paper_orders`` row with ``status='submitted'`` BEFORE
+        # contacting Alpaca. The row carries the deterministic
+        # ``client_order_id`` and the mid snapshot, so the
+        # ``execution_subscriber`` (or a downstream slippage
+        # computation) can always resolve back to the local row even
+        # if the broker's response is delayed or lost. The row's
+        # ``created_at`` defaults to the in-process UTC now, which is
+        # the timestamp we compare against ``execution_events.event_at``
+        # for the corresponding ``submitted`` event.
+        submit_at_iso = _utc_now_iso()
+        self._persist_order_row(
+            order_id=internal_id,
+            play_card_id=play_card_id,
+            alpaca_order_id=None,
+            symbol=symbol,
+            side=side_str,
+            qty=qty,
+            status="submitted",
+            reason=None,
+            event=event,
+            parent_play_card_id=parent_play_card_id,
+            client_order_id=client_order_id,
+            requested_mid_at_submit=requested_mid_at_submit,
+            purpose=purpose,
+            created_at=submit_at_iso,
+        )
 
         try:
             order_dict = self.client.submit_order(order_request)
@@ -1135,24 +1395,24 @@ class PaperExecutor:
             reason = _broker_reason(exc)
             logger.warning(
                 "paper_executor.order_rejected play_card_id=%s symbol=%s "
-                "qty=%s side=%s reason=%s",
+                "qty=%s side=%s client_order_id=%s reason=%s",
                 play_card_id,
                 symbol,
                 qty,
                 side_str,
+                client_order_id,
                 reason,
             )
-            self._persist_order_row(
-                order_id=internal_id,
-                play_card_id=play_card_id,
+            # f-m3-11: update the existing write-then-submit row to
+            # reflect the broker-side rejection. The row keeps its
+            # original ``created_at`` so the chronological invariant
+            # against ``execution_events`` is preserved.
+            self._update_order_after_submit(
+                internal_id,
                 alpaca_order_id=None,
-                symbol=symbol,
-                side=side_str,
-                qty=qty,
                 status="rejected",
+                qty=None,
                 reason=reason,
-                event=event,
-                parent_play_card_id=parent_play_card_id,
             )
             raise OrderRejected(
                 f"Alpaca rejected order for {symbol}: {reason}"
@@ -1170,17 +1430,12 @@ class PaperExecutor:
                 play_card_id,
                 symbol,
             )
-            self._persist_order_row(
-                order_id=internal_id,
-                play_card_id=play_card_id,
+            self._update_order_after_submit(
+                internal_id,
                 alpaca_order_id=None,
-                symbol=symbol,
-                side=side_str,
-                qty=qty,
                 status="rejected",
+                qty=None,
                 reason=reason,
-                event=event,
-                parent_play_card_id=parent_play_card_id,
             )
             raise OrderRejected(reason)
 
@@ -1191,27 +1446,51 @@ class PaperExecutor:
         except (TypeError, ValueError):
             persisted_qty = qty
 
-        self._persist_order_row(
-            order_id=internal_id,
-            play_card_id=play_card_id,
+        self._update_order_after_submit(
+            internal_id,
             alpaca_order_id=alpaca_order_id,
-            symbol=order_dict.get("symbol") or symbol,
-            side=order_dict.get("side") or side_str,
-            qty=persisted_qty,
             status=broker_status,
-            reason=None,
-            event=event,
-            parent_play_card_id=parent_play_card_id,
+            qty=persisted_qty,
         )
+
+        # f-m3-11: write the corresponding ``execution_events`` row
+        # for the broker-acknowledged ``submitted`` state. The
+        # event_at is the same wall-clock instant as the broker's
+        # response (or the ``submit_at_iso`` we recorded just before
+        # the call, whichever is later). Downstream poll loops in
+        # :mod:`biotech_sniper.execution_subscriber` will record
+        # subsequent state transitions (accepted → filled etc.).
+        try:
+            from biotech_sniper.execution_subscriber import (
+                record_execution_event as _record_execution_event,
+            )
+            _record_execution_event(
+                self.db_path,
+                paper_order_id=internal_id,
+                event_type="submitted",
+                event_at=_utc_now_iso(),
+                raw_payload=order_dict,
+            )
+        except Exception:  # pragma: no cover — defensive
+            # Telemetry failure must never break the order submission
+            # path. The subscriber's poll loop will pick up the state
+            # on the next iteration.
+            logger.exception(
+                "paper_executor.execution_event_record_failed "
+                "internal_id=%s",
+                internal_id,
+            )
 
         logger.info(
             "paper_executor.order_submitted play_card_id=%s symbol=%s "
-            "qty=%s side=%s alpaca_order_id=%s status=%s",
+            "qty=%s side=%s alpaca_order_id=%s client_order_id=%s "
+            "status=%s",
             play_card_id,
             symbol,
             persisted_qty,
             side_str,
             alpaca_order_id,
+            client_order_id,
             broker_status,
         )
         return alpaca_order_id
@@ -1335,8 +1614,9 @@ class PaperExecutor:
                         mid,
                         per_leg_cap,
                     )
+                    _internal_id = uuid.uuid4().hex
                     self._persist_order_row(
-                        order_id=uuid.uuid4().hex,
+                        order_id=_internal_id,
                         play_card_id=play_card_id,
                         alpaca_order_id=None,
                         symbol=str(sized_leg.get("symbol") or "") or None,
@@ -1348,6 +1628,13 @@ class PaperExecutor:
                         parent_play_card_id=play_card.get(
                             "parent_play_card_id"
                         ),
+                        client_order_id=_derive_client_order_id(
+                            play_card,
+                            sized_leg,
+                            fallback_seed=_internal_id,
+                        ),
+                        requested_mid_at_submit=mid if mid > 0 else None,
+                        purpose=_infer_purpose(play_card),
                     )
                     raise ContractTooExpensive(msg)
                 sized_leg["qty"] = sized_qty
@@ -1651,7 +1938,7 @@ class PaperExecutor:
                     """
                     SELECT id, alpaca_order_id, status, event,
                            parent_play_card_id, symbol, qty
-                    FROM orders
+                    FROM paper_orders
                     WHERE play_card_id = ?
                       AND event = ?
                       AND status != 'rejected'
@@ -1665,7 +1952,7 @@ class PaperExecutor:
                     """
                     SELECT id, alpaca_order_id, status, event,
                            parent_play_card_id, symbol, qty
-                    FROM orders
+                    FROM paper_orders
                     WHERE play_card_id = ?
                       AND status != 'rejected'
                     ORDER BY created_at DESC, id DESC
@@ -1695,8 +1982,9 @@ class PaperExecutor:
                 """
                 SELECT id, play_card_id, alpaca_order_id, symbol, side,
                        qty, status, reason, event, parent_play_card_id,
+                       requested_mid_at_submit, purpose, client_order_id,
                        created_at
-                FROM orders
+                FROM paper_orders
                 WHERE play_card_id = ?
                 ORDER BY created_at ASC, id ASC
                 """,
@@ -1727,7 +2015,7 @@ class PaperExecutor:
         conn = self._connect()
         try:
             conn.execute(
-                "UPDATE orders SET status = ? WHERE alpaca_order_id = ?",
+                "UPDATE paper_orders SET status = ? WHERE alpaca_order_id = ?",
                 (status, alpaca_order_id),
             )
             conn.commit()

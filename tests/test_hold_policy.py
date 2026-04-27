@@ -247,7 +247,7 @@ def test_submit_exit_allows_pre_catalyst_for_allowed_event(
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(
-            "SELECT event, side, qty FROM orders WHERE event = ?",
+            "SELECT event, side, qty FROM paper_orders WHERE event = ?",
             ("stop_loss",),
         ).fetchall()
     finally:
@@ -281,7 +281,7 @@ def test_submit_exit_idempotent_on_same_day(
     conn = sqlite3.connect(db_path)
     try:
         count = conn.execute(
-            "SELECT COUNT(*) FROM orders WHERE event = ?", ("stop_loss",)
+            "SELECT COUNT(*) FROM paper_orders WHERE event = ?", ("stop_loss",)
         ).fetchone()[0]
     finally:
         conn.close()
@@ -301,11 +301,12 @@ def test_orders_event_check_accepts_each_allowed_value(db_path: Path) -> None:
         ["open", "iv_crush_exit", "stop_loss", "adverse_news", "rotation"]
     ):
         conn.execute(
-            "INSERT INTO orders (id, status, event) VALUES (?, ?, ?)",
-            (f"id-{i}", "accepted", event),
+            "INSERT INTO paper_orders (id, status, event, client_order_id) "
+            "VALUES (?, ?, ?, ?)",
+            (f"id-{i}", "accepted", event, f"client-{i}"),
         )
     conn.commit()
-    rows = conn.execute("SELECT event FROM orders").fetchall()
+    rows = conn.execute("SELECT event FROM paper_orders").fetchall()
     conn.close()
     assert {r["event"] for r in rows} == {
         "open",
@@ -322,8 +323,9 @@ def test_orders_event_check_rejects_unknown_value(db_path: Path) -> None:
     db_module.run_migrations(conn)
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute(
-            "INSERT INTO orders (id, status, event) VALUES (?, ?, ?)",
-            ("id-bad", "accepted", "not_a_real_event"),
+            "INSERT INTO paper_orders (id, status, event, client_order_id) "
+            "VALUES (?, ?, ?, ?)",
+            ("id-bad", "accepted", "not_a_real_event", "client-bad"),
         )
     conn.close()
 
@@ -334,8 +336,9 @@ def test_orders_event_check_rejects_legacy_iv_crush(db_path: Path) -> None:
     db_module.run_migrations(conn)
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute(
-            "INSERT INTO orders (id, status, event) VALUES (?, ?, ?)",
-            ("id-legacy", "accepted", "iv_crush"),
+            "INSERT INTO paper_orders (id, status, event, client_order_id) "
+            "VALUES (?, ?, ?, ?)",
+            ("id-legacy", "accepted", "iv_crush", "client-legacy"),
         )
     conn.close()
 

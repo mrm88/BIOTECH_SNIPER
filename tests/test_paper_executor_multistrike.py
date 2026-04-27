@@ -278,7 +278,7 @@ def test_execute_multi_strike_persists_two_rows_same_play_id(
     try:
         rows = conn.execute(
             "SELECT alpaca_order_id, symbol, qty, status, play_card_id "
-            "FROM orders WHERE play_card_id = ? ORDER BY created_at ASC",
+            "FROM paper_orders WHERE play_card_id = ? ORDER BY created_at ASC",
             (play_card_id,),
         ).fetchall()
     finally:
@@ -370,7 +370,7 @@ def test_execute_single_strike_default_returns_str(make_executor, db_path: Path)
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(
-            "SELECT alpaca_order_id FROM orders WHERE play_card_id = ?",
+            "SELECT alpaca_order_id FROM paper_orders WHERE play_card_id = ?",
             ("AXSM-single-2026-04-27",),
         ).fetchall()
     finally:

@@ -240,7 +240,7 @@ def test_run_on_open_iterates_zero_orders_for_no_catalyst_today(
     assert fake.submit_calls == []
     conn = sqlite3.connect(db_path)
     try:
-        count = conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM paper_orders").fetchone()[0]
     finally:
         conn.close()
     assert count == 0
@@ -322,7 +322,7 @@ def test_run_on_open_skips_n_equal_1_with_minimum_size_log(
     assert fake.submit_calls == []
     conn = sqlite3.connect(db_path)
     try:
-        count = conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM paper_orders").fetchone()[0]
     finally:
         conn.close()
     assert count == 0
@@ -376,7 +376,7 @@ def test_run_on_open_persists_orders_row_with_event_and_parent_link(
     try:
         rows = conn.execute(
             "SELECT id, alpaca_order_id, event, parent_play_card_id, "
-            "qty, side, status FROM orders WHERE event = ?",
+            "qty, side, status FROM paper_orders WHERE event = ?",
             (IV_CRUSH_EXIT_EVENT,),
         ).fetchall()
     finally:
@@ -436,7 +436,7 @@ def test_run_on_open_logs_structured_event_on_submit(
 def test_run_on_open_select_query_returns_event_iv_crush_exit(
     make_runner, db_path: Path
 ):
-    """VAL-M3-028 SQL: ``SELECT id FROM orders WHERE event='iv_crush_exit'``
+    """VAL-M3-028 SQL: ``SELECT id FROM paper_orders WHERE event='iv_crush_exit'``
     returns the new sell row."""
     today = datetime.date(2025, 4, 27)
     fake = _FakeAlpacaClient(
@@ -451,7 +451,7 @@ def test_run_on_open_select_query_returns_event_iv_crush_exit(
     conn = sqlite3.connect(db_path)
     try:
         rows = conn.execute(
-            "SELECT id FROM orders WHERE event='iv_crush_exit'"
+            "SELECT id FROM paper_orders WHERE event='iv_crush_exit'"
         ).fetchall()
     finally:
         conn.close()
@@ -503,7 +503,7 @@ def test_run_on_open_idempotent_second_call_same_day(
     conn = sqlite3.connect(db_path)
     try:
         count = conn.execute(
-            "SELECT COUNT(*) FROM orders WHERE event=?",
+            "SELECT COUNT(*) FROM paper_orders WHERE event=?",
             (IV_CRUSH_EXIT_EVENT,),
         ).fetchone()[0]
     finally:
