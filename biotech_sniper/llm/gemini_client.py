@@ -414,6 +414,68 @@ class GeminiClient:
     # SDK invocation with retry
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Public debate-friendly chat helper (f-m2-13 fix #6)
+    # ------------------------------------------------------------------
+
+    def chat(
+        self,
+        prompt: str,
+        *,
+        system: Optional[str] = None,
+        model: Optional[str] = None,
+        purpose: str = "debate",
+        json_mode: bool = True,
+    ) -> dict[str, Any]:
+        """Generic public chat helper that ALWAYS writes a cost-ledger row.
+
+        Used by :mod:`biotech_sniper.llm.llm_debate` for the
+        Gemini-side debate rounds so the public API path is the same
+        one that handles cost-ledger persistence. Returns a dict with
+        ``text``, ``prompt_tokens``, ``completion_tokens``,
+        ``cost_usd``, ``latency_ms``, ``model_id``.
+        """
+        chosen_model = model or self._model
+        chosen_system = system if system is not None else DEEP_SCIENCE_SYSTEM_PROMPT
+        request_config = genai_types.GenerateContentConfig(
+            system_instruction=chosen_system,
+            temperature=0.2,
+            response_mime_type="application/json" if json_mode else "text/plain",
+            max_output_tokens=self._max_output_tokens,
+        )
+        t_start = time.perf_counter()
+        response = self._client.models.generate_content(
+            model=chosen_model,
+            contents=prompt,
+            config=request_config,
+        )
+        latency_ms = int((time.perf_counter() - t_start) * 1000)
+
+        text = _extract_response_text(response) or ""
+        prompt_tokens, completion_tokens = _extract_usage(response)
+        cost_usd = self._compute_cost_usd(prompt_tokens, completion_tokens)
+        actual_model_id = _extract_model_id(response, default=chosen_model)
+        request_id = _extract_request_id(response)
+
+        self._log_cost_row(
+            model_id=actual_model_id,
+            purpose=purpose,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            latency_ms=latency_ms,
+            cost_usd=cost_usd,
+            request_id=request_id,
+        )
+        return {
+            "text": text,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "cost_usd": cost_usd,
+            "latency_ms": latency_ms,
+            "model_id": actual_model_id,
+            "request_id": request_id,
+        }
+
     def _send(self, *, prompt: str, model: str) -> Any:
         """Issue one ``models.generate_content`` call with retry.
 

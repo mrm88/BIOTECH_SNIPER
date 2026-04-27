@@ -388,6 +388,44 @@ def test_malformed_json_body_raises_xai_parse_error(make_client, sample_context)
         client.score_ticker("IDYA", sample_context)
 
 
+def test_malformed_json_still_writes_cost_ledger_row(
+    make_client, sample_context, temp_db_path
+):
+    """f-m2-13 fix #2: 200-with-malformed-JSON must STILL bill via llm_cost_ledger.
+
+    Asserts:
+    * the ledger gains exactly one row,
+    * the row carries ``note='unparseable_response'``,
+    * the row's ``cost_usd`` matches the computed cost from the usage
+      block in the cassette (50 prompt + 10 completion tokens),
+    * :class:`XAIParseError` is still raised so callers can route the
+      ticker to the deep tier.
+    """
+    client, _ = make_client("malformed_json_body.json")
+
+    with pytest.raises(XAIParseError):
+        client.score_ticker("IDYA", sample_context, purpose="fast_rank")
+
+    conn = db.connect(temp_db_path)
+    try:
+        rows = conn.execute(
+            "SELECT provider, purpose, prompt_tokens, completion_tokens, "
+            "cost_usd, note FROM llm_cost_ledger WHERE provider = 'xai'"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    assert len(rows) == 1, f"expected 1 cost row, got {len(rows)}: {rows}"
+    row = rows[0]
+    assert row["provider"] == "xai"
+    assert row["purpose"] == "fast_rank"
+    assert row["prompt_tokens"] == 50
+    assert row["completion_tokens"] == 10
+    expected_cost = round((50 * 0.005 + 10 * 0.015) / 1000, 6)
+    assert row["cost_usd"] == pytest.approx(expected_cost, abs=1e-9)
+    assert row["note"] == "unparseable_response"
+
+
 def test_parse_assistant_payload_validates_probability_range():
     """Probability outside [0,1] is rejected up front."""
     bad = {

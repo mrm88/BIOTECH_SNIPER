@@ -609,3 +609,191 @@ def test_run_debate_raises_when_scoring_cache_id_unknown(temp_db_path: Path):
         conn.close()
     with pytest.raises(DebateError, match="scoring_cache.id=999"):
         run_debate(999, "divergence", db_path=temp_db_path)
+
+
+# ---------------------------------------------------------------------------
+# 12. f-m2-13 fix #6 — default invokers must use public client.chat() methods
+# ---------------------------------------------------------------------------
+
+
+def test_default_invokers_route_through_public_chat_methods(
+    temp_db_path: Path, temp_audit_path: Path, monkeypatch
+):
+    """Each default invoker must call ``<client>.chat`` (public, ledger-writing).
+
+    The earlier implementation reached into the private SDK objects
+    (``client._client.messages.create``,
+    ``client._client.models.generate_content``,
+    ``client._chat_completion``) which bypassed the cost-ledger
+    write. This test asserts:
+
+    1. After ``run_debate`` completes, ``llm_cost_ledger`` contains
+       exactly 3 new rows (one per round, one per provider).
+    2. The default invoker functions invoke the *public* ``.chat``
+       method on each client (verified by stubbing the chat method
+       and asserting it was called).
+    """
+    cache_id = _seed_scoring_cache(temp_db_path)
+
+    # Stub config.provider_enabled to allow building the default
+    # invokers without real API keys.
+    monkeypatch.setattr(
+        "biotech_sniper.llm.llm_debate.config.provider_enabled",
+        lambda name: True,
+    )
+
+    # Build payloads each chat() call will return.
+    claude_payload = {
+        "text": '{"letter_grade": "A-", "rationale": "Strong P3 design."}',
+        "prompt_tokens": 100,
+        "completion_tokens": 30,
+        "cost_usd": 0.0035,
+        "latency_ms": 250,
+        "model_id": "claude-opus-4-1-20250805",
+        "request_id": "claude-1",
+    }
+    gemini_payload = {
+        "text": '{"letter_grade": "B", "rationale": "Open-label is a risk."}',
+        "prompt_tokens": 110,
+        "completion_tokens": 28,
+        "cost_usd": 0.0009,
+        "latency_ms": 220,
+        "model_id": "gemini-2.5-pro",
+        "request_id": "gemini-1",
+    }
+    grok_payload = {
+        "text": '{"final_grade": "B+", "rationale": "Splits the difference."}',
+        "prompt_tokens": 130,
+        "completion_tokens": 25,
+        "cost_usd": 0.0011,
+        "latency_ms": 180,
+        "model_id": "grok-4-0709",
+        "request_id": "grok-1",
+    }
+
+    chat_calls: dict[str, int] = {"claude": 0, "gemini": 0, "grok": 0}
+
+    # Patch the SDK constructors so building each client never hits a
+    # real provider, then patch the public ``.chat`` method to write a
+    # llm_cost_ledger row directly (the same side-effect the real
+    # public method has).
+    def _record_ledger(provider: str, payload: dict[str, Any]) -> None:
+        conn = db.connect(temp_db_path)
+        try:
+            db.run_migrations(conn)
+            with conn:
+                conn.execute(
+                    "INSERT INTO llm_cost_ledger ("
+                    "provider, model_id, purpose, prompt_tokens, "
+                    "completion_tokens, latency_ms, cost_usd, request_id"
+                    ") VALUES (?,?,?,?,?,?,?,?)",
+                    (
+                        provider,
+                        payload["model_id"],
+                        "debate",
+                        payload["prompt_tokens"],
+                        payload["completion_tokens"],
+                        payload["latency_ms"],
+                        payload["cost_usd"],
+                        payload["request_id"],
+                    ),
+                )
+        finally:
+            conn.close()
+
+    # Patch ClaudeClient.__init__/chat
+    from biotech_sniper.llm import claude_client as _cc
+
+    def _claude_init(self, *args, **kwargs):
+        self._db_path = temp_db_path
+
+    def _claude_chat(self, prompt, *, system=None, model=None, purpose="debate"):
+        chat_calls["claude"] += 1
+        _record_ledger("anthropic", claude_payload)
+        return claude_payload
+
+    monkeypatch.setattr(_cc.ClaudeClient, "__init__", _claude_init)
+    monkeypatch.setattr(_cc.ClaudeClient, "chat", _claude_chat)
+
+    # Patch GeminiClient
+    from biotech_sniper.llm import gemini_client as _gc
+
+    def _gemini_init(self, *args, **kwargs):
+        self._db_path = temp_db_path
+
+    def _gemini_chat(self, prompt, *, system=None, model=None, purpose="debate", json_mode=True):
+        chat_calls["gemini"] += 1
+        _record_ledger("gemini", gemini_payload)
+        return gemini_payload
+
+    monkeypatch.setattr(_gc.GeminiClient, "__init__", _gemini_init)
+    monkeypatch.setattr(_gc.GeminiClient, "chat", _gemini_chat)
+
+    # Patch XAIClient
+    from biotech_sniper.llm import xai_client as _xc
+
+    def _xai_init(self, *args, **kwargs):
+        self._db_path = temp_db_path
+
+    def _xai_chat(self, messages, *, model=None, purpose="debate", json_mode=True):
+        chat_calls["grok"] += 1
+        _record_ledger("xai", grok_payload)
+        return grok_payload
+
+    monkeypatch.setattr(_xc.XAIClient, "__init__", _xai_init)
+    monkeypatch.setattr(_xc.XAIClient, "chat", _xai_chat)
+
+    # Snapshot the ledger row count BEFORE the debate (zero, fresh db).
+    conn = db.connect(temp_db_path)
+    try:
+        db.run_migrations(conn)
+        before = conn.execute(
+            "SELECT COUNT(*) FROM llm_cost_ledger"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert before == 0
+
+    # Run the debate using DEFAULT invokers (no claude/gemini/grok
+    # invoker passed) — this exercises the production wiring.
+    result = run_debate(
+        cache_id,
+        "divergence",
+        db_path=temp_db_path,
+        audit_path=temp_audit_path,
+    )
+
+    assert result["short_circuited"] is False
+    assert chat_calls == {"claude": 1, "gemini": 1, "grok": 1}, chat_calls
+
+    conn = db.connect(temp_db_path)
+    try:
+        rows = conn.execute(
+            "SELECT provider FROM llm_cost_ledger ORDER BY id"
+        ).fetchall()
+    finally:
+        conn.close()
+    providers = [r["provider"] for r in rows]
+    assert providers == ["anthropic", "gemini", "xai"], providers
+
+
+def test_llm_debate_module_does_not_call_private_sdk_methods():
+    """f-m2-13 fix #6 hygiene check: no private SDK access in default invokers.
+
+    A static check of the module source: post-fix, the default
+    invokers route through ``client.chat(...)`` and must not reach
+    into ``client._client.messages.create``,
+    ``client._client.models.generate_content``, or
+    ``client._chat_completion``.
+    """
+    src = Path(llm_debate.__file__).read_text(encoding="utf-8")
+    forbidden = [
+        "_client.messages.create",
+        "_client.models.generate_content",
+        "_chat_completion",
+    ]
+    for needle in forbidden:
+        assert needle not in src, (
+            f"llm_debate.py still references {needle!r} — default invokers "
+            "must use the public ``.chat`` methods instead."
+        )

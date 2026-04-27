@@ -812,16 +812,29 @@ def _build_default_invoker(provider: str) -> InvokeFn:
     raise DebateError(f"unknown provider: {provider!r}")
 
 
+_CLAUDE_DEBATE_SYSTEM = (
+    "You are a biotech-catalyst analyst participating in a structured debate. "
+    "Follow the per-round instructions exactly."
+)
+_GEMINI_DEBATE_SYSTEM = (
+    "You are Gemini, a biotech-catalyst analyst participating in a structured "
+    "debate. Follow the per-round instructions exactly."
+)
+_GROK_DEBATE_SYSTEM = (
+    "You are Grok, the adjudicator of a biotech-catalyst debate. Decide the "
+    "winning side on the merits and emit a single final_grade."
+)
+
+
 def _claude_invoker_factory() -> InvokeFn:
-    """Build a Claude invoker wrapping :class:`ClaudeClient`."""
-    from biotech_sniper.llm.claude_client import (  # local import — defer SDK
-        CLAUDE_INPUT_USD_PER_1K,
-        CLAUDE_OUTPUT_USD_PER_1K,
-        ClaudeClient,
-        DEFAULT_MAX_TOKENS,
-        DEFAULT_MODEL,
-    )
-    import time
+    """Build a Claude invoker wrapping :class:`ClaudeClient`.
+
+    f-m2-13 fix #6: this used to bypass the public
+    :meth:`ClaudeClient.chat` method that writes ``llm_cost_ledger``
+    rows. The wrapper now delegates to ``client.chat`` so every
+    debate round is logged exactly like every other Claude call.
+    """
+    from biotech_sniper.llm.claude_client import ClaudeClient
 
     if not config.provider_enabled("anthropic"):
         raise DebateError(
@@ -831,49 +844,23 @@ def _claude_invoker_factory() -> InvokeFn:
     client = ClaudeClient()
 
     def invoke(prompt: str) -> dict[str, Any]:
-        t_start = time.perf_counter()
-        msg = client._client.messages.create(  # type: ignore[attr-defined]
-            model=DEFAULT_MODEL,
-            max_tokens=DEFAULT_MAX_TOKENS,
-            system=(
-                "You are a biotech-catalyst analyst participating in a "
-                "structured debate. Follow the per-round instructions exactly."
-            ),
-            messages=[{"role": "user", "content": prompt}],
+        return client.chat(
+            prompt,
+            system=_CLAUDE_DEBATE_SYSTEM,
+            purpose="debate",
         )
-        latency_ms = int((time.perf_counter() - t_start) * 1000)
-        text = _claude_message_text(msg)
-        usage = getattr(msg, "usage", None)
-        prompt_tokens = int(getattr(usage, "input_tokens", 0) or 0)
-        completion_tokens = int(getattr(usage, "output_tokens", 0) or 0)
-        cost_usd = round(
-            (prompt_tokens / 1000.0) * CLAUDE_INPUT_USD_PER_1K
-            + (completion_tokens / 1000.0) * CLAUDE_OUTPUT_USD_PER_1K,
-            6,
-        )
-        return {
-            "text": text,
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "cost_usd": cost_usd,
-            "latency_ms": latency_ms,
-            "model_id": str(getattr(msg, "model", DEFAULT_MODEL) or DEFAULT_MODEL),
-        }
 
     return invoke
 
 
 def _gemini_invoker_factory() -> InvokeFn:
-    """Build a Gemini invoker wrapping :class:`GeminiClient`."""
-    from biotech_sniper.llm.gemini_client import (
-        GEMINI_INPUT_USD_PER_1K,
-        GEMINI_OUTPUT_USD_PER_1K,
-        GeminiClient,
-        DEFAULT_MAX_OUTPUT_TOKENS,
-        DEFAULT_MODEL,
-    )
-    from google.genai import types as genai_types
-    import time
+    """Build a Gemini invoker wrapping :class:`GeminiClient`.
+
+    f-m2-13 fix #6: routed through the public
+    :meth:`GeminiClient.chat` so the cost ledger row is written for
+    every debate round.
+    """
+    from biotech_sniper.llm.gemini_client import GeminiClient
 
     if not config.provider_enabled("gemini"):
         raise DebateError(
@@ -883,53 +870,24 @@ def _gemini_invoker_factory() -> InvokeFn:
     client = GeminiClient()
 
     def invoke(prompt: str) -> dict[str, Any]:
-        request_config = genai_types.GenerateContentConfig(
-            system_instruction=(
-                "You are Gemini, a biotech-catalyst analyst participating "
-                "in a structured debate. Follow the per-round instructions "
-                "exactly."
-            ),
-            temperature=0.2,
-            response_mime_type="application/json",
-            max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
+        return client.chat(
+            prompt,
+            system=_GEMINI_DEBATE_SYSTEM,
+            purpose="debate",
+            json_mode=True,
         )
-        t_start = time.perf_counter()
-        response = client._client.models.generate_content(  # type: ignore[attr-defined]
-            model=DEFAULT_MODEL,
-            contents=prompt,
-            config=request_config,
-        )
-        latency_ms = int((time.perf_counter() - t_start) * 1000)
-        text = getattr(response, "text", "") or ""
-        usage = getattr(response, "usage_metadata", None)
-        prompt_tokens = int(getattr(usage, "prompt_token_count", 0) or 0)
-        completion_tokens = int(getattr(usage, "candidates_token_count", 0) or 0)
-        cost_usd = round(
-            (prompt_tokens / 1000.0) * GEMINI_INPUT_USD_PER_1K
-            + (completion_tokens / 1000.0) * GEMINI_OUTPUT_USD_PER_1K,
-            6,
-        )
-        return {
-            "text": text,
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "cost_usd": cost_usd,
-            "latency_ms": latency_ms,
-            "model_id": str(getattr(response, "model_version", DEFAULT_MODEL) or DEFAULT_MODEL),
-        }
 
     return invoke
 
 
 def _xai_invoker_factory() -> InvokeFn:
-    """Build a Grok invoker wrapping :class:`XAIClient`."""
-    from biotech_sniper.llm.xai_client import (
-        DEFAULT_MODEL,
-        GROK_4_INPUT_USD_PER_1K,
-        GROK_4_OUTPUT_USD_PER_1K,
-        XAIClient,
-    )
-    import time
+    """Build a Grok invoker wrapping :class:`XAIClient`.
+
+    f-m2-13 fix #6: routed through the public
+    :meth:`XAIClient.chat` so the cost ledger row is written for
+    every debate round.
+    """
+    from biotech_sniper.llm.xai_client import XAIClient
 
     if not config.provider_enabled("xai"):
         raise DebateError(
@@ -940,42 +898,14 @@ def _xai_invoker_factory() -> InvokeFn:
 
     def invoke(prompt: str) -> dict[str, Any]:
         messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You are Grok, the adjudicator of a biotech-catalyst "
-                    "debate. Decide the winning side on the merits and emit "
-                    "a single final_grade."
-                ),
-            },
+            {"role": "system", "content": _GROK_DEBATE_SYSTEM},
             {"role": "user", "content": prompt},
         ]
-        t_start = time.perf_counter()
-        response_json = client._chat_completion(  # type: ignore[attr-defined]
-            messages=messages,
-            model=DEFAULT_MODEL,
+        return client.chat(
+            messages,
+            purpose="debate",
+            json_mode=True,
         )
-        latency_ms = int((time.perf_counter() - t_start) * 1000)
-        try:
-            text = str(response_json["choices"][0]["message"]["content"] or "")
-        except (KeyError, IndexError, TypeError):
-            text = ""
-        usage = response_json.get("usage") or {}
-        prompt_tokens = int(usage.get("prompt_tokens") or 0)
-        completion_tokens = int(usage.get("completion_tokens") or 0)
-        cost_usd = round(
-            (prompt_tokens / 1000.0) * GROK_4_INPUT_USD_PER_1K
-            + (completion_tokens / 1000.0) * GROK_4_OUTPUT_USD_PER_1K,
-            6,
-        )
-        return {
-            "text": text,
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "cost_usd": cost_usd,
-            "latency_ms": latency_ms,
-            "model_id": str(response_json.get("model") or DEFAULT_MODEL),
-        }
 
     return invoke
 

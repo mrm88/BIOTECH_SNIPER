@@ -64,6 +64,30 @@ def run_unified_scan():
     except Exception as e:
         print(f"  Auto-resolver skipped: {e}")
 
+    # ── STEP 0c: DAILY NEWS INGEST (f-m2-13 fix #4) ──────────────────────────
+    # Wired BEFORE scoring so downstream scoring can read fresh
+    # ``news_events`` rows. Targets every ticker in the watch+tradeable
+    # universe and writes ``news_ingestion`` + ``news_events_empty``
+    # keys into ``state/audit_latest.json`` per VAL-M2-076.
+    print(f"\n{'─'*70}")
+    print(f"STEP 0c: DAILY NEWS INGEST (universe.tier IN ('watch','tradeable'))")
+    print(f"{'─'*70}")
+    news_ingest_result = None
+    try:
+        from biotech_sniper.news_events import daily_news_ingest
+        news_ingest_result = daily_news_ingest()
+        if news_ingest_result is not None:
+            sector_results["news_ingestion"] = news_ingest_result.to_dict()
+            print(
+                f"  → News ingest: "
+                f"{news_ingest_result.rows_inserted} rows | "
+                f"{news_ingest_result.tickers_attempted} tickers | "
+                f"{len(news_ingest_result.empty_feed_reasons)} empty feeds"
+            )
+    except Exception as e:
+        print(f"  → News ingest error: {e}")
+        sector_results["news_ingestion"] = {"error": str(e)}
+
     # ── STEP 0b: MASTER DISCOVERY ENGINE ─────────────────────────────────────
     # Runs BEFORE scoring — finds new candidates in all 3 sectors
     print(f"\n{'─'*70}")
@@ -325,6 +349,21 @@ def run_unified_scan():
         print(f"  Learning: {learning_results.get('summary', 'no data yet')}")
     except Exception as e:
         print(f"  Learning error: {e}")
+
+    # ── EMIT PLAY CARDS (f-m2-13 fix #5) ─────────────────────────────────────
+    # After scoring/tracking is complete, write the top-N play cards
+    # under ``play_cards/<today>/*.json`` so downstream consumers
+    # (email build, M3 paper executor) see the canonical artefact set.
+    print(f"\n{'─'*70}")
+    print(f"EMIT PLAY CARDS")
+    print(f"{'─'*70}")
+    play_cards_written: list = []
+    try:
+        from biotech_sniper.play_card_formatter import emit_play_cards
+        play_cards_written = emit_play_cards(as_of_date=today)
+        print(f"  → {len(play_cards_written)} play cards written for {today}")
+    except Exception as e:
+        print(f"  → emit_play_cards error: {e}")
 
     # ── CONSOLIDATE ALL SIGNALS ──────────────────────────────────────────────
     critical = [s for s in all_signals if s.get("severity") == "CRITICAL"]

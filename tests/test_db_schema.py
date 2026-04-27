@@ -326,3 +326,170 @@ def test_hot_path_indices_exist():
             assert required in names, f"missing index: {required}"
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# f-m2-13 fix #3 — schema-version idempotency + drift-self-heal
+# ---------------------------------------------------------------------------
+
+
+def test_run_migrations_self_heals_a_stale_version_db(tmp_path):
+    """A db with stale ``schema_version`` must still get every table on re-run.
+
+    Simulates the earlier f-m2-09 / f-m2-10 drift where adding a new
+    table to ``schema.sql`` did not bump ``CURRENT_VERSION``: a db
+    that was already at the prior version would have skipped the new
+    DDL under the old short-circuit. Post-f-m2-13, ``run_migrations``
+    re-applies the schema on every connect so the missing tables
+    self-heal.
+    """
+    db_path = tmp_path / "alpha.db"
+    conn = db.connect(db_path)
+    try:
+        # Create just the migration-tracking table with a stale version.
+        conn.execute(
+            "CREATE TABLE schema_version ("
+            "version INTEGER PRIMARY KEY, applied_at TEXT, description TEXT)"
+        )
+        conn.execute("INSERT INTO schema_version (version) VALUES (1)")
+        conn.commit()
+
+        applied = db.run_migrations(conn)
+        assert applied == db.CURRENT_VERSION
+        names = _table_names(conn)
+        # Every table currently in schema.sql must be present.
+        for required in (
+            "plays",
+            "performance_ledger",
+            "discovery_state",
+            "scoring_cache",
+            "llm_cost_ledger",
+            "universe",
+            "news_events",
+            "llm_debate",
+        ):
+            assert required in names, f"{required} missing after self-heal"
+    finally:
+        conn.close()
+
+
+def test_current_version_documented_history():
+    """``CURRENT_VERSION`` must be bumped any time ``schema.sql`` changes.
+
+    Sanity floor: f-m2-12 bumped to 3 for ``llm_debate``; f-m2-13 bumped
+    to 4 for the ``llm_cost_ledger.note`` column. Future schema changes
+    MUST bump this further.
+    """
+    assert db.CURRENT_VERSION >= 4
+    schema_text = db.SCHEMA_PATH.read_text(encoding="utf-8")
+    # We rely on idempotent re-apply, so every CREATE TABLE statement
+    # in schema.sql must use IF NOT EXISTS — the test enforces this so
+    # a future PR that drops the qualifier breaks the build.
+    import re as _re
+
+    create_tables = _re.findall(
+        r"CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?(\w+)",
+        schema_text,
+        flags=_re.IGNORECASE,
+    )
+    for if_not_exists, name in create_tables:
+        assert if_not_exists.strip(), (
+            f"CREATE TABLE {name!r} in schema.sql is missing IF NOT EXISTS — "
+            "re-applying the schema would otherwise raise."
+        )
+
+
+def test_llm_cost_ledger_has_note_column_after_migration(tmp_path):
+    """f-m2-13 fix #2 added ``note`` to ``llm_cost_ledger``.
+
+    Verified via PRAGMA so both fresh dbs (created from schema.sql)
+    and existing dbs (upgraded via the ALTER TABLE migration) agree.
+    """
+    conn = db.connect(tmp_path / "alpha.db")
+    try:
+        db.run_migrations(conn)
+        cols = _column_names(conn, "llm_cost_ledger")
+        assert "note" in cols, f"note column missing from llm_cost_ledger: {cols}"
+    finally:
+        conn.close()
+
+
+def test_alter_table_note_migration_self_heals_old_schema(tmp_path):
+    """A db that was created BEFORE ``note`` existed must gain it on re-run."""
+    db_path = tmp_path / "alpha.db"
+    # Open a raw connection (no migrations yet) and create the
+    # llm_cost_ledger table WITHOUT the note column to simulate the
+    # pre-f-m2-13 schema state.
+    raw = sqlite3.connect(db_path)
+    try:
+        raw.execute(
+            "CREATE TABLE llm_cost_ledger ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "provider TEXT NOT NULL CHECK(provider IN ('xai','anthropic','gemini')), "
+            "model_id TEXT NOT NULL, purpose TEXT, "
+            "prompt_tokens INTEGER, completion_tokens INTEGER, "
+            "latency_ms INTEGER, cost_usd REAL, request_id TEXT, "
+            "called_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))"
+        )
+        raw.commit()
+    finally:
+        raw.close()
+
+    conn = db.connect(db_path)
+    try:
+        db.run_migrations(conn)
+        cols = _column_names(conn, "llm_cost_ledger")
+        assert "note" in cols
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# f-m2-13 fix #1 — atomic migration (rollback on partial failure)
+# ---------------------------------------------------------------------------
+
+
+def test_run_migrations_rolls_back_on_mid_script_failure(tmp_path, monkeypatch):
+    """If a CREATE TABLE statement raises mid-script, no partial DDL persists.
+
+    Monkey-patches ``split_sql_statements`` to inject a guaranteed-fail
+    statement after the first CREATE TABLE so we know the partial DDL
+    has already been issued in the same transaction. The atomic
+    migration must roll back the whole transaction so neither the
+    earlier CREATE TABLE nor the schema_version row survive.
+    """
+    db_path = tmp_path / "alpha.db"
+
+    real_split = db.split_sql_statements
+
+    def _broken_split(sql: str) -> list[str]:
+        statements = real_split(sql)
+        # Insert a guaranteed-fail statement after the first
+        # ``CREATE TABLE schema_version`` so the schema_version row
+        # write at the end never executes.
+        for idx, stmt in enumerate(statements):
+            if "CREATE TABLE" in stmt.upper() and "SCHEMA_VERSION" in stmt.upper():
+                return statements[: idx + 1] + ["this is not valid SQL;"]
+        return statements
+
+    monkeypatch.setattr(db, "split_sql_statements", _broken_split)
+
+    conn = db.connect(db_path)
+    try:
+        with pytest.raises(sqlite3.OperationalError):
+            db.run_migrations(conn)
+        # The transaction must have rolled back — schema_version row
+        # absent (or table absent), and no other tables created.
+        # Either schema_version table was rolled back, OR it exists
+        # but with no rows — both are acceptable atomic outcomes.
+        tables = _table_names(conn)
+        if "schema_version" in tables:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM schema_version WHERE version = ?",
+                (db.CURRENT_VERSION,),
+            ).fetchone()[0]
+            assert count == 0, (
+                "schema_version row written despite mid-script failure"
+            )
+    finally:
+        conn.close()

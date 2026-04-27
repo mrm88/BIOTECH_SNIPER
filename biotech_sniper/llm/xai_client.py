@@ -108,6 +108,12 @@ DEFAULT_BACKOFF_BASE: float = 0.5
 DEFAULT_TIMEOUT: float = 60.0
 
 
+# Sentinel for "argument not supplied" — distinguishes the case
+# ``response_format=None`` (caller opts out of JSON mode) from "caller
+# did not pass a value, use the historical default".
+_SENTINEL: Any = object()
+
+
 # ---------------------------------------------------------------------------
 # Typed exceptions
 # ---------------------------------------------------------------------------
@@ -265,7 +271,13 @@ class XAIClient:
         (float >= 0).
 
         Side effect: appends one row to ``llm_cost_ledger`` with
-        ``provider='xai'``.
+        ``provider='xai'`` for **every** HTTP 200 response — including
+        malformed-JSON cases (the row is logged with
+        ``note='unparseable_response'`` and the actual computed cost
+        from the ``usage`` block, then :class:`XAIParseError` is
+        raised). Calls that never reached HTTP 200 (auth failure,
+        retries exhausted, …) do NOT produce a ledger row because
+        they are not billable.
         """
         chosen_model = model or self._model
         prompt = build_fast_rank_prompt(ticker, context)
@@ -278,13 +290,36 @@ class XAIClient:
         response_json = self._chat_completion(messages=messages, model=chosen_model)
         latency_ms = int((time.perf_counter() - t_start) * 1000)
 
-        parsed = self._parse_assistant_payload(response_json)
+        # f-m2-13 fix #2: log the cost-ledger row BEFORE parsing the
+        # assistant payload. xAI bills for any HTTP 200 response, so a
+        # malformed JSON body (or a missing ``probability`` field) must
+        # still produce a llm_cost_ledger row. If the usage block is
+        # missing we fall back to ``cost_usd=0.0`` and record
+        # ``note='unparseable_response'`` so the audit trail is still
+        # complete.
         usage = response_json.get("usage") or {}
         prompt_tokens = int(usage.get("prompt_tokens") or 0)
         completion_tokens = int(usage.get("completion_tokens") or 0)
         cost_usd = self._compute_cost_usd(prompt_tokens, completion_tokens)
         actual_model_id = str(response_json.get("model") or chosen_model)
         request_id = response_json.get("id")
+
+        try:
+            parsed = self._parse_assistant_payload(response_json)
+        except XAIParseError:
+            # Bill the call before re-raising so the ledger captures
+            # the spend even though the parse failed.
+            self._log_cost_row(
+                model_id=actual_model_id,
+                purpose=purpose,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                latency_ms=latency_ms,
+                cost_usd=cost_usd,
+                request_id=request_id,
+                note="unparseable_response",
+            )
+            raise
 
         result = {
             "probability": parsed["probability"],
@@ -315,20 +350,33 @@ class XAIClient:
         *,
         messages: list[dict[str, str]],
         model: str,
+        response_format: Optional[dict[str, Any]] = _SENTINEL,  # type: ignore[assignment]
     ) -> dict[str, Any]:
-        """POST to ``/chat/completions`` with retry + backoff."""
+        """POST to ``/chat/completions`` with retry + backoff.
+
+        ``response_format`` defaults to the
+        ``{"type": "json_object"}`` shape used by the fast-rank
+        scoring path. Pass ``None`` to opt out (for callers that
+        explicitly want non-JSON-mode replies) or any other dict to
+        override.
+        """
         url = f"{self._base_url}/chat/completions"
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
-        payload = {
+        payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
-            "response_format": {"type": "json_object"},
             "temperature": 0.2,
         }
+        # Sentinel preserves the historical default while allowing
+        # callers to disable JSON mode by passing ``response_format=None``.
+        if response_format is _SENTINEL:
+            payload["response_format"] = {"type": "json_object"}
+        elif response_format is not None:
+            payload["response_format"] = response_format
 
         # We try the first attempt + ``max_retries`` retries. ``attempt``
         # is the zero-based index of the *retry* (so attempt=0 is the
@@ -493,8 +541,17 @@ class XAIClient:
         latency_ms: int,
         cost_usd: float,
         request_id: Optional[str],
+        note: Optional[str] = None,
     ) -> None:
         """Append one row to ``llm_cost_ledger``.
+
+        Parameters
+        ----------
+        note:
+            Optional free-form annotation persisted on the row. Used
+            by f-m2-13 fix #2 to record ``note='unparseable_response'``
+            when a 200 response could not be parsed but was still
+            billed.
 
         Failures (db missing, schema not yet migrated, db locked) are
         logged at WARNING and swallowed — a cost-ledger hiccup must
@@ -519,8 +576,8 @@ class XAIClient:
                         INSERT INTO llm_cost_ledger (
                             provider, model_id, purpose,
                             prompt_tokens, completion_tokens,
-                            latency_ms, cost_usd, request_id
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            latency_ms, cost_usd, request_id, note
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             "xai",
@@ -531,6 +588,7 @@ class XAIClient:
                             int(latency_ms),
                             float(cost_usd),
                             request_id,
+                            note,
                         ),
                     )
             finally:
@@ -545,6 +603,72 @@ class XAIClient:
                 "xai_client: unexpected error writing cost ledger: %r",
                 exc,
             )
+
+    # ------------------------------------------------------------------
+    # Public debate-friendly chat helper (f-m2-13 fix #6)
+    # ------------------------------------------------------------------
+
+    def chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        model: Optional[str] = None,
+        purpose: str = "debate",
+        json_mode: bool = True,
+    ) -> dict[str, Any]:
+        """Generic public chat helper that ALWAYS writes a cost-ledger row.
+
+        Used by :mod:`biotech_sniper.llm.llm_debate` for the
+        adjudication round so the public API path is the same one
+        that handles cost-ledger persistence. Returns a dict with
+        ``text``, ``prompt_tokens``, ``completion_tokens``,
+        ``cost_usd``, ``latency_ms``, ``model_id``, and the raw
+        ``response_json`` for callers that need provider metadata.
+
+        ``json_mode=True`` (default) requests
+        ``response_format={"type": "json_object"}`` so the model
+        emits parseable JSON for downstream consumers.
+        """
+        chosen_model = model or self._model
+        t_start = time.perf_counter()
+        response_json = self._chat_completion(
+            messages=messages,
+            model=chosen_model,
+            response_format={"type": "json_object"} if json_mode else None,
+        )
+        latency_ms = int((time.perf_counter() - t_start) * 1000)
+        usage = response_json.get("usage") or {}
+        prompt_tokens = int(usage.get("prompt_tokens") or 0)
+        completion_tokens = int(usage.get("completion_tokens") or 0)
+        cost_usd = self._compute_cost_usd(prompt_tokens, completion_tokens)
+        actual_model_id = str(response_json.get("model") or chosen_model)
+        request_id = response_json.get("id")
+        try:
+            text = str(
+                response_json["choices"][0]["message"]["content"] or ""
+            )
+        except (KeyError, IndexError, TypeError):
+            text = ""
+
+        self._log_cost_row(
+            model_id=actual_model_id,
+            purpose=purpose,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            latency_ms=latency_ms,
+            cost_usd=cost_usd,
+            request_id=request_id,
+        )
+        return {
+            "text": text,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "cost_usd": cost_usd,
+            "latency_ms": latency_ms,
+            "model_id": actual_model_id,
+            "request_id": request_id,
+            "response_json": response_json,
+        }
 
 
 # ---------------------------------------------------------------------------
