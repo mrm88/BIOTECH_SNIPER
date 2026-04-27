@@ -685,6 +685,25 @@ def run_intraday_scan():
     else:
         print("  ✓ No upgrades")
 
+    # ── JOB 4: ROTATION (f-m3-10) ──────────────────────────────────────
+    # Best-effort rotation evaluation. Failures here MUST NOT break the
+    # rest of the intraday cycle (the rotation engine is gated by paper
+    # credentials + scoring_cache freshness; in dev or without an
+    # executor it short-circuits to a dry-run summary).
+    print("\nJOB 4 — ROTATION CHECK")
+    try:
+        from biotech_sniper.rotation_engine import evaluate_rotation
+        rotation_result = evaluate_rotation()
+        print(
+            f"  active={rotation_result.get('active_count')} / "
+            f"cap={rotation_result.get('capacity')} | "
+            f"rotations={len(rotation_result.get('decisions', []))} | "
+            f"skips={len(rotation_result.get('skips', []))}"
+        )
+    except Exception as _re:  # pragma: no cover - defensive
+        print(f"  rotation_engine: skipped ({type(_re).__name__}: {_re})")
+        rotation_result = {"decisions": [], "skips": []}
+
     # ── EMAIL ─────────────────────────────────────────────────────────
     # New opportunities get their OWN immediate email (higher priority)
     if new_opportunities:
