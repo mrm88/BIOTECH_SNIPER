@@ -33,9 +33,9 @@ INTRADAY RULE:
 
 import json
 import datetime
-from pathlib import Path
 
-BASE_DIR = Path(__file__).parent
+from biotech_sniper.paths import BASE_DIR
+
 ACTIVE_PLAYS_FILE = BASE_DIR / "state/active_plays.json"
 LEDGER_FILE = BASE_DIR / "state/performance_ledger.json"
 

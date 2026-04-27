@@ -18,14 +18,14 @@ import json
 import datetime
 import logging
 import time
-from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
+
+from biotech_sniper.paths import BASE_DIR
 
 # ---------------------------------------------------------------------------
 # Paths & logging
 # ---------------------------------------------------------------------------
-BASE_DIR = Path(__file__).parent.parent
 
 logging.basicConfig(
     level=logging.INFO,
@@ -48,16 +48,23 @@ NEW_TICKER_BATCH_SIZE = 50  # process new tickers in batches of this size
 # Import pipeline functions (lazy-safe)
 # ---------------------------------------------------------------------------
 try:
-    from intelligence.company_pipeline_manager import (
+    from biotech_sniper.intelligence.company_pipeline_manager import (
         run_pipeline_batch,
         load_pipeline_state,
         save_pipeline_state,
         get_new_catalyst_discoveries,
     )
 except ImportError:
+    # Legacy fallback: when the package is not on sys.path (e.g. a
+    # script runs ``intelligence/pipeline_scheduler.py`` directly),
+    # add the repo root and retry. We deliberately do NOT add the
+    # package directory anymore — that pattern made
+    # ``Path(__file__).parent``-style writers leak under
+    # ``<package>/state/`` (the read-only reference tree on the
+    # VPS). See VAL-M2-061.
     import sys
     sys.path.insert(0, str(BASE_DIR))
-    from intelligence.company_pipeline_manager import (
+    from biotech_sniper.intelligence.company_pipeline_manager import (
         run_pipeline_batch,
         load_pipeline_state,
         save_pipeline_state,
@@ -102,7 +109,10 @@ def _load_full_universe() -> dict:
 
     # 3. PDUFA + research seed tickers
     try:
-        from intelligence.bulk_universe_scanner import PDUFA_CALENDAR, RESEARCH_TICKERS
+        from biotech_sniper.intelligence.bulk_universe_scanner import (
+            PDUFA_CALENDAR,
+            RESEARCH_TICKERS,
+        )
         for t in PDUFA_CALENDAR:
             universe.setdefault(t.upper(), {})
         for t in RESEARCH_TICKERS:

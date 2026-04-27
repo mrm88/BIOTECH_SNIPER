@@ -20,14 +20,14 @@ import time
 import logging
 import urllib.request
 import urllib.parse
-from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
+
+from biotech_sniper.paths import BASE_DIR
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-BASE_DIR = Path(__file__).parent.parent
 STATE_FILE = BASE_DIR / "state/company_pipelines.json"
 
 # ---------------------------------------------------------------------------
@@ -72,12 +72,14 @@ EVENT_TYPE_EARNINGS = "EARNINGS"
 # Import PDUFA calendar from sibling module (graceful fallback)
 # ---------------------------------------------------------------------------
 try:
-    from intelligence.bulk_universe_scanner import PDUFA_CALENDAR
+    from biotech_sniper.intelligence.bulk_universe_scanner import PDUFA_CALENDAR
 except ImportError:
     try:
         import sys
         sys.path.insert(0, str(BASE_DIR))
-        from intelligence.bulk_universe_scanner import PDUFA_CALENDAR
+        from biotech_sniper.intelligence.bulk_universe_scanner import (
+            PDUFA_CALENDAR,
+        )
     except ImportError:
         PDUFA_CALENDAR = {}
 

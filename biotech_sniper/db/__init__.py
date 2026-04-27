@@ -27,13 +27,16 @@ Public API
 
 from __future__ import annotations
 
+import os
 import sqlite3
+import stat
 from pathlib import Path
 from typing import Final, Union
 
 __all__ = [
     "SCHEMA_PATH",
     "CURRENT_VERSION",
+    "DB_FILE_MODE",
     "connect",
     "run_migrations",
     "current_schema_version",
@@ -60,7 +63,46 @@ SCHEMA_PATH: Final[Path] = Path(__file__).resolve().parent / "schema.sql"
 CURRENT_VERSION: Final[int] = 4
 
 
+# File mode applied to the on-disk SQLite database after every
+# :func:`connect` call. The DB contains play data, LLM-debate
+# transcripts, and configuration, so we lock down world access.
+# ``0o640`` (rw- r-- ---) leaves the file readable by the owner's
+# group so future systemd group access (e.g. a reporting unit running
+# under a sibling user that shares the ``alpha-sniper`` group) does
+# not require ``sudo``. See VAL-M2-001 for the contract assertion.
+DB_FILE_MODE: Final[int] = 0o640
+
+
 PathLike = Union[str, Path]
+
+
+def _ensure_db_file_mode(path: Path, mode: int = DB_FILE_MODE) -> None:
+    """Idempotently chmod ``path`` to ``mode`` if it differs from current.
+
+    Called by :func:`connect` after the connection has been opened (and
+    the file therefore exists on disk). The ``stat()`` is cheap; the
+    ``chmod()`` is skipped entirely when the file already has the
+    desired mode so we do not generate spurious filesystem writes on
+    every connect (which happens many times per cron run).
+
+    Silently returns when ``path`` does not exist (e.g. the in-memory
+    database) or when ``stat()``/``chmod()`` raises ``OSError`` (e.g.
+    a read-only filesystem). The DB-mode invariant is best-effort and
+    must never crash a connect call.
+    """
+    try:
+        current = stat.S_IMODE(path.stat().st_mode) & 0o777
+    except (FileNotFoundError, OSError):
+        return
+    if current == mode:
+        return
+    try:
+        os.chmod(path, mode)
+    except OSError:
+        # Filesystem may be read-only or owned by another user. We
+        # surface neither — the caller should not care about chmod
+        # failures when a connection succeeded.
+        pass
 
 
 def connect(db_path: PathLike) -> sqlite3.Connection:
@@ -98,6 +140,13 @@ def connect(db_path: PathLike) -> sqlite3.Connection:
         # spuriously prints ``memory`` instead — skip it there to keep
         # the smoke import quiet.
         conn.execute("PRAGMA journal_mode = WAL;")
+        # Lock the on-disk file to ``DB_FILE_MODE`` (0o640). The first
+        # connect creates the file (sqlite3 inherits the process
+        # umask, which is 0o022 on most Linux installs → 0o644). We
+        # tighten the permissions here so subsequent connects find
+        # the file already at 0o640 and skip the chmod entirely. See
+        # VAL-M2-001 (DB file mode contract assertion).
+        _ensure_db_file_mode(Path(target))
     conn.execute("PRAGMA synchronous = NORMAL;")
     return conn
 

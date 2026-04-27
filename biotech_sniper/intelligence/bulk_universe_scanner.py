@@ -21,9 +21,9 @@ STATE FILES:
 """
 
 import json, re, datetime, time, urllib.request, urllib.parse
-from pathlib import Path
 
-BASE_DIR = Path(__file__).parent.parent
+from biotech_sniper.paths import BASE_DIR
+
 CT_API = "https://clinicaltrials.gov/api/v2/studies"
 
 SKIP_WORDS = {

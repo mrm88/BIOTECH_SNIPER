@@ -34,7 +34,6 @@ except Exception as _e:
     print(f'  [intraday] new_opp_sniper not available: {_e}')
     _NEW_OPP_SNIPER_AVAILABLE = False
 import requests
-from pathlib import Path
 
 from biotech_sniper.paths import BASE_DIR as BASE
 ACTIVE_FILE   = BASE / "state/active_plays.json"
@@ -499,8 +498,7 @@ def read_pending_intraday_email():
     Returns the pending dict (with email_body, subject, etc.) or None.
     Used by the cron agent to recover the email body without re-running the scan.
     """
-    _base = Path(__file__).parent
-    pending_path = _base / "state/pending_intraday_email.json"
+    pending_path = BASE / "state/pending_intraday_email.json"
     if pending_path.exists():
         import json as _j
         data = _j.load(open(pending_path))
@@ -511,8 +509,7 @@ def read_pending_intraday_email():
 
 def clear_pending_intraday_email():
     """Mark the pending email as sent so it is not re-sent on next run."""
-    _base = Path(__file__).parent
-    pending_path = _base / "state/pending_intraday_email.json"
+    pending_path = BASE / "state/pending_intraday_email.json"
     if pending_path.exists():
         import json as _j
         data = _j.load(open(pending_path))
