@@ -1,0 +1,16 @@
+{
+  "interactions": [
+    {
+      "type": "create",
+      "result": {
+        "id": "resp_deep_review_001",
+        "model": "gemini-2.5-pro",
+        "content_text": "{\"science_profile\": {\"moa\": \"Selective MAT2A inhibition exploits MTAP-deletion synthetic lethality\", \"comparator\": \"Investigator's choice chemo (docetaxel) — a well-defined SoC effect size in 2L NSCLC\", \"prior_phase_data\": \"P2 readout 2025-03 showed ORR 32% (n=58) with median DoR 7.2mo; on-mechanism PD biomarker confirmed in 84%\", \"base_rate\": 0.45, \"indication\": \"MTAP-deleted NSCLC, 2L+\", \"design_risks\": \"Open-label P3 vs SoC; primary endpoint PFS not OS; powered for HR 0.65; alpha-spending plan moderately aggressive\"}, \"letter_grade\": \"A-\", \"probability\": 0.62, \"rationale\": \"Replicated P2 efficacy and on-mechanism PD response support a stronger-than-base-rate read; MTAP synthetic-lethality is well-validated and the comparator is appropriate for 2L NSCLC. Sponsor execution track record is clean. Open-label PFS-only design is the main residual risk but not disqualifying. Net: above-base-rate probability with some headline-readout binary risk.\", \"citations\": [{\"source\": \"NCT05123456\", \"quote_or_url\": \"https://clinicaltrials.gov/study/NCT05123456\"}, {\"source\": \"AACR 2025 Abstract LB-021\", \"quote_or_url\": \"P2 readout: ORR 32% in MTAP-del NSCLC, n=58\"}, {\"source\": \"8-K filed 2026-04-15\", \"quote_or_url\": \"DSMB conducted protocol-specified interim safety review; recommended trial continue\"}]}",
+        "usage": {
+          "input_tokens": 412,
+          "output_tokens": 386
+        }
+      }
+    }
+  ]
+}

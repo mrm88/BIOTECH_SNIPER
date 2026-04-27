@@ -1,0 +1,12 @@
+{
+  "interactions": [
+    {
+      "type": "error",
+      "error": {
+        "class": "ClientError",
+        "code": 401,
+        "message": "API key not valid. Please pass a valid API key."
+      }
+    }
+  ]
+}

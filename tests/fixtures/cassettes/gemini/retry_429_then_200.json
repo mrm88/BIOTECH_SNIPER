@@ -1,0 +1,32 @@
+{
+  "interactions": [
+    {
+      "type": "error",
+      "error": {
+        "class": "ClientError",
+        "code": 429,
+        "message": "Resource exhausted; retry after 1s"
+      }
+    },
+    {
+      "type": "error",
+      "error": {
+        "class": "ServerError",
+        "code": 503,
+        "message": "Service temporarily unavailable"
+      }
+    },
+    {
+      "type": "create",
+      "result": {
+        "id": "resp_after_retry_001",
+        "model": "gemini-2.5-pro",
+        "content_text": "{\"science_profile\": {\"moa\": \"PD-1 inhibitor\", \"comparator\": \"placebo\", \"prior_phase_data\": \"P2 ORR 28%\", \"base_rate\": 0.40, \"indication\": \"melanoma 2L\", \"design_risks\": \"randomized double-blind\"}, \"letter_grade\": \"B-\", \"probability\": 0.38, \"rationale\": \"Recovered after 429 + 503; mid-tier signal with adequate prior data and a clean comparator. Slight downgrade from base rate due to thinner P2 sample.\", \"citations\": [{\"source\": \"NCT04222222\", \"quote_or_url\": \"https://clinicaltrials.gov/study/NCT04222222\"}]}",
+        "usage": {
+          "input_tokens": 200,
+          "output_tokens": 150
+        }
+      }
+    }
+  ]
+}

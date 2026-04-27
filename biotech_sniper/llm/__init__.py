@@ -7,8 +7,8 @@ providers used by the scoring stack:
   (M2, this milestone).
 * :mod:`biotech_sniper.llm.claude_client` — Claude Opus deep-tier
   science reasoning (M2, this milestone).
-* ``biotech_sniper.llm.gemini_client`` — Gemini 2.5 Pro deep-tier
-  ensemble partner (M2, follow-on feature).
+* :mod:`biotech_sniper.llm.gemini_client` — Gemini 2.5 Pro deep-tier
+  ensemble partner (M2, this milestone).
 
 Every client in this package MUST:
 
