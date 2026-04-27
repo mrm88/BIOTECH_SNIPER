@@ -1,8 +1,9 @@
 """Unit tests for biotech_sniper.config.
 
 Covers:
-* RISK_DEFAULTS exposes the agreed numbers (per_play=250, max_concurrent=3,
-  max_deployed=750).
+* RISK_DEFAULTS exposes the agreed numbers (per_play=250, max_concurrent=4,
+  max_deployed=1000) — post-scope-expansion values from mission.md /
+  AGENTS.md / library/architecture.md (2026-04-26).
 * LIVE_MODE defaults to False when LIVE_MODE is unset or "0".
 * LIVE_MODE coerces truthy strings ("1", "true", "yes", "on").
 * LLM_PROVIDERS exposes fast="xai" and deep=["anthropic","gemini"].
@@ -49,12 +50,15 @@ def _clear_env(monkeypatch):
 
 
 def test_risk_defaults_match_agreed_numbers(monkeypatch):
+    """Post-scope-expansion values (mission.md / AGENTS.md, 2026-04-26):
+    per_play=250, max_concurrent=4, max_deployed=1000.
+    """
     _clear_env(monkeypatch)
     config = _reload_config()
     assert config.RISK_DEFAULTS == {
         "per_play": 250,
-        "max_concurrent": 3,
-        "max_deployed": 750,
+        "max_concurrent": 4,
+        "max_deployed": 1000,
     }
 
 

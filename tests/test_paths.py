@@ -57,23 +57,40 @@ def test_base_dir_preserves_literal_env_value(monkeypatch):
 
 
 def test_base_dir_falls_back_to_file_when_env_unset(monkeypatch):
-    """BASE_DIR falls back to the directory containing paths.py."""
+    """BASE_DIR falls back to the repo root (parent of the package dir).
+
+    paths.py lives at ``<repo_root>/biotech_sniper/paths.py``; the
+    fallback must therefore be the repo root, NOT the ``biotech_sniper``
+    package directory. Sibling artefacts (``state/``, ``reports/``,
+    ``archive/``, ``migrations/``, ``.env``) all live at the repo root
+    and rely on this resolution to be reachable.
+    """
     monkeypatch.delenv("BIOTECH_SNIPER_HOME", raising=False)
 
     paths = _reload_paths()
 
-    expected = Path(paths.__file__).resolve().parent
-    assert paths.BASE_DIR == expected
+    package_dir = Path(paths.__file__).resolve().parent
+    expected_repo_root = package_dir.parent
+    assert paths.BASE_DIR == expected_repo_root
+    # And specifically NOT the package dir.
+    assert paths.BASE_DIR != package_dir
+    assert paths.BASE_DIR.name != "biotech_sniper"
 
 
 def test_empty_env_var_falls_back_to_file(monkeypatch):
-    """An empty BIOTECH_SNIPER_HOME is treated as unset (falsy)."""
+    """An empty BIOTECH_SNIPER_HOME is treated as unset (falsy).
+
+    Same fallback semantics as ``test_base_dir_falls_back_to_file_when_env_unset``:
+    we resolve to the repo root, not to the package directory.
+    """
     monkeypatch.setenv("BIOTECH_SNIPER_HOME", "")
 
     paths = _reload_paths()
 
-    expected = Path(paths.__file__).resolve().parent
-    assert paths.BASE_DIR == expected
+    package_dir = Path(paths.__file__).resolve().parent
+    expected_repo_root = package_dir.parent
+    assert paths.BASE_DIR == expected_repo_root
+    assert paths.BASE_DIR != package_dir
 
 
 def test_derived_subpaths_rooted_under_base_dir(monkeypatch, tmp_path):

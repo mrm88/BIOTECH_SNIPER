@@ -3,9 +3,13 @@
 `BASE_DIR` is resolved in this priority order:
 
 1. The ``BIOTECH_SNIPER_HOME`` environment variable, if set and non-empty.
-2. The directory containing this file (``<repo>/biotech_sniper``), used as
-   the fallback so that local development and tests work without any
-   environment configuration.
+2. The repo root (the directory that *contains* the ``biotech_sniper``
+   package), used as the fallback so that local development and tests
+   work without any environment configuration. The fallback intentionally
+   resolves to the repo root and **not** the package directory itself —
+   the package directory is an implementation detail; sibling artefacts
+   such as ``state/``, ``reports/``, ``archive/``, ``migrations/`` and
+   the ``.env`` file all live at the repo root.
 
 All other exported paths are derived from ``BASE_DIR`` and are returned as
 ``pathlib.Path`` objects. Importing this module never creates directories
@@ -46,8 +50,13 @@ def _resolve_base_dir() -> Path:
         # matches what the operator set in their environment (e.g. ``/tmp/abc``
         # on Linux stays ``/tmp/abc`` rather than dereferencing symlinks).
         return Path(env_value).expanduser()
-    # paths.py lives at <BASE_DIR>/paths.py, so the parent IS BASE_DIR.
-    return Path(__file__).resolve().parent
+    # paths.py lives at ``<repo_root>/biotech_sniper/paths.py``. The
+    # ``biotech_sniper`` package is a child of the repo root, so the
+    # repo root is two levels up from this file. Returning the repo
+    # root keeps sibling artefacts (``state/``, ``reports/``,
+    # ``archive/``, ``migrations/``, ``.env``) reachable from
+    # ``BASE_DIR`` without any environment configuration.
+    return Path(__file__).resolve().parent.parent
 
 
 BASE_DIR: Path = _resolve_base_dir()

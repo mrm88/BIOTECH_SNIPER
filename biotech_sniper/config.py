@@ -67,9 +67,9 @@ _load_dotenv_if_available()
 # ---------------------------------------------------------------------------
 
 RISK_DEFAULTS: Final[dict[str, int]] = {
-    "per_play": 250,        # USD risked per single options play
-    "max_concurrent": 3,    # max simultaneously open plays
-    "max_deployed": 750,    # max USD deployed across all open plays
+    "per_play": 250,         # USD risked per single options play
+    "max_concurrent": 4,     # max simultaneously open plays
+    "max_deployed": 1000,    # max USD deployed across all open plays
 }
 
 
