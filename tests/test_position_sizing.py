@@ -197,6 +197,52 @@ def test_size_position_raises_missing_quote_data_when_none_none():
 
 
 # ---------------------------------------------------------------------------
+# f-m3-14: one-sided quote handling.
+#
+# When only ONE side of the quote is populated, ``(bid+ask)/2`` would
+# halve the per-contract cost and oversize the position. The fix uses
+# the populated side directly (== ``max(bid, ask)``) so the cap is
+# respected.
+# ---------------------------------------------------------------------------
+
+
+def test_size_position_one_sided_bid_only_respects_cap():
+    """bid=$2.00, ask=None → cost=$200/contract → qty=1 (NOT 2).
+
+    Regression for the f-m3-14 oversizing bug. Without the fix,
+    ``mid = (2.00 + 0) / 2 = 1.00`` would yield qty=2 at $400 cost,
+    breaking the $250 per-play cap.
+    """
+    play = _play_card(bid=2.00, ask=None)
+    qty = size_position(play)
+    assert qty == 1
+    # Defensive: combined cost stays inside the per-play cap.
+    assert qty * 2.00 * 100 <= biotech_config.RISK_PER_PLAY_USD
+
+
+def test_size_position_one_sided_ask_only_respects_cap():
+    """bid=None, ask=$2.00 → cost=$200/contract → qty=1."""
+    play = _play_card(bid=None, ask=2.00)
+    qty = size_position(play)
+    assert qty == 1
+    assert qty * 2.00 * 100 <= biotech_config.RISK_PER_PLAY_USD
+
+
+def test_size_position_one_sided_zero_bid_uses_ask():
+    """bid=0 (treated as missing), ask=$1.50 → cost=$150 → qty=1."""
+    play = _play_card(bid=0.0, ask=1.50)
+    qty = size_position(play)
+    assert qty == 1
+    assert qty * 1.50 * 100 <= biotech_config.RISK_PER_PLAY_USD
+
+
+def test_size_position_one_sided_too_expensive_returns_zero():
+    """One-sided bid=$3.00 alone still trips the per-contract cap."""
+    play = _play_card(bid=3.00, ask=None)
+    assert size_position(play) == 0
+
+
+# ---------------------------------------------------------------------------
 # VAL-M3-021: mid > cap → returns 0; execute raises ContractTooExpensive.
 # ---------------------------------------------------------------------------
 
@@ -469,3 +515,184 @@ def test_caps_are_referenced_via_config_module(db_path: Path):
             executor.execute(_play_card(bid=1.00, ask=1.40))
     finally:
         cfg.MAX_CONCURRENT_PLAYS = original_cap  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# f-m3-14: side-aware cap bypass.
+#
+# Sell-to-close orders (the f-m3-09 exit triggers — iv_crush_exit,
+# stop_loss, adverse_news, rotation) MUST bypass concurrency and
+# deployed-capital caps. Risk-reducing exits should never be blocked
+# because the account is already at max-concurrent or at the deployed
+# cap — that is precisely the state in which exits are most likely to
+# fire. Buys remain capped.
+# ---------------------------------------------------------------------------
+
+
+def _sell_card(
+    *,
+    play_card_id: str = "AXSM-2025-04-27-stop_loss",
+    parent_play_card_id: str = "AXSM-2025-04-27",
+    event: str = "stop_loss",
+) -> dict[str, Any]:
+    """Build a single-leg sell card with the f-m3-09 exit metadata."""
+    return {
+        "play_card_id": play_card_id,
+        "parent_play_card_id": parent_play_card_id,
+        "ticker": "AXSM",
+        "event": event,
+        "option_legs": [
+            {
+                "symbol": "AXSM250620C00125000",
+                "side": "sell",
+                "qty": 1,
+                "option_type": "call",
+                "limit_price": 1.50,
+            }
+        ],
+    }
+
+
+def test_sell_bypasses_concurrency_cap_with_three_active_options(
+    db_path: Path,
+):
+    """3 active option positions: a 4th sell submission MUST proceed.
+
+    Regression for the f-m3-14 bug. Buys at this state would correctly
+    raise :class:`ConcurrencyCapExceeded`; sells must short-circuit
+    the cap so risk-reducing exits are never blocked.
+    """
+    positions = [
+        {
+            "symbol": "X1",
+            "qty": 1,
+            "avg_entry_price": 1.0,
+            "asset_class": "us_option",
+        },
+        {
+            "symbol": "X2",
+            "qty": 1,
+            "avg_entry_price": 1.0,
+            "asset_class": "us_option",
+        },
+        {
+            "symbol": "X3",
+            "qty": 1,
+            "avg_entry_price": 1.0,
+            "asset_class": "us_option",
+        },
+    ]
+    fake = _FakeAlpacaClient(
+        positions=positions,
+        submit_order_result={
+            "id": "sell-order-id",
+            "symbol": "AXSM250620C00125000",
+            "side": "sell",
+            "qty": 1,
+            "status": "accepted",
+        },
+    )
+    executor = PaperExecutor(fake, db_path=db_path)  # type: ignore[arg-type]
+    result = executor.execute(_sell_card())
+    assert result == "sell-order-id"
+    assert len(fake.submit_calls) == 1
+
+
+def test_sell_bypasses_deployed_cap_with_seven_hundred_deployed(
+    db_path: Path,
+):
+    """3 active option positions totalling $700 deployed: sell still fires.
+
+    Without the bypass the deployed-cap arithmetic would have blocked
+    a buy entry at this state (deployed=$700 + planned=$0 stays under
+    $750, but a non-trivial planned entry would breach). For sells we
+    skip both the position probe AND the planned-cost arithmetic so
+    the broker reaches submit unconditionally.
+    """
+    positions = [
+        # 3 * 100 * $2.00 + 1 * 100 * $1.00 = $700 deployed.
+        {
+            "symbol": "Y1",
+            "qty": 3,
+            "avg_entry_price": 2.0,
+            "asset_class": "us_option",
+        },
+        {
+            "symbol": "Y2",
+            "qty": 1,
+            "avg_entry_price": 1.0,
+            "asset_class": "us_option",
+        },
+        {
+            "symbol": "Y3",
+            "qty": 1,
+            "avg_entry_price": 0.0,
+            "asset_class": "us_option",
+        },
+    ]
+    fake = _FakeAlpacaClient(
+        positions=positions,
+        submit_order_result={
+            "id": "sell-order-id-2",
+            "symbol": "AXSM250620C00125000",
+            "side": "sell",
+            "qty": 1,
+            "status": "accepted",
+        },
+    )
+    executor = PaperExecutor(fake, db_path=db_path)  # type: ignore[arg-type]
+    # Sanity: this exact state would block a BUY (concurrency cap).
+    with pytest.raises(ConcurrencyCapExceeded):
+        executor.execute(_play_card(bid=1.00, ask=1.40))
+    # But the SELL submission proceeds — neither cap fires.
+    result = executor.execute(_sell_card())
+    assert result == "sell-order-id-2"
+    # Two attempts → only the sell reached the broker (the buy was
+    # blocked pre-submit by the concurrency cap).
+    assert len(fake.submit_calls) == 1
+
+
+def test_sell_bypass_does_not_call_get_positions(db_path: Path):
+    """Sell path skips ``get_positions`` entirely (exit-fast invariant).
+
+    Confirms the executor's bypass is structural — it never asks the
+    broker for the position list when the side is ``sell`` — rather
+    than just gating the cap arithmetic. Means sells continue to work
+    even on a broker that 5xxs the positions endpoint mid-day.
+    """
+    fake = _FakeAlpacaClient(
+        submit_order_result={
+            "id": "sell-id-3",
+            "symbol": "AXSM250620C00125000",
+            "side": "sell",
+            "qty": 1,
+            "status": "accepted",
+        },
+    )
+    executor = PaperExecutor(fake, db_path=db_path)  # type: ignore[arg-type]
+    result = executor.execute(_sell_card())
+    assert result == "sell-id-3"
+    assert fake.get_positions_calls == 0
+
+
+def test_buy_caps_unchanged_three_active_still_blocks_fourth(db_path: Path):
+    """The companion invariant from VAL-M3-023 stays green.
+
+    Three concurrent BUY entries still trip ConcurrencyCapExceeded on
+    the 4th. Confirms the f-m3-14 sell-bypass did not weaken the buy
+    cap path.
+    """
+    positions = [
+        {
+            "symbol": f"X{i}",
+            "qty": 1,
+            "avg_entry_price": 1.0,
+            "asset_class": "us_option",
+        }
+        for i in range(3)
+    ]
+    fake = _FakeAlpacaClient(positions=positions)
+    executor = PaperExecutor(fake, db_path=db_path)  # type: ignore[arg-type]
+    with pytest.raises(ConcurrencyCapExceeded):
+        executor.execute(_play_card(bid=1.00, ask=1.40))
+    assert fake.submit_calls == []

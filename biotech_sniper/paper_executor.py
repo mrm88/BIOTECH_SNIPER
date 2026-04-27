@@ -512,7 +512,21 @@ def size_position(
             "size_position refuses to size from `last` alone."
         )
 
-    mid = (bid + ask) / 2.0
+    # f-m3-14: one-sided quote handling. When BOTH bid and ask are
+    # populated, ``mid = (bid + ask) / 2`` is the standard fillable
+    # estimate. When only ONE side is present, falling back to
+    # ``(bid + ask) / 2`` would HALVE the per-contract cost (the
+    # missing side coerces to 0) and oversize the position — e.g.
+    # bid=$2.00 ask=None would yield mid=$1.00 → 2 contracts @
+    # $400 cost, blowing the $250 per-play cap. We instead use the
+    # populated side directly (equivalently ``max(bid, ask)`` since
+    # the missing side is always ``0`` after coercion). This is the
+    # conservative estimate — single-sided quotes always overstate
+    # the worst-case cost rather than understating it.
+    if bid > 0.0 and ask > 0.0:
+        mid = (bid + ask) / 2.0
+    else:
+        mid = max(bid, ask)
     cost_per_contract = mid * 100.0
 
     cap = (
