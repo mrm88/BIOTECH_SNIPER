@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import logging
 import re as _re
 import runpy
 import sys
@@ -46,6 +47,9 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from biotech_sniper.paths import BASE_DIR, REPORTS_DIR
 
 __all__ = ["main", "build_report"]
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 # Lowercase, three-letter month abbreviations matching the historical
@@ -174,7 +178,22 @@ def build_report(date: _dt.date) -> Path:
     if archive_script is not None:
         # Execute the dated script in a fresh namespace with __name__ set
         # to "__main__" so any ``if __name__ == "__main__":`` blocks fire.
-        runpy.run_path(str(archive_script), run_name="__main__")
+        #
+        # Some legacy archive scripts (e.g. apr11/apr12/apr13/apr14/apr14b)
+        # read per-day state files such as ``BASE/state/options_chains_<DATE>.json``
+        # whose canonical home migrated to ``migrations/seed/`` after f-m1-03.
+        # When that state file is absent we degrade gracefully to the
+        # placeholder workbook fallback rather than crashing the CLI.
+        try:
+            runpy.run_path(str(archive_script), run_name="__main__")
+        except FileNotFoundError as missing:
+            _LOGGER.warning(
+                "build_report: archive script %s aborted with "
+                "FileNotFoundError (%s); falling back to placeholder workbook",
+                archive_script.name,
+                missing,
+            )
+            return _placeholder_workbook(date)
         return _output_path(date)
     return _placeholder_workbook(date)
 

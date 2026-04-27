@@ -155,3 +155,56 @@ def test_cli_requires_date_argument(capsys):
     with pytest.raises(SystemExit) as exc:
         br.main([])
     assert exc.value.code != 0
+
+
+# ---------------------------------------------------------------------------
+# Legacy archive scripts that depend on per-day state JSONs which moved to
+# ``migrations/seed/`` (f-m1-03) MUST NOT crash the CLI. They fall through to
+# the placeholder workbook branch instead.
+# ---------------------------------------------------------------------------
+
+
+def test_legacy_archive_with_missing_state_falls_back_to_placeholder(
+    monkeypatch, tmp_path: Path, caplog
+):
+    """``--date 2026-04-12`` (whose archive script reads a state JSON that
+    no longer exists at ``BASE/state/...``) must produce a placeholder
+    workbook with exit code 0 instead of raising ``FileNotFoundError``.
+
+    The archive script ``archive/build_report/build_report_apr12.py``
+    opens ``BASE/state/options_chains_2026-04-12.json``; that file was
+    relocated to ``migrations/seed/`` in f-m1-03, so it is no longer
+    present at the canonical state path. The dispatcher must catch the
+    ``FileNotFoundError``, log a warning, and emit the placeholder
+    workbook so the CLI stays usable for legacy dates.
+    """
+    repo_root = Path(__file__).resolve().parent.parent
+    # Use the actual repo root as BASE_DIR so the archive scripts under
+    # ``archive/build_report/`` are discoverable. The repo root has no
+    # ``state/`` directory (state is under ``biotech_sniper/state/`` or
+    # in ``migrations/seed/`` after f-m1-03), so the legacy script will
+    # raise ``FileNotFoundError`` exactly as it does in production.
+    monkeypatch.setenv("BIOTECH_SNIPER_HOME", str(repo_root))
+    # Redirect REPORTS_DIR to a temp location so we don't pollute the
+    # checked-out reports directory with placeholder workbooks.
+    br = _reload_build_report()
+    monkeypatch.setattr(br, "REPORTS_DIR", tmp_path / "reports")
+
+    # Confirm the legacy archive script exists for this date.
+    legacy = br._archive_script_for(_dt.date(2026, 4, 12))
+    assert legacy is not None and legacy.name == "build_report_apr12.py"
+
+    with caplog.at_level("WARNING", logger="biotech_sniper.build_report"):
+        rc = br.main(["--date", "2026-04-12"])
+    assert rc == 0
+
+    # The placeholder branch ran and saved a workbook.
+    out = tmp_path / "reports" / "Alpha_Sniper_2026-04-12.xlsx"
+    assert out.exists() and out.stat().st_size > 0
+
+    # And we logged a warning that the legacy script aborted.
+    assert any(
+        "build_report_apr12.py" in record.getMessage()
+        and "FileNotFoundError" in record.getMessage()
+        for record in caplog.records
+    ), f"expected FileNotFoundError warning; got: {[r.getMessage() for r in caplog.records]}"
