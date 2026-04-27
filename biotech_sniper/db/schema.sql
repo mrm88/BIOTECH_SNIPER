@@ -284,3 +284,47 @@ CREATE INDEX IF NOT EXISTS idx_llm_debate_trigger
     ON llm_debate(trigger);
 CREATE INDEX IF NOT EXISTS idx_llm_debate_transcript_complete_at
     ON llm_debate(transcript_complete_at);
+
+-- ---------------------------------------------------------------------------
+-- ``orders`` — persisted Alpaca paper-trading order lifecycle (f-m3-03).
+--
+-- One row per order intent. Successful submissions write a row with
+-- ``status`` reflecting the broker's last-known state (typically
+-- ``'submitted'`` or ``'accepted'`` immediately after the call, then
+-- transitioned to ``'filled'`` by a downstream poll loop). Rejections
+-- write a row with ``status='rejected'`` and ``reason`` set to the
+-- broker error message so the failure reason is queryable from
+-- SQLite without consulting the log file.
+--
+-- Idempotency: ``id`` is an internally-generated UUID4 (one per
+-- :func:`PaperExecutor.execute` invocation). ``alpaca_order_id`` is
+-- the broker-assigned id (NULL on rejection paths where the broker
+-- never returned an id). ``play_card_id`` links back to the play
+-- card that triggered the entry. ``parent_play_card_id`` is set on
+-- exit orders (e.g. iv_crush_exit) to point at the parent entry's
+-- ``play_card_id``.
+--
+-- The schema is intentionally minimal at f-m3-03 — f-m3-06 widens it
+-- with execution telemetry columns (``requested_mid_at_submit``,
+-- ``client_order_id`` etc.). The columns below are the floor that
+-- the M3 validation contract (VAL-M3-031..033) demands.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS orders (
+    id                    TEXT    NOT NULL PRIMARY KEY,
+    play_card_id          TEXT,
+    alpaca_order_id       TEXT,
+    symbol                TEXT,
+    side                  TEXT,
+    qty                   INTEGER,
+    status                TEXT    NOT NULL,
+    reason                TEXT,
+    event                 TEXT,
+    parent_play_card_id   TEXT,
+    created_at            TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_orders_play_card_id   ON orders(play_card_id);
+CREATE INDEX IF NOT EXISTS idx_orders_alpaca_id      ON orders(alpaca_order_id);
+CREATE INDEX IF NOT EXISTS idx_orders_status         ON orders(status);
+CREATE INDEX IF NOT EXISTS idx_orders_event          ON orders(event);
