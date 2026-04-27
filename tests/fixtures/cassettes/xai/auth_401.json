@@ -1,0 +1,19 @@
+{
+  "interactions": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.x.ai/v1/chat/completions"
+      },
+      "response": {
+        "status_code": 401,
+        "json": {
+          "error": {
+            "message": "Invalid API key",
+            "type": "invalid_request_error"
+          }
+        }
+      }
+    }
+  ]
+}

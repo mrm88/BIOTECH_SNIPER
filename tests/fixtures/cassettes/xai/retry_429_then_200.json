@@ -1,0 +1,62 @@
+{
+  "interactions": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.x.ai/v1/chat/completions"
+      },
+      "response": {
+        "status_code": 429,
+        "json": {
+          "error": {
+            "message": "Rate limit exceeded",
+            "type": "rate_limit_error"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.x.ai/v1/chat/completions"
+      },
+      "response": {
+        "status_code": 503,
+        "json": {
+          "error": {
+            "message": "Upstream service temporarily unavailable",
+            "type": "server_error"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.x.ai/v1/chat/completions"
+      },
+      "response": {
+        "status_code": 200,
+        "json": {
+          "id": "resp-after-retry-001",
+          "model": "grok-4-0709",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"probability\": 0.41, \"rationale\": \"Recovered after 429+503; mid-tier signal.\", \"confidence\": 0.4}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 30,
+            "total_tokens": 130
+          }
+        }
+      }
+    }
+  ]
+}

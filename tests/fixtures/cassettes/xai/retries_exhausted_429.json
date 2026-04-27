@@ -1,0 +1,20 @@
+{
+  "interactions": [
+    {
+      "request": {"method": "POST", "url": "https://api.x.ai/v1/chat/completions"},
+      "response": {"status_code": 429, "json": {"error": {"message": "rate limited"}}}
+    },
+    {
+      "request": {"method": "POST", "url": "https://api.x.ai/v1/chat/completions"},
+      "response": {"status_code": 429, "json": {"error": {"message": "rate limited"}}}
+    },
+    {
+      "request": {"method": "POST", "url": "https://api.x.ai/v1/chat/completions"},
+      "response": {"status_code": 429, "json": {"error": {"message": "rate limited"}}}
+    },
+    {
+      "request": {"method": "POST", "url": "https://api.x.ai/v1/chat/completions"},
+      "response": {"status_code": 429, "json": {"error": {"message": "rate limited"}}}
+    }
+  ]
+}

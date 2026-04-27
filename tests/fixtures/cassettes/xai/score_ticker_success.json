@@ -1,0 +1,34 @@
+{
+  "interactions": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.x.ai/v1/chat/completions"
+      },
+      "response": {
+        "status_code": 200,
+        "json": {
+          "id": "resp-fast-rank-001",
+          "object": "chat.completion",
+          "created": 1714099200,
+          "model": "grok-4-0709",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"probability\": 0.62, \"rationale\": \"Phase 3 readout in 21d for IDYA-3001 with prior P2 ORR signal; mid-cap with low float favours an outsized move.\", \"confidence\": 0.55}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 184,
+            "completion_tokens": 52,
+            "total_tokens": 236
+          }
+        }
+      }
+    }
+  ]
+}
