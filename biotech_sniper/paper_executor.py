@@ -103,6 +103,8 @@ __all__ = [
     "MissingQuoteData",
     "size_position",
     "_options_positions",
+    "_is_multi_strike",
+    "MULTI_STRIKE_FILLABLE_CLASSIFICATIONS",
     "DEFAULT_DB_PATH",
     "TERMINAL_STATUSES",
     "FILLED_STATUSES",
@@ -136,6 +138,29 @@ TERMINAL_STATUSES: frozenset[str] = frozenset(
 #: fill. Used by :meth:`PaperExecutor.wait_for_fill` callers to
 #: distinguish a genuine fill from a cancel / expiry.
 FILLED_STATUSES: frozenset[str] = frozenset({"filled"})
+
+#: Liquidity-probe (f-m3-12) classifications that *unlock* multi-strike
+#: entries. When a play card carries
+#: ``play_card['liquidity_classification']`` set to one of these
+#: values (case-insensitive), a 2-leg play card with both legs as
+#: ``side='buy'`` is interpreted as a multi-strike entry per the
+#: f-m3-08 contract. Any other classification (or no classification
+#: when 2 legs are still present and both are buys) defaults to the
+#: same multi-strike treatment — the gating behaviour exists so that
+#: a future liquidity-probe upstream can demote a tradeable ticker
+#: back to single-strike by stamping ``"unfillable"`` on the card.
+MULTI_STRIKE_FILLABLE_CLASSIFICATIONS: frozenset[str] = frozenset(
+    {"fillable", "partial"}
+)
+
+#: Liquidity-probe classifications that **force** single-strike even
+#: if the play card carries 2 buy legs. ``"unfillable"`` is the
+#: signal the f-m3-12 probe will stamp when the chain is too thin
+#: to support a multi-strike entry. The first leg is taken and the
+#: second is dropped (with a structured WARNING log).
+MULTI_STRIKE_BLOCKED_CLASSIFICATIONS: frozenset[str] = frozenset(
+    {"unfillable"}
+)
 
 
 # ---------------------------------------------------------------------------
@@ -291,6 +316,57 @@ def _coerce_tif(value: Any) -> TimeInForce:
     raise UnsupportedOrderShape(
         f"unrecognised time_in_force {value!r}; expected one of {sorted(mapping)}"
     )
+
+
+def _is_multi_strike(play_card: Mapping[str, Any]) -> bool:
+    """Return ``True`` iff the play card declares a multi-strike entry.
+
+    Multi-strike (f-m3-08) means a single play card with **exactly 2
+    BUY legs at different strikes** of the same ticker. Spreads
+    (one buy + one sell) are NOT multi-strike; they remain rejected
+    by :func:`_validate_single_leg`.
+
+    The detection is intentionally conservative — it returns ``False``
+    for:
+
+    * any leg-count other than 2,
+    * any leg whose ``side`` is not ``'buy'`` (i.e. spreads, condors,
+      vertical SELL legs),
+    * an explicit ``order_class`` of anything other than
+      ``'simple'`` (multi-strike orders are submitted as two
+      independent simple orders, not as a single multi-leg request),
+    * a ``liquidity_classification`` whose value is in
+      :data:`MULTI_STRIKE_BLOCKED_CLASSIFICATIONS`.
+
+    The decision to single- vs multi-strike thus comes from the play
+    card itself — the upstream selector (f-m2 selection logic) and
+    the f-m3-12 liquidity probe collaboratively populate the legs
+    list and the optional ``liquidity_classification`` flag.
+    """
+    legs = play_card.get("option_legs")
+    if (
+        not isinstance(legs, Sequence)
+        or isinstance(legs, (str, bytes))
+        or len(legs) != 2
+    ):
+        return False
+    for leg in legs:
+        if not isinstance(leg, Mapping):
+            return False
+        side = str(leg.get("side", "buy")).strip().lower()
+        if side != "buy":
+            return False
+    order_class = play_card.get("order_class")
+    if order_class is not None and str(order_class).strip().lower() != "simple":
+        return False
+    classification = play_card.get("liquidity_classification")
+    if (
+        isinstance(classification, str)
+        and classification.strip().lower()
+        in MULTI_STRIKE_BLOCKED_CLASSIFICATIONS
+    ):
+        return False
+    return True
 
 
 def _validate_single_leg(
@@ -708,8 +784,34 @@ class PaperExecutor:
     # Public API
     # ------------------------------------------------------------------
 
-    def execute(self, play_card: Mapping[str, Any]) -> str:
-        """Submit a single-leg long call/put order to Alpaca paper.
+    def execute(
+        self, play_card: Mapping[str, Any]
+    ) -> "str | list[str]":
+        """Submit a paper-trading entry from ``play_card``.
+
+        Dispatches based on the play card shape:
+
+        * **Single-strike** (1 leg in ``option_legs``) — submits one
+          order and returns the broker-assigned alpaca_order_id as
+          a ``str``. Default behaviour. Backward-compatible with the
+          f-m3-03 contract.
+        * **Multi-strike** (2 BUY legs in ``option_legs``, no
+          ``order_class != 'simple'`` and no
+          ``liquidity_classification`` in
+          :data:`MULTI_STRIKE_BLOCKED_CLASSIFICATIONS`) — submits
+          one order per leg, both tagged with the same
+          ``play_card_id`` so :meth:`get_orders_for_play` returns
+          both rows. Returns a ``list[str]`` of alpaca_order_ids in
+          submission order. The per-play ``risk_per_play_usd`` cap
+          is **split evenly** across the legs so the combined
+          notional stays inside the cap (per AGENTS.md §"Risk
+          defaults").
+
+        Anything else (1+2 mixed sides, 3+ legs, mleg/bracket order
+        class) raises :class:`UnsupportedOrderShape` BEFORE any
+        network call.
+
+        Single-strike contract (unchanged from f-m3-03):
 
         Parameters
         ----------
@@ -776,6 +878,14 @@ class PaperExecutor:
                 "PaperExecutor.client.base_url drifted away from "
                 f"{PAPER_BASE_URL!r}; refusing to submit order."
             )
+
+        # f-m3-08: multi-strike dispatch. Detected here so the rest of
+        # the method can stay focused on the single-leg fast path. A
+        # play card with 2 BUY legs is decomposed into two independent
+        # single-leg orders; the per-play cap is split evenly across
+        # the legs.
+        if _is_multi_strike(play_card):
+            return self._execute_multi_strike(play_card)
 
         play_card_id = play_card.get("play_card_id")
         parent_play_card_id = play_card.get("parent_play_card_id")
@@ -1104,6 +1214,167 @@ class PaperExecutor:
             broker_status,
         )
         return alpaca_order_id
+
+    # ------------------------------------------------------------------
+    # Multi-strike entry (f-m3-08).
+    # ------------------------------------------------------------------
+
+    def _execute_multi_strike(
+        self, play_card: Mapping[str, Any]
+    ) -> list[str]:
+        """Submit one order per leg of a multi-strike play card.
+
+        Each leg is dispatched through the single-leg :meth:`execute`
+        path (with a synthesized 1-leg play card) so all the existing
+        guardrails — paper-only check, position cap, deployed-capital
+        cap, sizing, persistence — apply to every leg without
+        duplication.
+
+        Cap split
+        ---------
+        The per-play cap (``config.get_risk_per_play_usd()``,
+        default $250) is **split evenly** across the legs. With 2
+        legs the per-leg cap is ``cap // 2`` so the **combined
+        notional stays inside the original cap** even after integer
+        rounding. Each leg's qty is computed from its own bid/ask
+        quote against this per-leg cap; legs that cannot size at
+        ``qty >= 1`` raise :class:`ContractTooExpensive` and
+        persist a rejection row exactly like the single-leg path.
+
+        The decision whether the multi-strike entry should fire at
+        all comes from the **play card** (via
+        ``liquidity_classification``); the executor only enforces
+        the cap split mechanic.
+
+        Returns
+        -------
+        list[str]
+            One broker-assigned alpaca_order_id per leg, in
+            submission order.
+
+        Raises
+        ------
+        ContractTooExpensive
+            If any leg's per-contract cost exceeds the per-leg cap.
+            The leg in question persists a rejection row; legs
+            already submitted retain their own rows so the
+            ``orders`` table never silently rolls back.
+        UnsupportedOrderShape
+            If a leg fails the standard single-leg validator (e.g.
+            missing symbol, qty <= 0, unsupported option_type).
+            Subsequent legs are NOT submitted once the exception is
+            raised.
+        """
+        legs_list = list(play_card.get("option_legs") or [])
+        if len(legs_list) != 2:
+            # Defensive — _is_multi_strike already enforced length 2,
+            # but this guard makes the helper safe to call directly.
+            raise UnsupportedOrderShape(
+                "multi-strike entry requires exactly 2 legs; got "
+                f"{len(legs_list)}"
+            )
+
+        cap = _config.get_risk_per_play_usd()
+        per_leg_cap = max(int(cap) // len(legs_list), 1)
+
+        play_card_id = play_card.get("play_card_id")
+        logger.info(
+            "paper_executor.multi_strike_dispatch play_card_id=%s "
+            "legs=%d cap_per_play=%s per_leg_cap=%s",
+            play_card_id,
+            len(legs_list),
+            cap,
+            per_leg_cap,
+        )
+
+        order_ids: list[str] = []
+        for index, leg in enumerate(legs_list):
+            if not isinstance(leg, Mapping):
+                raise UnsupportedOrderShape(
+                    f"option_legs[{index}] must be a dict for multi-strike; "
+                    f"got {type(leg).__name__}"
+                )
+
+            # Pre-size the leg against the per-leg cap so the combined
+            # notional respects the original cap. Legs that already
+            # carry an explicit ``qty`` honour the caller's choice
+            # (they may have been pre-sized upstream).
+            sized_leg = dict(leg)
+            has_quote = (
+                sized_leg.get("bid") is not None
+                or sized_leg.get("ask") is not None
+            )
+            has_explicit_qty = sized_leg.get("qty") is not None
+            if has_quote and not has_explicit_qty:
+                synthetic_card = {
+                    "play_card_id": play_card_id,
+                    "option_legs": [sized_leg],
+                }
+                sized_qty = size_position(
+                    synthetic_card, risk_per_play_usd=per_leg_cap
+                )
+                if sized_qty == 0:
+                    bid = _coerce_quote(sized_leg.get("bid"))
+                    ask = _coerce_quote(sized_leg.get("ask"))
+                    mid = (bid + ask) / 2.0 if (bid + ask) > 0 else 0.0
+                    msg = (
+                        f"ContractTooExpensive (multi-strike leg "
+                        f"{index}): mid=${mid:.2f} (bid={bid}, "
+                        f"ask={ask}) implies ${mid * 100:.2f} per "
+                        f"contract, exceeds per-leg cap "
+                        f"${per_leg_cap}"
+                    )
+                    logger.warning(
+                        "paper_executor.multi_strike_contract_too_expensive "
+                        "play_card_id=%s leg=%d symbol=%s mid=%.4f "
+                        "per_leg_cap=%s",
+                        play_card_id,
+                        index,
+                        sized_leg.get("symbol"),
+                        mid,
+                        per_leg_cap,
+                    )
+                    self._persist_order_row(
+                        order_id=uuid.uuid4().hex,
+                        play_card_id=play_card_id,
+                        alpaca_order_id=None,
+                        symbol=str(sized_leg.get("symbol") or "") or None,
+                        side=str(sized_leg.get("side") or "buy"),
+                        qty=0,
+                        status="rejected",
+                        reason=msg,
+                        event=play_card.get("event"),
+                        parent_play_card_id=play_card.get(
+                            "parent_play_card_id"
+                        ),
+                    )
+                    raise ContractTooExpensive(msg)
+                sized_leg["qty"] = sized_qty
+
+            # Build a synthetic single-leg play card and dispatch
+            # through :meth:`execute` so ALL the standard guardrails
+            # (paper-only check, concurrency cap, deployed cap,
+            # validation, persistence) apply to each leg uniformly.
+            synthetic_card = {
+                **{
+                    k: v
+                    for k, v in play_card.items()
+                    if k not in {"option_legs", "liquidity_classification"}
+                },
+                "option_legs": [sized_leg],
+            }
+            result = self.execute(synthetic_card)
+            # ``result`` is a ``str`` since the synthetic card is
+            # single-leg; the recursive _is_multi_strike check
+            # therefore returns False.
+            if isinstance(result, list):
+                # Defensive — should never happen but keep the
+                # contract honest.
+                order_ids.extend(result)
+            else:
+                order_ids.append(str(result))
+
+        return order_ids
 
     def get_order(self, order_id: str) -> dict[str, Any]:
         """Fetch the latest broker-side state for ``order_id``.

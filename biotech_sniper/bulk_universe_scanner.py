@@ -58,8 +58,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Iterable, Sequence
 
+from biotech_sniper import config as _config
 from biotech_sniper import db
 from biotech_sniper.options_chain_probe import (
+    AlpacaBackedProbe,
     OptionsChainProbe,
     SeedBackedProbe,
 )
@@ -69,9 +71,11 @@ __all__ = [
     "BuildResult",
     "build_universe",
     "default_db_path",
+    "default_probe",
     "load_sectors_seed_tickers",
     "load_ct_gov_discovery_tickers",
     "main",
+    "refresh_universe_chains",
     "WATCH_SOURCE_SECTORS",
     "WATCH_SOURCE_CT_GOV",
 ]
@@ -209,6 +213,34 @@ def default_db_path() -> Path:
     return DATA_DIR / "alpha_sniper.db"
 
 
+def default_probe() -> OptionsChainProbe:
+    """Return the project-default options-chain probe.
+
+    Prefers :class:`AlpacaBackedProbe` whenever the Alpaca paper-trading
+    credentials are configured (per :func:`config.provider_enabled`-style
+    lookups). Falls back to :class:`SeedBackedProbe` so smoke imports
+    on a host without ALPACA_KEY_ID / ALPACA_SECRET_KEY still build a
+    usable universe (every ticker stays at ``tier='watch'`` because
+    the seed JSON only flips the historical 147 tickers tradeable).
+
+    The factory is consulted by :func:`build_universe` and by
+    :func:`main` (the ``--build`` CLI). Tests bypass the factory by
+    passing ``probe=...`` directly so they remain hermetic.
+    """
+    key = _config.get_alpaca_key_id()
+    secret = _config.get_alpaca_secret_key()
+    if key and secret:
+        try:
+            return AlpacaBackedProbe()
+        except Exception as exc:  # noqa: BLE001 - defensive
+            logger.warning(
+                "default_probe: failed to construct AlpacaBackedProbe "
+                "(%s); falling back to SeedBackedProbe",
+                exc.__class__.__name__,
+            )
+    return SeedBackedProbe()
+
+
 # ---------------------------------------------------------------------------
 # Core build routine
 # ---------------------------------------------------------------------------
@@ -329,6 +361,10 @@ def build_universe(
     ct_gov_only = ct_gov_set - sectors_set
 
     if probe is None:
+        # Default to the seed-backed probe so smoke imports and the
+        # M2 universe-builder tests stay deterministic. The Alpaca-
+        # backed probe is opt-in (see :func:`refresh_universe_chains`
+        # and the ``--alpaca-probe`` CLI flag).
         probe = SeedBackedProbe()
 
     result = BuildResult(db_path=str(target))
@@ -409,6 +445,119 @@ def build_universe(
 
 
 # ---------------------------------------------------------------------------
+# Daily / intraday refresh — re-probe every universe row's chain status.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class RefreshResult:
+    """Structured summary of one ``refresh_universe_chains()`` run."""
+
+    rows_checked: int = 0
+    flipped_to_tradeable: int = 0
+    flipped_to_watch: int = 0
+    has_options_chain_count: int = 0
+    db_path: str = ""
+    completed_at: str = ""
+
+    def to_json(self) -> str:
+        return json.dumps(asdict(self), sort_keys=True)
+
+
+def refresh_universe_chains(
+    *,
+    db_path: Path | str | None = None,
+    probe: OptionsChainProbe | None = None,
+) -> RefreshResult:
+    """Re-probe every universe row and update ``has_options_chain``.
+
+    Wires the daily/intraday refresh path required by f-m3-08:
+    every existing ``universe`` row is re-checked through the
+    supplied probe (defaults to :func:`default_probe`, which prefers
+    :class:`AlpacaBackedProbe` when ALPACA credentials are configured)
+    and its ``has_options_chain`` + ``last_chain_check_at`` columns
+    are updated. Tier transitions are honoured: a ticker that loses
+    its chain drops to ``tier='watch'``, a ticker that gains one is
+    promoted to ``tier='tradeable'``.
+
+    Idempotent — re-running with the same probe leaves row counts
+    unchanged (only ``last_chain_check_at`` advances).
+
+    Parameters
+    ----------
+    db_path:
+        Override the SQLite db path. ``None`` resolves to
+        :func:`default_db_path`.
+    probe:
+        :class:`OptionsChainProbe` to consult. ``None`` resolves to
+        :func:`default_probe`.
+
+    Returns
+    -------
+    RefreshResult
+        Structured summary of the refresh run.
+    """
+    target = Path(db_path) if db_path is not None else default_db_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    if probe is None:
+        probe = default_probe()
+
+    result = RefreshResult(db_path=str(target))
+    now = _now_iso()
+
+    conn = db.connect(target)
+    try:
+        db.run_migrations(conn)
+        with conn:
+            rows = conn.execute(
+                "SELECT ticker, tier, has_options_chain FROM universe"
+            ).fetchall()
+            for row in rows:
+                ticker = row["ticker"]
+                prior_has_chain = bool(row["has_options_chain"])
+                try:
+                    has_chain = bool(probe.probe(ticker))
+                except Exception as exc:  # noqa: BLE001 - defensive
+                    logger.warning(
+                        "refresh_universe_chains: probe(%s) raised %s; "
+                        "treating as no-chain",
+                        ticker,
+                        exc.__class__.__name__,
+                    )
+                    has_chain = False
+
+                result.rows_checked += 1
+                if has_chain and not prior_has_chain:
+                    result.flipped_to_tradeable += 1
+                elif not has_chain and prior_has_chain:
+                    result.flipped_to_watch += 1
+
+                tier = "tradeable" if has_chain else "watch"
+                conn.execute(
+                    "UPDATE universe SET tier = ?, has_options_chain = ?, "
+                    "last_chain_check_at = ?, updated_at = ? "
+                    "WHERE ticker = ?",
+                    (
+                        tier,
+                        1 if has_chain else 0,
+                        now,
+                        _now_iso(),
+                        ticker,
+                    ),
+                )
+
+            result.has_options_chain_count = conn.execute(
+                "SELECT COUNT(*) FROM universe WHERE has_options_chain = 1"
+            ).fetchone()[0]
+    finally:
+        conn.close()
+
+    result.completed_at = _now_iso()
+    return result
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
@@ -427,6 +576,23 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Run the full universe build and write to SQLite.",
     )
     parser.add_argument(
+        "--refresh-chains",
+        action="store_true",
+        help=(
+            "Re-probe every existing universe row's options-chain "
+            "status (uses the Alpaca-backed probe when ALPACA "
+            "credentials are configured)."
+        ),
+    )
+    parser.add_argument(
+        "--alpaca-probe",
+        action="store_true",
+        help=(
+            "Use the Alpaca-backed probe for the build / refresh "
+            "(otherwise falls back to the seed-backed probe)."
+        ),
+    )
+    parser.add_argument(
         "--db",
         type=str,
         default=None,
@@ -442,13 +608,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_arg_parser()
     args = parser.parse_args(argv)
 
-    if not args.build:
-        parser.error("specify --build to run the universe build")
+    if not (args.build or args.refresh_chains):
+        parser.error("specify --build or --refresh-chains")
         return 2  # pragma: no cover - argparse exits via SystemExit
 
     db_path = Path(args.db) if args.db else default_db_path()
-    result = build_universe(db_path=db_path)
-    sys.stdout.write(result.to_json() + "\n")
+    probe: OptionsChainProbe | None = (
+        AlpacaBackedProbe() if args.alpaca_probe else None
+    )
+
+    if args.refresh_chains:
+        refresh_result = refresh_universe_chains(db_path=db_path, probe=probe)
+        sys.stdout.write(refresh_result.to_json() + "\n")
+        return 0
+
+    build_result = build_universe(db_path=db_path, probe=probe)
+    sys.stdout.write(build_result.to_json() + "\n")
     return 0
 
 

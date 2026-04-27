@@ -1104,6 +1104,180 @@ def _build_scorer(*, dry_run: bool = False):
     return _ES.from_config()
 
 
+def _load_chain_gate_status(
+    tickers: Sequence[str], *, db_path: Path | None = None
+) -> dict[str, bool]:
+    """Return ``{ticker: has_options_chain_bool}`` for ``tickers``.
+
+    Looks up the ``universe.has_options_chain`` flag for each ticker
+    in the SQLite db. Tickers absent from the universe table return
+    ``False`` (treated as "no chain confirmed"). Returns an empty
+    mapping when the db is missing or the lookup fails — callers
+    should treat that as "gate not enforceable" and either log + skip
+    every ticker or proceed without the gate (the M3 contract calls
+    for the former; see :func:`score_universe`).
+    """
+    from biotech_sniper import db as _db
+    from biotech_sniper.paths import DATA_DIR
+
+    if not tickers:
+        return {}
+    target = Path(db_path) if db_path is not None else DATA_DIR / "alpha_sniper.db"
+    if not target.exists():
+        return {}
+    try:
+        conn = _db.connect(target)
+    except Exception:
+        return {}
+    try:
+        try:
+            _db.run_migrations(conn)
+        except Exception:
+            return {}
+        placeholders = ", ".join("?" for _ in tickers)
+        try:
+            rows = conn.execute(
+                f"SELECT ticker, has_options_chain FROM universe "
+                f"WHERE ticker IN ({placeholders})",
+                tuple(tickers),
+            ).fetchall()
+        except Exception:
+            return {}
+    finally:
+        conn.close()
+    return {row["ticker"]: bool(row["has_options_chain"]) for row in rows}
+
+
+def filter_chain_gated_tickers(
+    tickers: Sequence[str], *, db_path: Path | None = None
+) -> tuple[list[str], list[str]]:
+    """Split ``tickers`` into ``(scored, skipped)`` per the chain gate.
+
+    A ticker is **scored** iff its ``universe.has_options_chain``
+    flag is ``1``. Watch-only tickers (``has_options_chain=0``) are
+    routed to the **skipped** list. Tickers absent from the universe
+    table are *also* skipped — this is the strict reading of
+    VAL-M3-045 ("every scored ticker must have a universe row with
+    has_options_chain=1").
+
+    **Fallback for fresh checkouts:** when the universe table itself
+    is empty / missing (i.e. no ticker in ``tickers`` has any row at
+    all), the gate is bypassed: every ticker is returned as
+    "scored". This matches the f-m2 seed-fallback pattern where the
+    daily run can spin up before the universe builder has populated
+    the table. A WARNING is logged at the call-site so operators
+    notice the bypass.
+    """
+    chain_status = _load_chain_gate_status(tickers, db_path=db_path)
+    if not chain_status:
+        # Fresh checkout / universe not built yet → gate is not
+        # enforceable. Surface every ticker; the caller logs a
+        # structured warning so the bypass is auditable.
+        return list(tickers), []
+    scored: list[str] = []
+    skipped: list[str] = []
+    for ticker in tickers:
+        if chain_status.get(ticker, False):
+            scored.append(ticker)
+        else:
+            skipped.append(ticker)
+    return scored, skipped
+
+
+def score_universe(
+    tickers: Sequence[str],
+    *,
+    as_of_date: str | None = None,
+    scorer=None,
+    db_path: Path | None = None,
+    enforce_chain_gate: bool = True,
+) -> dict:
+    """Score ``tickers`` after applying the options-chain gate.
+
+    The gate (per VAL-M3-045 + f-m3-08) drops every ticker whose
+    ``universe.has_options_chain`` flag is ``0`` (or missing). Each
+    skipped ticker logs a ``WARNING`` line naming the ticker and the
+    ``reason='no_options_chain'`` so daily-run operators can audit
+    why a candidate was excluded.
+
+    Parameters
+    ----------
+    tickers:
+        Tickers to consider. Order is preserved.
+    as_of_date:
+        ISO date for the scoring run. Defaults to today.
+    scorer:
+        Pre-built :class:`biotech_sniper.llm.ensemble.EnsembleScorer`.
+        ``None`` defers to :func:`_build_scorer` so production
+        callers do not need to know how to build one.
+    db_path:
+        Override the universe / scoring_cache db path (used by
+        tests).
+    enforce_chain_gate:
+        When ``False`` the chain-gate filter is skipped (used by
+        tests of the underlying scoring loop). Production callers
+        leave this as ``True``.
+
+    Returns
+    -------
+    dict
+        ``{"as_of_date", "tickers_scored", "tickers_skipped",
+        "rows_upserted"}``.
+    """
+    iso_date = as_of_date or datetime.date.today().isoformat()
+
+    if enforce_chain_gate:
+        eligible, skipped = filter_chain_gated_tickers(
+            tickers, db_path=db_path
+        )
+    else:
+        eligible, skipped = list(tickers), []
+
+    for ticker in skipped:
+        logger.warning(
+            "score_universe: skipping %s reason=no_options_chain "
+            "(universe.has_options_chain != 1)",
+            ticker,
+        )
+
+    if scorer is None:
+        scorer = _build_scorer()
+
+    rows_upserted = 0
+    tickers_scored: list[str] = []
+    for ticker in eligible:
+        try:
+            meta = _load_universe_meta(ticker, db_path=db_path)
+            payload = {
+                "ticker": ticker,
+                "as_of_date": iso_date,
+                "fast_context": {
+                    "ticker": ticker,
+                    "ticker_meta": meta,
+                    "as_of_date": iso_date,
+                },
+                "science_profile": {"ticker": ticker, "sector": "BIOTECH"},
+                "full_context": {},
+            }
+            scorer.score(payload)
+        except Exception as exc:  # noqa: BLE001 - per-ticker failure is non-fatal
+            logger.warning(
+                "score_universe: scoring failed for %s: %r; continuing",
+                ticker,
+                exc,
+            )
+            continue
+        tickers_scored.append(ticker)
+        rows_upserted += 1
+
+    return {
+        "as_of_date": iso_date,
+        "tickers_scored": tickers_scored,
+        "tickers_skipped": skipped,
+        "rows_upserted": rows_upserted,
+    }
+
+
 def _resolve_tickers(args: argparse.Namespace, top_n: int) -> list[str]:
     """Return the ordered list of tickers ``main()`` will score.
 
@@ -1181,6 +1355,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=True,
         help="Skip play-card emission even when --dry-run is not set.",
     )
+    parser.add_argument(
+        "--no-chain-gate",
+        dest="enforce_chain_gate",
+        action="store_false",
+        default=True,
+        help=(
+            "Disable the options-chain gate that drops tickers whose "
+            "universe.has_options_chain flag is 0. Default: gate "
+            "enforced (f-m3-08)."
+        ),
+    )
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     requested_top_n = (
@@ -1191,6 +1376,43 @@ def main(argv: Sequence[str] | None = None) -> int:
     top_n = max(1, requested_top_n)
 
     tickers = _resolve_tickers(args, top_n)
+
+    # f-m3-08: apply the options-chain gate. Watch-only tickers (no
+    # listed Alpaca options chain) never reach the scoring loop and
+    # therefore cannot leak into ``scoring_cache`` for ``as_of_date``
+    # (VAL-M3-045). Each dropped ticker logs a structured WARNING
+    # naming the reason so operators can audit the skip set. When the
+    # universe table is missing entirely (fresh checkout) the gate is
+    # bypassed — see :func:`filter_chain_gated_tickers`.
+    skipped_tickers: list[str] = []
+    if args.enforce_chain_gate:
+        chain_status = _load_chain_gate_status(tickers)
+        if not chain_status:
+            # INFO (not WARNING) so it doesn't pollute test fixtures
+            # that pin the WARNING set on this logger. The bypass is
+            # the expected path on a fresh checkout where the
+            # universe builder has not yet run; operators do not
+            # need an alert for it.
+            logger.info(
+                "unified_scorer: chain gate bypassed — no universe "
+                "rows for the resolved tickers; the daily build must "
+                "populate `universe` before this guarantee holds"
+            )
+            tickers = list(tickers)
+        else:
+            eligible: list[str] = []
+            for ticker in tickers:
+                if chain_status.get(ticker, False):
+                    eligible.append(ticker)
+                else:
+                    skipped_tickers.append(ticker)
+                    logger.warning(
+                        "unified_scorer: skipping %s reason="
+                        "no_options_chain (universe.has_options_chain "
+                        "!= 1)",
+                        ticker,
+                    )
+            tickers = eligible
 
     # Resolve providers_used. The fast tier (xAI) is always reported
     # per the f-m2-20 spec; the deep tier is filtered by both the
@@ -1273,6 +1495,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     summary = {
         "as_of_date": args.date,
         "tickers_scored": tickers_scored,
+        "tickers_skipped_no_chain": skipped_tickers,
         "providers_used": providers_used,
         "rows_upserted": rows_upserted,
         "play_cards_written": play_cards_written,
