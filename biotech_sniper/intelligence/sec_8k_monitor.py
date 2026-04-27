@@ -260,7 +260,13 @@ def run_8k_monitor(mode="daily"):
     
     with open(OUTPUT_FILE, "w") as f:
         json.dump(report, f, indent=2)
-    
+
+    # Persist into news_events SQLite table per VAL-M2-075.
+    try:
+        _persist_sec_8k_signals_to_news_events(all_signals)
+    except Exception as e:  # pragma: no cover - defensive
+        print(f"  [sec_8k] news_events persistence failed: {e}")
+
     print(f"\n{'='*70}")
     breaking = report["breaking"]
     if breaking:
@@ -273,6 +279,53 @@ def run_8k_monitor(mode="daily"):
     print(f"{'='*70}\n")
     
     return report
+
+
+def _persist_sec_8k_signals_to_news_events(signals: list) -> None:
+    """Mirror SEC 8-K signals into the SQLite news_events table.
+
+    Best-effort: failures here must not break the legacy JSON output
+    or short-circuit the run; we log and continue.
+    """
+    if not signals:
+        return
+
+    from biotech_sniper import db as _db
+    from biotech_sniper.news_events import (
+        NewsEvent,
+        SOURCE_SEC_8K,
+        default_db_path,
+        record_news_events,
+    )
+
+    events: list[NewsEvent] = []
+    for signal in signals:
+        ticker = signal.get("ticker")
+        if not ticker:
+            continue
+        events.append(
+            NewsEvent(
+                ticker=str(ticker),
+                source=SOURCE_SEC_8K,
+                title=str(signal.get("detail") or signal.get("type") or "8-K signal"),
+                url=signal.get("filing_url") or None,
+                published_at=signal.get("published") or signal.get("detected_date") or None,
+                raw_payload=signal,
+            )
+        )
+
+    if not events:
+        return
+
+    target = default_db_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    conn = _db.connect(target)
+    try:
+        _db.run_migrations(conn)
+        record_news_events(conn, events)
+    finally:
+        conn.close()
+
 
 if __name__ == "__main__":
     import sys

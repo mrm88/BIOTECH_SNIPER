@@ -137,7 +137,57 @@ def scan_news_rss(seen_urls: set) -> list:
     except ImportError:
         pass
 
+    # Persist alerts into the SQLite news_events table per VAL-M2-075.
+    # Best-effort: failures must not block the legacy in-memory return
+    # value, which other intraday code still relies on.
+    try:
+        _persist_intraday_alerts_to_news_events(alerts)
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"  [intraday] news_events persistence failed: {exc}")
+
     return alerts
+
+
+def _persist_intraday_alerts_to_news_events(alerts: list) -> None:
+    """Mirror ``scan_news_rss`` alerts into the news_events SQLite table."""
+    if not alerts:
+        return
+
+    from biotech_sniper import db as _db
+    from biotech_sniper.news_events import (
+        NewsEvent,
+        SOURCE_INTRADAY_RSS,
+        default_db_path,
+        record_news_events,
+    )
+
+    events: list[NewsEvent] = []
+    for alert in alerts:
+        ticker = alert.get("ticker")
+        if not ticker:
+            continue
+        events.append(
+            NewsEvent(
+                ticker=str(ticker),
+                source=SOURCE_INTRADAY_RSS,
+                title=str(alert.get("title") or "intraday news"),
+                url=alert.get("url") or None,
+                published_at=None,
+                raw_payload=alert,
+            )
+        )
+
+    if not events:
+        return
+
+    target = default_db_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    conn = _db.connect(target)
+    try:
+        _db.run_migrations(conn)
+        record_news_events(conn, events)
+    finally:
+        conn.close()
 
 
 def scan_sec_rss(seen_urls: set) -> list:

@@ -901,10 +901,88 @@ def run_hourly_news_scan(tickers: list) -> dict:
         json.dump(result, f, indent=2, default=str)
     log.info(f"Report saved → {OUTPUT_FILE}")
 
+    # ── 6b. Persist per-headline rows into the SQLite news_events table ──
+    # Per VAL-M2-075 every watcher writes into the canonical
+    # ``news_events`` table in addition to its legacy JSON state.
+    # Failures here MUST NOT abort the scan (the JSON report above
+    # remains the authoritative legacy artefact); we log and move on.
+    try:
+        _persist_news_events_to_db(result)
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning(f"news_events persistence failed: {exc}")
+
     # ── 7. Print summary ──────────────────────────────────────────────────
     _print_scan_summary(result)
 
     return result
+
+
+def _persist_news_events_to_db(result: dict) -> None:
+    """Persist scan rows into the SQLite ``news_events`` table.
+
+    This is a thin shim around
+    :func:`biotech_sniper.news_events.record_news_events` that mirrors
+    the legacy JSON output into the M2 SQLite layer. It is imported
+    lazily so unit tests for the watcher's network path do not pay
+    the cost of opening the database.
+    """
+
+    from biotech_sniper import db as _db
+    from biotech_sniper.news_events import (
+        NewsEvent,
+        SOURCE_UNIVERSAL,
+        default_db_path,
+        record_news_events,
+    )
+
+    events: list[NewsEvent] = []
+    for filing in result.get("new_8ks", []) or []:
+        ticker = filing.get("ticker")
+        if not ticker:
+            continue
+        events.append(
+            NewsEvent(
+                ticker=str(ticker),
+                source=SOURCE_UNIVERSAL,
+                title=str(
+                    filing.get("summary")
+                    or filing.get("company")
+                    or "8-K filing"
+                ),
+                url=filing.get("form_url") or None,
+                published_at=filing.get("filed_date") or None,
+                raw_payload=filing,
+            )
+        )
+    for article in result.get("news_hits", []) or []:
+        ticker = article.get("ticker")
+        if not ticker:
+            continue
+        events.append(
+            NewsEvent(
+                ticker=str(ticker),
+                source=SOURCE_UNIVERSAL,
+                title=str(
+                    article.get("headline")
+                    or article.get("summary")
+                    or "news"
+                ),
+                url=article.get("url") or None,
+                published_at=article.get("published") or None,
+                raw_payload=article,
+            )
+        )
+    if not events:
+        return
+
+    target = default_db_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    conn = _db.connect(target)
+    try:
+        _db.run_migrations(conn)
+        record_news_events(conn, events)
+    finally:
+        conn.close()
 
 
 def _print_scan_summary(result: dict) -> None:

@@ -518,15 +518,30 @@ try:
     state_dir = BASE_DIR / 'state'
     state_dir.mkdir(parents=True, exist_ok=True)
     audit_path = state_dir / 'audit_latest.json'
-    audit_data = {
+
+    # Preserve any keys other modules write into audit_latest.json
+    # (e.g. ``news_ingestion`` / ``news_events_empty`` written by the
+    # daily news ingest pipeline). The audit module always overwrites
+    # its own contract keys (`as_of_date`, `sources`, `failures`,
+    # `warnings`) but never clobbers other consumers' data.
+    existing_audit: dict = {}
+    if audit_path.is_file():
+        try:
+            existing_audit = json.load(open(audit_path))
+            if not isinstance(existing_audit, dict):
+                existing_audit = {}
+        except Exception:
+            existing_audit = {}
+
+    existing_audit.update({
         'as_of_date': today,
         'generated_at': datetime.datetime.utcnow().isoformat() + 'Z',
         'sources': sources,
         'failures': failures,
         'warnings': warnings,
-    }
+    })
     with open(audit_path, 'w') as f:
-        json.dump(audit_data, f, indent=2, sort_keys=True)
+        json.dump(existing_audit, f, indent=2, sort_keys=True)
     print(f'\nAudit JSON written to {audit_path}')
 except Exception as e:
     print(f'\nWARNING: failed to write audit JSON: {e}')

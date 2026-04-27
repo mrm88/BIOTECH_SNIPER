@@ -366,6 +366,12 @@ def run_ir_events_check():
     with open(OUTPUT_FILE, "w") as f:
         json.dump(report, f, indent=2)
 
+    # Persist into the SQLite news_events table per VAL-M2-075.
+    try:
+        _persist_ir_signals_to_news_events(all_signals)
+    except Exception as e:  # pragma: no cover - defensive
+        print(f"  [ir_events] news_events persistence failed: {e}")
+
     print(f"\n{'='*70}")
     print(f"IR EVENTS SUMMARY: {len(all_signals)} signals")
     if report["critical"]:
@@ -379,6 +385,48 @@ def run_ir_events_check():
     print(f"{'='*70}\n")
 
     return report
+
+
+def _persist_ir_signals_to_news_events(signals: list) -> None:
+    """Mirror IR-events signals into the SQLite news_events table."""
+    if not signals:
+        return
+
+    from biotech_sniper import db as _db
+    from biotech_sniper.news_events import (
+        NewsEvent,
+        SOURCE_IR_EVENTS,
+        default_db_path,
+        record_news_events,
+    )
+
+    events: list[NewsEvent] = []
+    for signal in signals:
+        ticker = signal.get("ticker")
+        if not ticker:
+            continue
+        events.append(
+            NewsEvent(
+                ticker=str(ticker),
+                source=SOURCE_IR_EVENTS,
+                title=str(signal.get("detail") or signal.get("type") or "IR signal"),
+                url=signal.get("filing_url") or signal.get("ir_url") or None,
+                published_at=signal.get("detected_date") or None,
+                raw_payload=signal,
+            )
+        )
+
+    if not events:
+        return
+
+    target = default_db_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    conn = _db.connect(target)
+    try:
+        _db.run_migrations(conn)
+        record_news_events(conn, events)
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

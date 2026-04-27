@@ -162,6 +162,39 @@ CREATE TABLE IF NOT EXISTS universe (
 );
 
 -- ---------------------------------------------------------------------------
+-- ``news_events`` — per-headline persistence (M2 daily news ingest).
+--
+-- One row per (ticker, source, url, published_at) tuple. Sources are
+-- the four watcher modules:
+--   * 'universal_news_watcher' (RSS + EDGAR scrape, hourly intraday)
+--   * 'intraday_scan_news_rss' (Endpoints/STAT/GNW/PRN intraday)
+--   * 'sec_8k_monitor'         (SEC EDGAR 8-K monitor, daily + intraday)
+--   * 'ir_events_watcher'      (IR events page + CIK filings, daily)
+--
+-- Daily cron targets ALL ``universe.tier='watch'`` tickers. If a ticker
+-- has zero feed results on a given day, ``audit_latest.json`` records
+-- ``news_events_empty: {ticker: reason}`` so the M2-076 assertion can
+-- pass via the empty-feed branch.
+--
+-- De-dup: ``UNIQUE(ticker, source, url, published_at)`` enforced via a
+-- unique index using COALESCE so NULL-valued ``url`` / ``published_at``
+-- columns still merge instead of stacking duplicates. Re-running the
+-- daily cron on the same day inserts zero new rows for already-seen
+-- headlines.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS news_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker          TEXT    NOT NULL,
+    source          TEXT    NOT NULL,
+    published_at    TEXT,
+    title           TEXT    NOT NULL,
+    url             TEXT,
+    ingested_at     TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    raw_payload     TEXT
+);
+
+-- ---------------------------------------------------------------------------
 -- Hot-path indices.
 -- ---------------------------------------------------------------------------
 
@@ -180,3 +213,21 @@ CREATE INDEX IF NOT EXISTS idx_discovery_state_nct_id    ON discovery_state(nct_
 
 CREATE INDEX IF NOT EXISTS idx_universe_tier             ON universe(tier);
 CREATE INDEX IF NOT EXISTS idx_universe_has_options      ON universe(has_options_chain);
+
+CREATE INDEX IF NOT EXISTS idx_news_events_ticker        ON news_events(ticker);
+CREATE INDEX IF NOT EXISTS idx_news_events_source        ON news_events(source);
+CREATE INDEX IF NOT EXISTS idx_news_events_ingested_at   ON news_events(ingested_at);
+
+-- NULL-safe dedup index: SQLite treats two NULLs as distinct in plain
+-- UNIQUE constraints, which would let duplicate rows stack when
+-- ``published_at`` or ``url`` are missing. Wrapping in COALESCE makes
+-- empty / null values collapse to a single sentinel so re-running the
+-- daily cron is genuinely idempotent for the (ticker, source, url,
+-- published_at) tuple.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_news_events_dedup
+    ON news_events (
+        ticker,
+        source,
+        COALESCE(url, ''),
+        COALESCE(published_at, '')
+    );
