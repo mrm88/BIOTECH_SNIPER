@@ -1,6 +1,20 @@
 #!/usr/bin/env python3
 import sys, json, datetime, traceback, requests
 
+# Load .env before paths.py reads BIOTECH_SNIPER_HOME, so audit.py invoked
+# directly via `python -m biotech_sniper.audit` (without sourcing .env in
+# the shell) writes its JSON to <project>/state/, not <package>/state/.
+try:  # pragma: no cover - best-effort; dotenv is a hard dep but imports must not crash
+    from pathlib import Path as _PathForEnv
+    from dotenv import load_dotenv as _load_dotenv  # type: ignore[import-not-found]
+    _here = _PathForEnv(__file__).resolve().parent
+    for _cand in (_here.parent / '.env', _here.parent.parent / '.env'):
+        if _cand.is_file():
+            _load_dotenv(dotenv_path=str(_cand), override=False)
+            break
+except Exception:
+    pass
+
 from biotech_sniper.paths import BASE_DIR
 
 sys.path.insert(0, str(BASE_DIR))
