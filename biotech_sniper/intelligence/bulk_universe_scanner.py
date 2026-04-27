@@ -11,7 +11,7 @@ SOURCES:
 FILTERING:
   - Non-big-pharma / non-academic sponsors only
   - US-listed (SEC EDGAR company_tickers_exchange.json)
-  - Has liquid options (yfinance check)
+  - Has liquid options (Alpaca options-chain check)
   - Stock price > $2
   - Market cap < $20B
 
@@ -246,23 +246,27 @@ def fetch_ct_candidates(nm: dict) -> dict:
 
 
 def filter_and_score(candidates_by_ticker: dict, today: datetime.date) -> dict:
-    """Check options/price/mktcap and assign tier scores."""
+    """Check options availability via Alpaca and assign tier scores.
+
+    M3 update (f-m3-02): the legacy vendor-backed price/mktcap
+    filter is dropped in favour of the Alpaca options-chain probe
+    (the existence of any chain row is sufficient evidence that the
+    ticker is tradeable). Stock-price + market-cap filtering moves
+    to the M3 selection layer that consumes the SQLite ``universe``
+    table.
+    """
     try:
-        import yfinance as yf
+        from biotech_sniper.options_chains.pull_options import pull_chain
     except ImportError:
         return candidates_by_ticker
 
     scored = {}
     for ticker, c in candidates_by_ticker.items():
         try:
-            t = yf.Ticker(ticker)
-            fi = t.fast_info
-            price  = float(fi.last_price)  if hasattr(fi,'last_price')  and fi.last_price  else 0
-            mktcap = float(fi.market_cap)  if hasattr(fi,'market_cap')  and fi.market_cap  else 0
-            opts   = t.options
-            if price < 2.0 or not opts: continue
-            if mktcap > 20_000_000_000: continue
-        except:
+            chain = pull_chain(ticker)
+            if not chain:
+                continue
+        except Exception:
             continue
 
         # Score

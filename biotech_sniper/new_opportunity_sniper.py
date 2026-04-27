@@ -8,7 +8,7 @@ fires an immediate email — not waiting for 6AM.
 
 Pipeline per new candidate:
   1. Source: ClinicalTrials IMMINENT (60d) | SEC 8-K topline | BiopharmCatalyst new PDUFA | News RSS
-  2. Resolve ticker via SEC lookup + yfinance validation
+  2. Resolve ticker via SEC lookup + Alpaca validation
   3. Check options exist + pull chain for correct expiry
   4. Dual-model score (Claude Opus + Gemini) using science-enriched prompt
   5. Calculate multiple at correct expiry (realistic mid-fill)
@@ -21,7 +21,6 @@ Dedup: alert key = "new_opp:{ticker}:{nct_or_pdufa_date}" — fires ONCE only.
 import json
 import datetime
 import requests
-import yfinance as yf
 from pathlib import Path
 from typing import Optional
 
@@ -117,27 +116,38 @@ def resolve_ticker(sponsor_name: str) -> str:
 
 
 def validate_ticker(ticker: str) -> dict:
-    """Check ticker is real, US-listed, has options, get current price."""
+    """Check ticker has tradeable options on Alpaca and collect expirations.
+
+    M3 update (f-m3-02): the legacy vendor-backed price/marketcap
+    filter is dropped — Alpaca's free tier does not expose
+    market-cap directly. Stock-price + market-cap filtering moves to
+    the M3 selection layer (which queries the SQLite ``universe``
+    table populated by the bulk universe scanner). This helper now
+    only validates that *some* options chain exists and surfaces the
+    distinct expirations we saw — which is exactly what the
+    new-opportunity sniper actually consumes.
+    """
     if not ticker:
         return {"valid": False}
     try:
-        t = yf.Ticker(ticker)
-        price = t.fast_info.get("lastPrice", 0)
-        exps  = t.options  # empty tuple if no options
-        if not price or price <= 0:
-            return {"valid": False}
-        # Skip mega caps (no alpha) and penny stocks (no liquidity)
-        mktcap = t.fast_info.get("marketCap", 0) or 0
-        if mktcap > 50_000_000_000:  # >$50B = too big, no edge
-            return {"valid": False, "reason": "mega-cap"}
-        if price < 1.0:  # penny stock
-            return {"valid": False, "reason": "penny"}
+        # Local import keeps module import cheap and avoids forcing the
+        # Alpaca SDK to load when the new-opportunity sniper is not in
+        # use.
+        from biotech_sniper.options_chains.pull_options import pull_chain
+
+        chain = pull_chain(ticker)
+        expiries = sorted(
+            {row.get("expiry") for row in chain if row.get("expiry")}
+        )
+        if not chain:
+            return {"valid": False, "reason": "no_options_chain"}
+
         return {
-            "valid":    True,
-            "price":    price,
-            "has_options": bool(exps),
-            "expirations": list(exps)[:8],
-            "mktcap":   mktcap,
+            "valid":       True,
+            "price":       None,
+            "has_options": True,
+            "expirations": list(expiries[:8]),
+            "mktcap":      None,
         }
     except Exception:
         return {"valid": False}
@@ -181,20 +191,33 @@ def get_best_option(ticker: str, expiry: str, direction: str, price: float) -> O
     """
     Pull the options chain for the given expiry and find the best strike.
     Best = highest multiple at realistic mid fill, with OI > 10.
+
+    M3 update (f-m3-02): chain pull now goes through
+    :func:`biotech_sniper.options_chains.pull_options.pull_chain`,
+    which is backed by the Alpaca options API instead of the legacy
+    market-data vendor.
     """
     try:
-        t = yf.Ticker(ticker)
-        chain = t.option_chain(expiry)
-        contracts = chain.calls if direction == "LONG_CALLS" else chain.puts
+        from biotech_sniper.options_chains.pull_options import pull_chain
+
+        target_type = "call" if direction == "LONG_CALLS" else "put"
+        chain = pull_chain(ticker, expiry)
+        contracts = [
+            r for r in chain
+            if (r.get("type") or "").lower() == target_type
+        ]
 
         best = None
         best_mult = 0.0
 
-        for _, row in contracts.iterrows():
+        for row in contracts:
             bid = float(row.get("bid", 0) or 0)
             ask = float(row.get("ask", 0) or 0)
-            oi  = int(row.get("openInterest", 0) or 0)
-            strike = float(row["strike"])
+            oi  = int(row.get("oi", 0) or 0)
+            try:
+                strike = float(row.get("strike") or 0)
+            except (TypeError, ValueError):
+                continue
 
             if oi < 10 or ask <= 0:
                 continue

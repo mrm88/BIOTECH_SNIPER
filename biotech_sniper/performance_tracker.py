@@ -79,30 +79,54 @@ def load_active_plays() -> dict:
 
 
 def fetch_live_data(ticker: str, strike: float, expiry: str, opt_type: str) -> dict:
-    """Fetch stock price + option mid + IV from yfinance."""
-    try:
-        import yfinance as yf
-        stock_obj = yf.Ticker(ticker)
-        hist = stock_obj.history(period="2d")
-        stock_price = float(hist["Close"].iloc[-1]) if not hist.empty else None
+    """Fetch option mid + IV from the Alpaca options-chain endpoint.
 
+    M3 update (f-m3-02): the legacy vendor-backed price/chain pull is
+    replaced by
+    :func:`biotech_sniper.options_chains.pull_options.pull_chain`, which
+    sources data from Alpaca. The underlying stock price is no longer
+    fetched here — downstream callers fall back to None when missing
+    and the M3 paper-executor will compute mid directly from the
+    chain row's bid/ask.
+    """
+    try:
+        from biotech_sniper.options_chains.pull_options import pull_chain
+
+        stock_price = None
         option_mid = None
         iv_pct = None
+
         if strike and expiry and opt_type:
             try:
-                chain = stock_obj.option_chain(expiry)
-                df = chain.calls if opt_type == "C" else chain.puts
-                if df is not None and not df.empty:
-                    df["diff"] = abs(df["strike"] - strike)
-                    row = df.nsmallest(1, "diff").iloc[0]
-                    bid = row.get("bid", 0) or 0
-                    ask = row.get("ask", 0) or 0
-                    option_mid = round((bid + ask) / 2, 2) if (bid + ask) > 0 else None
-                    iv_raw = row.get("impliedVolatility", None)
-                    if iv_raw and iv_raw == iv_raw:
-                        iv_pct = round(float(iv_raw) * 100, 1)
-            except Exception as e:
-                pass  # Option chain may not exist for this expiry
+                target_type = "call" if opt_type == "C" else "put"
+                chain = pull_chain(ticker, expiry)
+                rows = [
+                    r for r in chain
+                    if (r.get("type") or "").lower() == target_type
+                ]
+                if rows:
+                    try:
+                        target_strike = float(strike)
+                    except (TypeError, ValueError):
+                        target_strike = None
+                    if target_strike is not None:
+                        rows.sort(
+                            key=lambda r: abs(
+                                (r.get("strike") or 0.0) - target_strike
+                            )
+                        )
+                        row = rows[0]
+                        bid = row.get("bid") or 0
+                        ask = row.get("ask") or 0
+                        if (bid + ask) > 0:
+                            option_mid = round((bid + ask) / 2, 2)
+                        iv_raw = row.get("iv")
+                        if iv_raw is not None:
+                            iv_pct = round(float(iv_raw) * 100, 1)
+            except Exception:
+                # Option chain may not exist for this expiry; fall through
+                # with None values, mirroring the legacy behaviour.
+                pass
 
         return {"stock": stock_price, "option_mid": option_mid, "iv_pct": iv_pct}
 

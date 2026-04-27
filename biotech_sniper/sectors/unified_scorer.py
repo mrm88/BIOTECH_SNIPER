@@ -69,6 +69,77 @@ SCORING_CACHE_FILE = BASE_DIR / "state/scoring_cache.json"
 
 
 # ---------------------------------------------------------------------------
+# f-m3-02 — score_options(chain) consumer.
+# ---------------------------------------------------------------------------
+
+
+def score_options(chain: Sequence[dict]) -> float:
+    """Score a single options chain and return a liquidity/quality float.
+
+    This is the consumer exercised by the M3 validation contract
+    (VAL-M3-013). It accepts the list of dicts produced by
+    :func:`biotech_sniper.options_chains.pull_options.pull_chain` and
+    returns a single non-negative float — a coarse liquidity / quality
+    signal that downstream selection logic can use to break ties or
+    rank chains within a single ticker.
+
+    The scoring formula is intentionally simple and deterministic so
+    that test fixtures can pin exact values:
+
+    * Each row contributes a factor proportional to its open interest
+      (``oi``) and inversely proportional to its bid/ask spread
+      (a tight spread is better than a wide one).
+    * Rows missing any of :data:`REQUIRED_CHAIN_KEYS` raise
+      :class:`KeyError` — this is the explicit contract bound that
+      VAL-M3-013 asserts: a row produced by ``pull_chain`` must be
+      consumable here without translation.
+    * ``mid`` / ``iv`` / ``delta`` are not currently used in the
+      score but are validated as present to keep the schema contract
+      honest. M5's LightGBM ranker will swap this stub for a learned
+      function that reads all of them.
+
+    Parameters
+    ----------
+    chain:
+        Sequence of chain rows (typically the output of
+        ``pull_chain``).
+
+    Returns
+    -------
+    float
+        Non-negative score. Empty chains yield ``0.0``. Higher is
+        better (more liquidity, tighter spreads).
+    """
+    # Local import keeps the module import-time cost low and avoids a
+    # circular dependency with ``biotech_sniper.options_chains.pull_options``.
+    from biotech_sniper.options_chains.pull_options import REQUIRED_CHAIN_KEYS
+
+    total = 0.0
+    for row in chain or ():
+        # Hard-fail on missing keys so the contract test catches any
+        # drift between pull_chain's output schema and the consumer's
+        # expectations. A KeyError here is the regression signal that
+        # VAL-M3-013 watches for.
+        for key in REQUIRED_CHAIN_KEYS:
+            if key not in row:
+                raise KeyError(
+                    f"score_options: missing required key {key!r} in chain row {row!r}"
+                )
+
+        oi = row["oi"] or 0
+        bid = row["bid"] or 0.0
+        ask = row["ask"] or 0.0
+        spread = max(ask - bid, 0.0)
+        # Liquidity-weighted contribution. Tight spreads weigh more than
+        # wide spreads; high OI weighs more than low OI. Both terms are
+        # bounded so a single huge-OI row does not dominate.
+        liquidity = float(oi) / (1.0 + spread)
+        total += liquidity
+
+    return float(total)
+
+
+# ---------------------------------------------------------------------------
 # f-m2-11 — Selection logic (top-N from scoring_cache).
 # ---------------------------------------------------------------------------
 

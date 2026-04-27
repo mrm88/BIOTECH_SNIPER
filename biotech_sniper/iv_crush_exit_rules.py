@@ -133,7 +133,7 @@ def check_gap_exit_alerts(current_prices: dict) -> list:
     """
     Given a dict of {ticker: current_price}, check for pre-market gaps
     that should trigger immediate 50% exit alerts.
-    current_prices: fetched from yfinance pre-market
+    current_prices: fetched from the broker pre-market snapshot
     """
     ledger = load_ledger()
     active = load_active_plays()

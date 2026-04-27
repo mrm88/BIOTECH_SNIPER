@@ -6,7 +6,7 @@ this module automatically:
 
 1. Finds the correct IR events URL by trying common patterns + web search fallback
 2. Looks up the SEC CIK from EDGAR
-3. Checks if the stock has tradeable options (via yfinance)
+3. Checks if the stock has tradeable options (via Alpaca options chain)
 4. Gets the current stock price
 5. Returns a fully-populated company profile ready to add to nct_registry.json
 
@@ -175,17 +175,26 @@ def get_sec_cik_direct(ticker: str) -> str:
 
 
 def check_options_available(ticker: str) -> dict:
-    """Check if stock has tradeable options via yfinance."""
+    """Check if stock has tradeable options via the Alpaca options chain.
+
+    M3 update (f-m3-02): the legacy vendor lookup is replaced by
+    :func:`biotech_sniper.options_chains.pull_options.pull_chain`
+    (Alpaca-backed). ``current_price`` is no longer fetched here —
+    the M3 paper executor and selection layer derive prices from the
+    chain row's bid/ask snapshot or from ``calibration_params.json``.
+    """
     try:
-        import yfinance as yf
-        stock = yf.Ticker(ticker)
-        expiries = stock.options
-        price = getattr(stock.fast_info, 'last_price', None) or getattr(stock.fast_info, 'previous_close', None)
-        has_options = bool(expiries and len(expiries) > 0)
+        from biotech_sniper.options_chains.pull_options import pull_chain
+
+        chain = pull_chain(ticker)
+        expiries = sorted(
+            {row.get("expiry") for row in chain if row.get("expiry")}
+        )
+        has_options = bool(chain)
         return {
             "has_options": has_options,
-            "expiries": list(expiries[:6]) if expiries else [],
-            "current_price": round(float(price), 2) if price else None,
+            "expiries": list(expiries[:6]),
+            "current_price": None,
         }
     except Exception as e:
         return {"has_options": None, "expiries": [], "current_price": None, "error": str(e)}

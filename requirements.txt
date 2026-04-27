@@ -12,7 +12,8 @@ feedparser==6.0.11
 beautifulsoup4==4.12.3
 
 # --- Market data / reporting ------------------------------------------------
-yfinance==0.2.50
+# yfinance was removed in M3 (f-m3-02): the options-chain fetcher now
+# routes through alpaca-py via biotech_sniper.options_chains.pull_options.
 openpyxl==3.1.5
 reportlab==4.2.5
 

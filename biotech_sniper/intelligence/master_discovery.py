@@ -398,14 +398,19 @@ def discover_clinicaltrials(state: dict, registry: dict, active_plays: dict) -> 
                         resolved_ticker = sec_lut[word]["ticker"]
                         break
 
-            # Validate it's a real US-listed equity with options if resolved
+            # Validate it's a real US-listed equity with options if resolved.
+            # M3 update (f-m3-02): chain probe is now Alpaca-backed via
+            # biotech_sniper.options_chains.pull_options.pull_chain, replacing
+            # the legacy vendor's ``Ticker.options`` lookup.
             has_options = False
             if resolved_ticker:
                 try:
-                    import yfinance as yf
-                    t_test = yf.Ticker(resolved_ticker)
-                    exps = t_test.options
-                    has_options = bool(exps)
+                    from biotech_sniper.options_chains.pull_options import (
+                        pull_chain,
+                    )
+
+                    chain = pull_chain(resolved_ticker)
+                    has_options = bool(chain)
                     if not has_options:
                         resolved_ticker = ""  # No options = no tradeable play
                 except Exception:

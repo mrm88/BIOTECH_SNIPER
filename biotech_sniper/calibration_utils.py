@@ -21,47 +21,41 @@ from biotech_sniper.paths import BASE_DIR
 
 def fetch_iv_for_play(ticker: str, strike: float, expiry: str, option_type: str = "C") -> float | None:
     """
-    Fetch implied volatility for the specific option contract from yfinance.
+    Fetch implied volatility for the specific option contract from the broker.
     Returns IV as a percentage (e.g., 188.0 for 188%), or None if unavailable.
-    
+
     This is called during Step 3 (live options chain pull) in the daily cron.
     The result is stored in active_plays.json as play["iv_pct"].
+
+    M3 update (f-m3-02): backed by the Alpaca options-chain endpoint via
+    :func:`biotech_sniper.options_chains.pull_options.pull_chain`.
     """
     try:
-        import yfinance as yf
-        ticker_obj = yf.Ticker(ticker)
-        
-        # Get options for this expiry
+        # Local import keeps this module import-safe when the Alpaca SDK
+        # is not configured (e.g. fresh checkouts without paper keys);
+        # the call below will surface a typed error and we degrade to
+        # ``None`` just like the legacy implementation did on missing
+        # data.
+        from biotech_sniper.options_chains.pull_options import pull_chain
+
+        target_type = "call" if option_type == "C" else "put"
+        chain = pull_chain(ticker, expiry)
+
+        rows = [r for r in chain if (r.get("type") or "").lower() == target_type]
+        if not rows:
+            return None
+
+        # Closest strike match.
         try:
-            opt_chain = ticker_obj.option_chain(expiry)
-        except Exception:
-            # Try to find nearest expiry
-            expiries = ticker_obj.options
-            if not expiries:
-                return None
-            target = datetime.date.fromisoformat(expiry)
-            nearest = min(expiries, key=lambda e: abs(
-                (datetime.date.fromisoformat(e) - target).days
-            ))
-            opt_chain = ticker_obj.option_chain(nearest)
-        
-        df = opt_chain.calls if option_type == "C" else opt_chain.puts
-        
-        if df is None or df.empty:
+            target_strike = float(strike)
+        except (TypeError, ValueError):
             return None
-        
-        # Find closest strike
-        df["strike_diff"] = abs(df["strike"] - strike)
-        closest = df.nsmallest(1, "strike_diff")
-        if closest.empty:
+        rows.sort(key=lambda r: abs((r.get("strike") or 0.0) - target_strike))
+        iv_raw = rows[0].get("iv")
+        if iv_raw is None:
             return None
-        
-        iv_raw = closest.iloc[0].get("impliedVolatility", None)
-        if iv_raw is None or iv_raw != iv_raw:  # NaN check
-            return None
-        
         return round(float(iv_raw) * 100, 1)
-    
+
     except Exception as e:
         print(f"  [calibration_utils] IV fetch failed for {ticker}: {e}")
         return None
