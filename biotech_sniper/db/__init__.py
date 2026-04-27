@@ -45,7 +45,7 @@ SCHEMA_PATH: Final[Path] = Path(__file__).resolve().parent / "schema.sql"
 # Schema revision shipped by this codebase. Bump when ``schema.sql``
 # changes shape. The migration script writes this value into
 # ``schema_version`` after a successful apply.
-CURRENT_VERSION: Final[int] = 2
+CURRENT_VERSION: Final[int] = 3
 
 
 PathLike = Union[str, Path]
@@ -143,7 +143,7 @@ def run_migrations(conn: sqlite3.Connection, target_version: int = CURRENT_VERSI
             conn.execute(
                 "INSERT OR IGNORE INTO schema_version (version, description) "
                 "VALUES (?, ?)",
-                (target_version, f"biotech_sniper M2 schema v{target_version}"),
+                (target_version, f"biotech_sniper schema v{target_version}"),
             )
         except Exception:
             conn.execute("ROLLBACK")

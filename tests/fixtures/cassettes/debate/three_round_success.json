@@ -1,0 +1,29 @@
+{
+  "_README": "Cassette for the f-m2-12 LLM debate end-to-end happy path. Three round transcripts (Claude, Gemini, Grok) replayed deterministically through llm_debate.run_debate. No live network ever — the test wraps these into invoke callables.",
+  "rounds": {
+    "claude": {
+      "text": "{\"letter_grade\": \"B\", \"rationale\": \"Gemini's A- is too generous. The open-label P3 design and PFS-only primary endpoint introduce material bias risk that Gemini's rationale glossed over. The on-mechanism PD signal is encouraging but not sufficient to override these design risks. Net: lower than Gemini's A-.\"}",
+      "prompt_tokens": 412,
+      "completion_tokens": 88,
+      "cost_usd": 0.0132,
+      "latency_ms": 2103,
+      "model_id": "claude-opus-4-1-20250805"
+    },
+    "gemini": {
+      "text": "{\"letter_grade\": \"B+\", \"rationale\": \"Claude's critique on PFS-only and open-label has merit but overstates the bias risk: the comparator (docetaxel) is well-characterised and the alpha-spending plan is defensible. Replicated P2 ORR + on-mechanism PD response still support an above-base-rate read. Revised down from A- to B+.\"}",
+      "prompt_tokens": 580,
+      "completion_tokens": 96,
+      "cost_usd": 0.0017,
+      "latency_ms": 2540,
+      "model_id": "gemini-2.5-pro"
+    },
+    "grok": {
+      "text": "{\"final_grade\": \"B+\", \"rationale\": \"Adjudicating: Gemini's revised B+ position better integrates Claude's design-risk critique without overweighting it. Replicated P2 efficacy and clean sponsor track record support the above-base-rate grade. Final: B+.\"}",
+      "prompt_tokens": 950,
+      "completion_tokens": 64,
+      "cost_usd": 0.0057,
+      "latency_ms": 1842,
+      "model_id": "grok-4-0709"
+    }
+  }
+}

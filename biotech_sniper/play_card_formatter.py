@@ -33,7 +33,11 @@ def _play_cards_root(base_dir: Path | None = None) -> Path:
 
 
 def _build_play_card_payload(
-    candidate: dict, *, rank: int, as_of_date: str
+    candidate: dict,
+    *,
+    rank: int,
+    as_of_date: str,
+    debate_final_grade: str | None = None,
 ) -> dict:
     """Shape one ``scoring_cache`` row into the on-disk card payload.
 
@@ -43,13 +47,20 @@ def _build_play_card_payload(
     they can override with the LLM-debate ``final_grade``. The
     ``rank`` field encodes the score-desc order (1-indexed) so
     consumers don't have to re-sort the directory listing.
+
+    When ``debate_final_grade`` is non-None (set by f-m2-12 wiring
+    when a divergence-triggered debate produced a Grok adjudication),
+    the on-disk ``grade`` field is overridden by that value per
+    VAL-M2-084. The original ``science_grade`` is still preserved on
+    the card so consumers can compare static-vs-debate.
     """
+    grade = debate_final_grade if debate_final_grade else candidate.get("science_grade")
     return {
         "ticker": candidate["ticker"],
         "as_of_date": as_of_date,
         "rank": int(rank),
         "ensemble_score": candidate.get("ensemble_score"),
-        "grade": candidate.get("science_grade"),
+        "grade": grade,
         "science_grade": candidate.get("science_grade"),
         "claude_grade": candidate.get("claude_grade"),
         "claude_probability": candidate.get("claude_probability"),
@@ -58,6 +69,7 @@ def _build_play_card_payload(
         "grok_score": candidate.get("grok_score"),
         "grok_rank": candidate.get("grok_rank"),
         "divergence_flag": bool(candidate.get("divergence_flag")),
+        "debate_final_grade": debate_final_grade,
         "scoring_cache_id": candidate.get("id"),
     }
 
@@ -70,6 +82,8 @@ def emit_play_cards(
     db_path: Path | None = None,
     min_ensemble_score: float | None = None,
     min_science_grade: str | None = None,
+    run_debate_for_divergent: bool = True,
+    debate_invokers: dict | None = None,
 ) -> list[Path]:
     """Write the top-N candidates to ``play_cards/<as_of_date>/<ticker>.json``.
 
@@ -139,10 +153,49 @@ def emit_play_cards(
             # process we still rewrite the new cards below.
             pass
 
+    # f-m2-12: fire the multi-LLM debate for any top-N candidate whose
+    # static ensemble flagged divergence. The debate's ``final_grade``
+    # (when produced) replaces ``science_grade`` on the play card per
+    # VAL-M2-084. Failures inside the debate module are isolated and
+    # logged at WARNING — a single broken debate must never block the
+    # daily play-card emission.
+    debate_results: dict[int, dict] = {}
+    if run_debate_for_divergent and any(c.get("divergence_flag") for c in candidates):
+        try:
+            from biotech_sniper.llm import llm_debate as _debate
+
+            invoke_kwargs = {
+                "claude_invoke": (debate_invokers or {}).get("claude"),
+                "gemini_invoke": (debate_invokers or {}).get("gemini"),
+                "grok_invoke": (debate_invokers or {}).get("grok"),
+            }
+            debate_results = _debate.run_debates_for_divergent(
+                candidates, db_path=db_path, **invoke_kwargs
+            )
+        except Exception as exc:  # noqa: BLE001 — graceful degradation
+            import logging
+            logging.getLogger(__name__).warning(
+                "play_card_formatter: llm_debate wiring failed (%r); "
+                "falling back to static ensemble grade",
+                exc,
+            )
+            debate_results = {}
+
     written: list[Path] = []
     for rank, cand in enumerate(candidates, start=1):
+        cache_id = cand.get("id")
+        debate_final_grade: str | None = None
+        if cache_id is not None:
+            result = debate_results.get(int(cache_id))
+            if isinstance(result, dict):
+                fg = result.get("final_grade")
+                if isinstance(fg, str) and fg.strip():
+                    debate_final_grade = fg.strip()
         payload = _build_play_card_payload(
-            cand, rank=rank, as_of_date=iso_date
+            cand,
+            rank=rank,
+            as_of_date=iso_date,
+            debate_final_grade=debate_final_grade,
         )
         target = out_dir / f"{cand['ticker']}.json"
         with target.open("w", encoding="utf-8") as fp:

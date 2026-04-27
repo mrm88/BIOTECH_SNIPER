@@ -1,0 +1,29 @@
+{
+  "_README": "Cassette for f-m2-12 trigger='rotation' (M3 rotation engine, wired via f-m3-10). Same three-round structure but the prompts reference an incumbent-vs-challenger framing.",
+  "rounds": {
+    "claude": {
+      "text": "{\"letter_grade\": \"A-\", \"rationale\": \"Challenger thesis stronger than incumbent on near-term catalyst clarity and base-rate priors.\"}",
+      "prompt_tokens": 360,
+      "completion_tokens": 32,
+      "cost_usd": 0.0103,
+      "latency_ms": 1820,
+      "model_id": "claude-opus-4-1-20250805"
+    },
+    "gemini": {
+      "text": "{\"letter_grade\": \"B+\", \"rationale\": \"Concur with Claude on challenger preference but discount the grade by half a step on incumbent's residual upside.\"}",
+      "prompt_tokens": 510,
+      "completion_tokens": 36,
+      "cost_usd": 0.0011,
+      "latency_ms": 2105,
+      "model_id": "gemini-2.5-pro"
+    },
+    "grok": {
+      "text": "{\"final_grade\": \"A-\", \"rationale\": \"Adjudicating: rotation favoured. Challenger's catalyst clarity dominates incumbent's residual upside. Final: A-.\"}",
+      "prompt_tokens": 870,
+      "completion_tokens": 40,
+      "cost_usd": 0.0048,
+      "latency_ms": 1604,
+      "model_id": "grok-4-0709"
+    }
+  }
+}

@@ -231,3 +231,56 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_news_events_dedup
         COALESCE(url, ''),
         COALESCE(published_at, '')
     );
+
+-- ---------------------------------------------------------------------------
+-- ``llm_debate`` — multi-round LLM head-to-head debate transcripts
+-- (M2 feature f-m2-12). One row per debate round, linked back to the
+-- :data:`scoring_cache` row that fired the debate.
+--
+-- Triggers (``trigger`` column):
+--   * ``'divergence'`` — fired by :mod:`biotech_sniper.llm.llm_debate`
+--     when a ``scoring_cache`` row's ``divergence_flag`` is ``1`` for
+--     a top-N candidate. Round 1: Claude critiques Gemini's rationale
+--     and re-grades. Round 2: Gemini rebuts Claude and re-grades.
+--     Round 3: Grok adjudicates and emits a ``final_grade``.
+--   * ``'rotation'`` — fired by the M3 rotation engine
+--     (:mod:`biotech_sniper.rotation_engine`) before swapping an
+--     incumbent active play for a higher-ranked challenger. Same
+--     three-round structure (incumbent vs. challenger).
+--
+-- Hard caps enforced inside :mod:`biotech_sniper.llm.llm_debate`:
+--   * ``LLM_DEBATE_MAX_ROUNDS = 3``
+--   * ``LLM_DEBATE_DAILY_USD_CAP = 10`` (sum of ``cost_usd`` across
+--     today's rows). Once the cap is hit, ``run_debate(...)`` returns
+--     the static-ensemble result and writes a
+--     ``llm_debate_short_circuit`` key into ``state/audit_latest.json``.
+--
+-- ``final_grade`` is populated only on the final adjudicating round
+-- (Grok); earlier rounds carry a ``NULL`` final_grade so a single
+-- ``MAX(final_grade)`` aggregation is safe per debate. Downstream
+-- consumers (``play_card_formatter.emit_play_cards``) replace the
+-- static ``science_grade`` on the play card with this debate
+-- ``final_grade`` whenever it is non-NULL.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS llm_debate (
+    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+    scoring_cache_id         INTEGER,
+    trigger                  TEXT    NOT NULL CHECK(trigger IN ('divergence', 'rotation')),
+    round_index              INTEGER NOT NULL,
+    model                    TEXT    NOT NULL,
+    prompt                   TEXT,
+    response                 TEXT,
+    latency_ms               INTEGER,
+    cost_usd                 REAL,
+    final_grade              TEXT,
+    transcript_complete_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    FOREIGN KEY (scoring_cache_id) REFERENCES scoring_cache(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_llm_debate_scoring_cache_id
+    ON llm_debate(scoring_cache_id);
+CREATE INDEX IF NOT EXISTS idx_llm_debate_trigger
+    ON llm_debate(trigger);
+CREATE INDEX IF NOT EXISTS idx_llm_debate_transcript_complete_at
+    ON llm_debate(transcript_complete_at);
