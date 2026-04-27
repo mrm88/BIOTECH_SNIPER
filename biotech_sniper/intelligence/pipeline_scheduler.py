@@ -26,13 +26,15 @@ from biotech_sniper.paths import BASE_DIR
 # ---------------------------------------------------------------------------
 # Paths & logging
 # ---------------------------------------------------------------------------
+#
+# f-m4-02: log configuration is owned exclusively by
+# ``biotech_sniper.logging_setup``; no module installs its own
+# ``basicConfig``. Importing ``logging_setup`` here is a no-op when an
+# entrypoint has already called ``configure()``; otherwise it falls
+# back to a stream handler with the project's JSON formatter.
+from biotech_sniper import logging_setup  # noqa: F401 — installs handlers on first import
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="[pipeline_scheduler] %(asctime)s %(levelname)s %(message)s",
-    datefmt="%H:%M:%S",
-)
-log = logging.getLogger("pipeline_scheduler")
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Tier refresh intervals (days)

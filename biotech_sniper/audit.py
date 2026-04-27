@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
+import logging
 import sys, json, datetime, traceback, requests
+
+# f-m4-02: route module-level audit output through the project's
+# structured JSON logger instead of bare ``print()`` calls. Importing
+# ``logging_setup`` configures the root logger on first use so this
+# module produces ts/level/event/module-shaped JSON lines without
+# duplicating handlers.
+from biotech_sniper import logging_setup  # noqa: F401 — installs JSON formatter on import
+
+log = logging.getLogger(__name__)
 
 # Load .env before paths.py reads BIOTECH_SNIPER_HOME, so audit.py invoked
 # directly via `python -m biotech_sniper.audit` (without sourcing .env in
@@ -34,11 +44,11 @@ failures = []
 warnings = []
 sources: dict = {}
 today = datetime.date.today().isoformat()
-print(f'FULL RUNTIME AUDIT — {today}')
-print('='*60)
+log.info(f'FULL RUNTIME AUDIT — {today}')
+log.info('='*60)
 
 # ── 1. ClinicalTrials.gov ───────────────────────────────────
-print('\n[1] ClinicalTrials.gov API')
+log.info('\n[1] ClinicalTrials.gov API')
 try:
     r = requests.get(
         'https://clinicaltrials.gov/api/v2/studies?filter.advanced=AREA[Phase]PHASE3+AND+AREA[OverallStatus]ACTIVE_NOT_RECRUITING&pageSize=5&sort=LastUpdatePostDate',
@@ -54,7 +64,7 @@ except Exception as e:
     sources['clinicaltrials_gov'] = {'ok': False, 'error': str(e)}
 
 # ── 2. Warpspeed.sh ─────────────────────────────────────────
-print('\n[2] Warpspeed.sh')
+log.info('\n[2] Warpspeed.sh')
 try:
     r = requests.get('https://warpspeed.sh/', timeout=15, headers={'User-Agent': 'Mozilla/5.0'})
     has_data = any(kw in r.text.lower() for kw in ['experiment', 'ideaya', 'phase', 'trial'])
@@ -68,7 +78,7 @@ except Exception as e:
     failures.append(f'Warpspeed: {e}'); print(f'  FAIL: {e}')
 
 # ── 3. SEC EDGAR ────────────────────────────────────────────
-print('\n[3] SEC EDGAR RSS + CIK file')
+log.info('\n[3] SEC EDGAR RSS + CIK file')
 try:
     import feedparser
     r = requests.get(
@@ -89,7 +99,7 @@ except Exception as e:
     sources['sec_edgar'] = {'ok': False, 'error': str(e)}
 
 # ── 4. USASpending.gov ──────────────────────────────────────
-print('\n[4] USASpending.gov awards')
+log.info('\n[4] USASpending.gov awards')
 try:
     payload = {
         'filters': {
@@ -111,7 +121,7 @@ except Exception as e:
     failures.append(f'USASpending: {e}'); print(f'  FAIL: {e}')
 
 # ── 5. Defense.gov RSS ──────────────────────────────────────
-print('\n[5] Defense.gov contract RSS')
+log.info('\n[5] Defense.gov contract RSS')
 try:
     r = requests.get('https://www.defense.gov/News/Contracts/rss/',
                      headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
@@ -132,7 +142,7 @@ except Exception as e:
 # ── 6. FDA news RSS (press releases) ────────────────────────
 # The legacy advisory-committee-meetings-coming-soon.rss endpoint now 404s;
 # use the FDA press-releases RSS as the canonical "news_rss" health source.
-print('\n[6] FDA press-releases RSS')
+log.info('\n[6] FDA press-releases RSS')
 try:
     r = requests.get('https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/press-releases/rss.xml',
                      headers={'User-Agent': 'Mozilla/5.0'}, timeout=12)
@@ -148,7 +158,7 @@ except Exception as e:
     sources['news_rss'] = {'ok': False, 'error': str(e)}
 
 # ── 7. BiopharmCatalyst ─────────────────────────────────────
-print('\n[7] BiopharmCatalyst AdCom')
+log.info('\n[7] BiopharmCatalyst AdCom')
 try:
     r = requests.get('https://www.biopharmcatalyst.com/calendars/adcom-calendar',
                      headers={'User-Agent': 'Mozilla/5.0'}, timeout=12)
@@ -163,7 +173,7 @@ except Exception as e:
     failures.append(f'BiopharmCatalyst: {e}'); print(f'  FAIL: {e}')
 
 # ── 8. IDYA IR page live signal check ───────────────────────
-print('\n[8] IDEAYA IR live check')
+log.info('\n[8] IDEAYA IR live check')
 try:
     r = requests.get('https://ir.ideayabio.com/events',
                      headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -177,7 +187,7 @@ except Exception as e:
     failures.append(f'IDYA IR: {e}'); print(f'  FAIL: {e}')
 
 # ── 9. Twitter via DDG ──────────────────────────────────────
-print('\n[9] Twitter via DuckDuckGo')
+log.info('\n[9] Twitter via DuckDuckGo')
 try:
     r = requests.post('https://html.duckduckgo.com/html/',
                       data={'q': 'site:twitter.com BioPharmCatalyst PDUFA 2026'},
@@ -195,7 +205,7 @@ except Exception as e:
 
 # ── 10. master_discovery full run (legacy probe) ────────────
 # f-m2-07: failed legacy probes warn rather than ImportError.
-print('\n[10] master_discovery.run_discovery() (legacy probe)')
+log.info('\n[10] master_discovery.run_discovery() (legacy probe)')
 try:
     from biotech_sniper.intelligence.master_discovery import run_discovery
     result = run_discovery()
@@ -214,7 +224,7 @@ except Exception as e:
     print(f'  WARNING (legacy probe): {e}')
 
 # ── 11. twitter build_queries (legacy probe) ────────────────
-print('\n[11] twitter build_twitter_search_queries() (legacy probe)')
+log.info('\n[11] twitter build_twitter_search_queries() (legacy probe)')
 try:
     from biotech_sniper.intelligence.twitter_biotech_monitor import (
         build_twitter_search_queries, parse_twitter_results,
@@ -235,7 +245,7 @@ except Exception as e:
     print(f'  WARNING (legacy probe): {e}')
 
 # ── 12. adcom drug_ticker_map (legacy probe) ────────────────
-print('\n[12] adcom build_drug_ticker_map() (legacy probe)')
+log.info('\n[12] adcom build_drug_ticker_map() (legacy probe)')
 try:
     from biotech_sniper.sectors.adcom.adcom_scanner import (
         build_drug_ticker_map, run_adcom_scan,
@@ -254,7 +264,7 @@ except Exception as e:
     print(f'  WARNING (legacy probe): {e}')
 
 # ── 13. contracts defense.gov fetch (legacy probe) ──────────
-print('\n[13] sam_sniper.fetch_defense_gov_contracts() (legacy probe)')
+log.info('\n[13] sam_sniper.fetch_defense_gov_contracts() (legacy probe)')
 try:
     from biotech_sniper.sectors.contracts.sam_sniper import (
         fetch_defense_gov_contracts, run_contract_scan,
@@ -272,7 +282,7 @@ except Exception as e:
     print(f'  WARNING (legacy probe): {e}')
 
 # ── 14. company_ticker_map aliases ──────────────────────────
-print('\n[14] company_ticker_map aliases check')
+log.info('\n[14] company_ticker_map aliases check')
 try:
     import json
     # f-m2-07: prefer the package-relative path (``biotech_sniper/sectors/...``);
@@ -300,7 +310,7 @@ except Exception as e:
 # f-m1-03 moved the runtime state JSONs to migrations/seed/. The runtime
 # active_plays SQLite path is introduced in M2; until then, validate the
 # seed JSON shape so M2 has a clean source to backfill from.
-print('\n[15] active_plays.json health (seed)')
+log.info('\n[15] active_plays.json health (seed)')
 try:
     seed_candidates = [
         BASE_DIR / 'migrations/seed/active_plays.json',          # VPS layout (BASE_DIR=repo root)
@@ -339,7 +349,7 @@ def _sqlite_count(conn, table: str):
     except Exception:
         return None
 
-print('\n[16] alpha_sniper.db (SQLite) presence + tables')
+log.info('\n[16] alpha_sniper.db (SQLite) presence + tables')
 try:
     import sqlite3
     db_path = DATA_DIR / 'alpha_sniper.db'
@@ -372,7 +382,7 @@ except Exception as e:
     db_summary = {'ok': False, 'error': str(e)}
 sources['alpha_sniper_db'] = db_summary
 
-print('\n[17] scoring_cache health (SQLite)')
+log.info('\n[17] scoring_cache health (SQLite)')
 sc_summary: dict = {}
 try:
     import sqlite3
@@ -413,7 +423,7 @@ except Exception as e:
     sc_summary = {'ok': False, 'error': str(e)}
 sources['scoring_cache'] = sc_summary
 
-print('\n[18] llm_cost_ledger health (SQLite)')
+log.info('\n[18] llm_cost_ledger health (SQLite)')
 ledger_summary: dict = {}
 try:
     import sqlite3
@@ -454,7 +464,7 @@ except Exception as e:
     ledger_summary = {'ok': False, 'error': str(e)}
 sources['llm_cost_ledger'] = ledger_summary
 
-print('\n[19] news_events health (SQLite, optional)')
+log.info('\n[19] news_events health (SQLite, optional)')
 # ``news_events`` is introduced by a later M2 feature; absence is a
 # warning, not a failure, so this audit script can land before that
 # feature ships.
@@ -502,12 +512,12 @@ except Exception as e:
     news_summary = {'ok': False, 'error': str(e)}
 sources['news_events'] = news_summary
 
-print()
-print('='*60)
-print(f'FAILURES ({len(failures)}):')
+log.info('audit_summary_separator')
+log.info('='*60)
+log.info(f'FAILURES ({len(failures)}):')
 for f in failures:
     print(f'  FAIL: {f}')
-print(f'WARNINGS ({len(warnings)}):')
+log.info(f'WARNINGS ({len(warnings)}):')
 for w in warnings:
     print(f'  WARN: {w}')
 if not failures:

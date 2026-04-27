@@ -33,12 +33,12 @@ STATE_FILE = BASE_DIR / "state/company_pipelines.json"
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="[pipeline_manager] %(asctime)s %(levelname)s %(message)s",
-    datefmt="%H:%M:%S",
-)
-log = logging.getLogger("pipeline_manager")
+# f-m4-02: ``logging.basicConfig`` is now centralised in
+# ``biotech_sniper.logging_setup``. Importing it here installs the JSON
+# formatter on first use without duplicating handlers.
+from biotech_sniper import logging_setup  # noqa: F401 — single source of truth
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants

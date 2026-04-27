@@ -111,12 +111,12 @@ RSS_FEEDS = [
 ]
 
 # ── Logging ───────────────────────────────────────────────────────────────────
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%H:%M:%S",
-)
-log = logging.getLogger("universal_news_watcher")
+# f-m4-02: log configuration is owned exclusively by
+# ``biotech_sniper.logging_setup``; this module no longer calls
+# ``logging.basicConfig`` directly.
+from biotech_sniper import logging_setup  # noqa: F401 — installs JSON formatter on import
+
+log = logging.getLogger(__name__)
 
 
 # ════════════════════════════════════════════════════════════════════════════

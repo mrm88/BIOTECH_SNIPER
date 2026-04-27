@@ -1,0 +1,27 @@
+# Logrotate policy for the Alpha Sniper / Biotech Sniper deployment
+# (mission feature f-m4-02; fulfills VAL-M4-028 and VAL-M4-029).
+#
+# Install on the VPS as ``/etc/logrotate.d/alpha-sniper``. The
+# matching log files are produced by ``biotech_sniper/logging_setup.py``
+# which writes one JSON object per line to
+# ``/var/log/alpha_sniper/{daily,intraday,watchdog}.log`` (default
+# layout, configurable via ``ALPHA_SNIPER_LOG_DIR`` /
+# ``ALPHA_SNIPER_LOG_PATH``).
+#
+# Verification:
+#   logrotate -d /etc/logrotate.d/alpha-sniper      # dry-run, exit 0
+#   logrotate -f /etc/logrotate.d/alpha-sniper      # force rotate
+
+/var/log/alpha_sniper/*.log {
+    daily
+    rotate 14
+    size 50M
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    create 640 root root
+    dateext
+    dateformat -%Y%m%d
+}
