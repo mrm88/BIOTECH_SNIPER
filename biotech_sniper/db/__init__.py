@@ -41,6 +41,7 @@ __all__ = [
     "run_migrations",
     "current_schema_version",
     "split_sql_statements",
+    "cleanup_scoring_cache_chain_gate_violations",
 ]
 
 
@@ -60,7 +61,7 @@ SCHEMA_PATH: Final[Path] = Path(__file__).resolve().parent / "schema.sql"
 #     connect (every CREATE statement uses ``IF NOT EXISTS``), so even
 #     if a db drifts to a stale version row, re-running
 #     :func:`run_migrations` will restore any missing tables.
-CURRENT_VERSION: Final[int] = 8
+CURRENT_VERSION: Final[int] = 9
 
 
 # File mode applied to the on-disk SQLite database after every
@@ -584,6 +585,130 @@ def _recreate_paper_orders_with_full_constraints(
     )
 
 
+def _cleanup_scoring_cache_chain_gate_violations(
+    conn: sqlite3.Connection,
+) -> int:
+    """Delete ``scoring_cache`` rows that violate the chain-gate invariant.
+
+    Per VAL-M3-045 + f-m3-08 + f-m3-16, every ``scoring_cache`` row
+    MUST join to a ``universe`` row with ``has_options_chain=1``.
+    Rows that pre-date the chain-gate enforcement (e.g. injected by
+    the f-m2-19 / f-m2-22 smoke runs that synthesised ``SMOK1..5``
+    before the gate landed) leak through if the DB carries them
+    forward, even though no production code path can re-create them
+    today. This helper deletes those stale rows so the
+    contract-enforcing JOIN
+
+        ``SELECT COUNT(*) FROM scoring_cache sc
+              LEFT JOIN universe u ON sc.ticker=u.ticker
+            WHERE u.has_options_chain IS NULL
+               OR u.has_options_chain = 0;``
+
+    returns ``0`` after every migration apply.
+
+    Idempotent: when no violations exist the DELETE matches zero
+    rows and is a no-op. Wired into :func:`run_migrations` as a
+    one-shot — gated on ``pre_migration_version < 9`` — so it
+    runs exactly once per legacy database (after which
+    ``schema_version=9`` is recorded and subsequent connects skip
+    the cleanup so test fixtures that legitimately seed
+    ``scoring_cache`` without ``universe`` are left alone).
+    Whenever a non-zero number of rows is deleted the function logs
+    a WARNING so operators notice the bypass actually fired
+    (rather than silently swallowing the issue).
+
+    Returns the number of rows deleted (so callers and tests can
+    verify the cleanup ran).
+
+    Skipped silently when either ``scoring_cache`` or ``universe``
+    is absent — e.g. a partial/legacy db whose schema is being
+    rebuilt by an earlier step in the migration. The
+    ``CREATE TABLE IF NOT EXISTS`` statements in ``schema.sql`` run
+    BEFORE this helper, so the skip path is reached only when the
+    db is structurally broken in some other way.
+    """
+    import logging as _logging
+
+    log = _logging.getLogger(__name__)
+
+    def _table_exists(name: str) -> bool:
+        row = conn.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name=?",
+            (name,),
+        ).fetchone()
+        return row is not None
+
+    if not (_table_exists("scoring_cache") and _table_exists("universe")):
+        return 0
+
+    # Targets:
+    #   * ticker absent from ``universe`` entirely (LEFT JOIN gives
+    #     NULL has_options_chain) — strict reading of f-m3-16's
+    #     "no chain status means reject" rule.
+    #   * ticker present with ``has_options_chain=0`` — watch-only
+    #     row that should never have been scored.
+    #
+    # The subquery uses ``NOT IN (SELECT ticker FROM universe WHERE
+    # has_options_chain=1)`` so both buckets are caught with a
+    # single, index-friendly DELETE.
+    #
+    # Cascade: ``llm_debate.scoring_cache_id`` is a FOREIGN KEY back
+    # into ``scoring_cache(id)``. With ``PRAGMA foreign_keys=ON``
+    # (set by :func:`connect`) the parent DELETE would raise
+    # ``IntegrityError`` whenever a violator has an associated
+    # debate transcript — the f-m2-19 smoke run created exactly
+    # this case (SMOK1 has 3 debate rounds, SMOK2 has the synthetic
+    # over-cap row). We therefore delete the dependent
+    # ``llm_debate`` rows in the same transaction *before* the
+    # parent rows. This is intentional, idempotent, and audited via
+    # the WARNING log lines below.
+    deleted_debates = 0
+    if _table_exists("llm_debate"):
+        debate_cursor = conn.execute(
+            """
+            DELETE FROM llm_debate
+            WHERE scoring_cache_id IN (
+                SELECT id FROM scoring_cache
+                WHERE ticker NOT IN (
+                    SELECT ticker FROM universe
+                    WHERE has_options_chain = 1
+                )
+            )
+            """
+        )
+        deleted_debates = debate_cursor.rowcount or 0
+
+    cursor = conn.execute(
+        """
+        DELETE FROM scoring_cache
+        WHERE ticker NOT IN (
+            SELECT ticker FROM universe WHERE has_options_chain = 1
+        )
+        """
+    )
+    deleted = cursor.rowcount or 0
+    if deleted > 0 or deleted_debates > 0:
+        log.warning(
+            "scoring_cache.chain_gate_cleanup deleted=%d "
+            "llm_debate_cascaded=%d "
+            "reason=stale_pre_chain_gate_rows "
+            "(VAL-M3-045 self-heal — see f-m3-24)",
+            deleted,
+            deleted_debates,
+        )
+    return deleted
+
+
+# Public alias so tests and operator scripts can invoke the cleanup
+# helper without poking at the underscore-prefixed implementation.
+# The helper is idempotent and safe to call against any db that has
+# both ``scoring_cache`` and ``universe`` tables.
+cleanup_scoring_cache_chain_gate_violations = (
+    _cleanup_scoring_cache_chain_gate_violations
+)
+
+
 def _apply_pending_alter_table_migrations(conn: sqlite3.Connection) -> None:
     """Run any ``ALTER TABLE ... ADD COLUMN`` migrations that are missing.
 
@@ -597,7 +722,10 @@ def _apply_pending_alter_table_migrations(conn: sqlite3.Connection) -> None:
 
     f-m3-09 also runs the orders-table recreate here so production
     databases that pre-date the CHECK constraint pick it up on the
-    next connect.
+    next connect. The f-m3-24 ``scoring_cache`` chain-gate cleanup
+    is NOT applied here — it lives directly in :func:`run_migrations`
+    so it can be gated on the pre-migration ``schema_version`` and
+    thus run exactly once per legacy database.
     """
     for table, column, ddl in _ALTER_TABLE_ADD_COLUMNS:
         cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
@@ -691,6 +819,14 @@ def run_migrations(conn: sqlite3.Connection, target_version: int = CURRENT_VERSI
     schema_sql = SCHEMA_PATH.read_text(encoding="utf-8")
     statements = split_sql_statements(schema_sql)
 
+    # Snapshot the pre-migration schema version BEFORE we open the
+    # transaction so the f-m3-24 one-time cleanup can decide whether
+    # to fire. ``current_schema_version`` reads ``schema_version``
+    # outside the BEGIN/COMMIT block (and tolerates a missing table
+    # by returning ``0``), so it never interferes with the DDL
+    # transaction below.
+    pre_migration_version = current_schema_version(conn)
+
     # Take over transaction management from Python's sqlite3 driver.
     # We restore the previous isolation_level on the way out so the
     # caller's connection state is unchanged on success or failure.
@@ -724,6 +860,23 @@ def run_migrations(conn: sqlite3.Connection, target_version: int = CURRENT_VERSI
             for stmt in statements:
                 conn.execute(stmt)
             _apply_pending_alter_table_migrations(conn)
+            # f-m3-24: one-shot cleanup of stale ``scoring_cache``
+            # rows that violate the chain-gate invariant (per
+            # VAL-M3-045 + f-m3-08 + f-m3-16). The fix is gated on
+            # ``pre_migration_version < 9`` so it runs exactly once
+            # per database — enough to purge the SMOK1..5 stale
+            # rows from the production VPS db without disturbing
+            # tests or smoke runs that legitimately seed
+            # ``scoring_cache`` without populating ``universe``.
+            #
+            # The chain-gate code paths (``filter_chain_gated_tickers``,
+            # ``EnsembleScorer``) already prevent NEW violations
+            # from being inserted by production callers, so this
+            # one-time pass is sufficient — re-running on every
+            # connect would fight legitimate test fixtures that
+            # don't bother to seed the universe table.
+            if pre_migration_version < 9:
+                _cleanup_scoring_cache_chain_gate_violations(conn)
             conn.execute(
                 "INSERT OR IGNORE INTO schema_version (version, description) "
                 "VALUES (?, ?)",
