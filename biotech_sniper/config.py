@@ -107,6 +107,21 @@ MAX_CONCURRENT_PLAYS: Final[int] = 3
 MAX_DEPLOYED_USD: Final[int] = 750
 
 
+# ``LIQUIDITY_PROBE_DAILY_USD_CAP`` is the per-day USD cap on the
+# total cost of liquidity-probe orders submitted by
+# :mod:`biotech_sniper.liquidity_probe`. The module refuses to submit
+# a probe when the day's cumulative ``SUM(cost_usd)`` (across all
+# rows in the ``liquidity_probes`` SQLite table whose
+# ``submitted_at`` falls on today's UTC date) already meets or
+# exceeds this cap. Default ``20`` USD per the M3 mission plan.
+#
+# Probe spend is intentionally tracked SEPARATELY from
+# :data:`MAX_DEPLOYED_USD` — probes are diagnostic, not part of the
+# strategy's deployed capital, so they must not crowd out real
+# entries.
+LIQUIDITY_PROBE_DAILY_USD_CAP: Final[int] = 20
+
+
 # ``STOP_LOSS_PCT`` is the negative percentage drawdown at which the
 # f-m3-09 stop-loss trigger fires. Default is ``-0.50`` (a 50% drop
 # from the entry mid). When ``current_mid / entry_mid - 1`` is less
@@ -377,6 +392,7 @@ __all__ = [
     "RISK_PER_PLAY_USD",
     "MAX_CONCURRENT_PLAYS",
     "MAX_DEPLOYED_USD",
+    "LIQUIDITY_PROBE_DAILY_USD_CAP",
     "STOP_LOSS_PCT",
     "ENSEMBLE_WEIGHTS",
     "MIN_ENSEMBLE_SCORE",

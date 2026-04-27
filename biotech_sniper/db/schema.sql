@@ -441,3 +441,71 @@ CREATE INDEX IF NOT EXISTS idx_execution_fills_paper_order_id
     ON execution_fills(paper_order_id);
 CREATE INDEX IF NOT EXISTS idx_execution_fills_filled_at
     ON execution_fills(filled_at);
+
+-- ---------------------------------------------------------------------------
+-- ``liquidity_probes`` — pre-entry chain-liquidity probe records
+-- (f-m3-12).
+--
+-- One row per probe order. ``biotech_sniper.liquidity_probe.probe_chain``
+-- submits a 1-contract marketable-limit order (tagged with
+-- ``purpose='liquidity_probe'`` on the parent ``paper_orders`` row,
+-- joined via ``client_order_id``), waits up to 60 seconds for a fill,
+-- and cancels the order if it does not fill in time. The terminal
+-- broker outcome is mapped onto the closed ``outcome`` enum:
+--
+--   * ``'filled'``   — broker filled the full 1 contract within 60s.
+--   * ``'partial'``  — at least one fill arrived but the order was
+--     still partially open at the cancel-or-deadline boundary.
+--     (Probe size is fixed at 1 contract, so this case is rare in
+--     practice but the enum honours it for forward-compat with
+--     larger probes.)
+--   * ``'unfilled'`` — no fills arrived within the 60s window; the
+--     probe canceled cleanly.
+--   * ``'rejected'`` — broker rejected the probe at submission
+--     (e.g. invalid symbol, no buying power).
+--
+-- The ``classification`` column maps the outcome onto the
+-- chain-liquidity decision used by the M3 sizing path:
+--
+--   * ``filled``    → ``'fillable'``    (single-strike full size).
+--   * ``partial``   → ``'partial'``     (split across 2 strikes).
+--   * unfilled OR
+--     rejected      → ``'unfillable'``  (skip this ticker entirely).
+--
+-- Per-day probe cost cap: ``LIQUIDITY_PROBE_DAILY_USD_CAP=20`` is
+-- enforced inside ``biotech_sniper.liquidity_probe`` (the module
+-- refuses to submit when ``SUM(cost_usd) >= cap`` for the current
+-- date). Probe costs do NOT count toward ``MAX_DEPLOYED_USD``.
+--
+-- ``client_order_id`` matches the ``paper_orders.client_order_id`` of
+-- the probe's parent order (UNIQUE so re-running the same probe
+-- short-circuits before any broker call). ``time_to_fill_ms`` is
+-- measured from ``submitted_at`` to ``finalized_at``; ``cost_usd``
+-- is ``filled_qty * filled_price * 100`` for filled / partial probes
+-- and ``0`` otherwise (we only count actual fills toward the cap).
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS liquidity_probes (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker            TEXT    NOT NULL,
+    expiry            TEXT    NOT NULL,
+    strike            REAL    NOT NULL,
+    side              TEXT    NOT NULL CHECK(side IN ('buy','sell')),
+    probe_size        INTEGER NOT NULL,
+    submitted_at      TEXT    NOT NULL,
+    finalized_at      TEXT,
+    outcome           TEXT    CHECK(outcome IN ('filled','partial','unfilled','rejected')),
+    time_to_fill_ms   INTEGER,
+    classification    TEXT    CHECK(classification IN ('fillable','partial','unfillable')),
+    client_order_id   TEXT    UNIQUE,
+    cost_usd          REAL
+);
+
+CREATE INDEX IF NOT EXISTS idx_liquidity_probes_ticker
+    ON liquidity_probes(ticker);
+CREATE INDEX IF NOT EXISTS idx_liquidity_probes_submitted_at
+    ON liquidity_probes(submitted_at);
+CREATE INDEX IF NOT EXISTS idx_liquidity_probes_classification
+    ON liquidity_probes(classification);
+CREATE INDEX IF NOT EXISTS idx_liquidity_probes_client_order_id
+    ON liquidity_probes(client_order_id);

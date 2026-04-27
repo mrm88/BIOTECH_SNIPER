@@ -60,7 +60,7 @@ SCHEMA_PATH: Final[Path] = Path(__file__).resolve().parent / "schema.sql"
 #     connect (every CREATE statement uses ``IF NOT EXISTS``), so even
 #     if a db drifts to a stale version row, re-running
 #     :func:`run_migrations` will restore any missing tables.
-CURRENT_VERSION: Final[int] = 7
+CURRENT_VERSION: Final[int] = 8
 
 
 # File mode applied to the on-disk SQLite database after every

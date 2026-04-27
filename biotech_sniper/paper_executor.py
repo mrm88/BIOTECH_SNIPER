@@ -1995,6 +1995,150 @@ class PaperExecutor:
             conn.close()
 
     # ------------------------------------------------------------------
+    # f-m3-12: liquidity-probe gated entry sizing
+    # ------------------------------------------------------------------
+
+    def size_entry(
+        self,
+        candidate: Mapping[str, Any],
+        *,
+        liquidity_probe_module: Any = None,
+    ) -> dict[str, Any]:
+        """Probe chain liquidity and return a sizing decision.
+
+        This is the canonical entry point that the play-card builder
+        / orchestrator calls BEFORE invoking :meth:`execute` on a
+        real-entry candidate. It runs a 1-contract liquidity probe
+        against the intended ``(ticker, expiry, strike)`` chain and
+        translates the probe's classification into one of three
+        actions:
+
+        * ``"skip"``   — classification ``"unfillable"``: do NOT
+          submit any real-entry order for this ticker today.
+          ``play_card`` is ``None``.
+        * ``"single"`` — classification ``"fillable"``: submit a
+          single-strike full-size entry. ``play_card`` is the
+          original candidate (or its ``play_card`` projection)
+          unmodified.
+        * ``"multi"``  — classification ``"partial"``: split the
+          entry across 2 strikes. The returned ``play_card`` is the
+          candidate with ``liquidity_classification="partial"``
+          stamped on it so :meth:`execute` dispatches via the
+          :func:`_is_multi_strike` path.
+
+        Parameters
+        ----------
+        candidate:
+            Mapping describing the proposed entry. Required keys:
+            ``ticker``, ``expiry``, ``strike``. Optional: ``side``
+            (defaults to ``"buy"``), ``play_card`` (the full play
+            card to forward when classification permits), ``symbol``
+            (the canonical OCC option symbol — preferred over the
+            synthesised default).
+        liquidity_probe_module:
+            Optional override for the
+            :mod:`biotech_sniper.liquidity_probe` module — tests
+            inject a stub. Defaults to the real module.
+
+        Returns
+        -------
+        dict
+            ``{"action": "skip"|"single"|"multi",
+              "classification": "...", "probe_result": ProbeResult,
+              "play_card": <play card or None>}``.
+        """
+        if liquidity_probe_module is None:
+            from biotech_sniper import liquidity_probe as liquidity_probe_module  # type: ignore[no-redef]
+
+        ticker_raw = candidate.get("ticker")
+        expiry_raw = candidate.get("expiry")
+        strike_raw = candidate.get("strike")
+        side_raw = candidate.get("side") or "buy"
+        if not (
+            isinstance(ticker_raw, str)
+            and ticker_raw.strip()
+            and isinstance(expiry_raw, str)
+            and expiry_raw.strip()
+            and strike_raw is not None
+        ):
+            raise UnsupportedOrderShape(
+                "size_entry: candidate must include non-empty 'ticker', "
+                "'expiry', and 'strike'"
+            )
+
+        try:
+            strike_val = float(strike_raw)
+        except (TypeError, ValueError):
+            raise UnsupportedOrderShape(
+                f"size_entry: strike must be numeric; got {strike_raw!r}"
+            )
+
+        symbol_override = candidate.get("symbol")
+        try:
+            probe_result = liquidity_probe_module.probe_chain(
+                ticker_raw,
+                expiry_raw,
+                strike_val,
+                str(side_raw),
+                alpaca_client=self.client,
+                db_path=self.db_path,
+                poll_interval_seconds=self.poll_interval_seconds,
+                symbol_override=symbol_override,
+            )
+        except liquidity_probe_module.DailyCapExceeded as exc:
+            # Daily cap is treated like ``"unfillable"`` for sizing
+            # purposes — the safest fallback when we cannot probe.
+            logger.warning(
+                "paper_executor.size_entry.daily_cap_exceeded "
+                "ticker=%s reason=%s",
+                ticker_raw,
+                exc,
+            )
+            return {
+                "action": "skip",
+                "classification": "unfillable",
+                "probe_result": None,
+                "play_card": None,
+                "reason": "liquidity_probe_daily_cap_exceeded",
+            }
+
+        classification = probe_result.classification
+        play_card_in: Optional[Mapping[str, Any]] = candidate.get(
+            "play_card"
+        ) if isinstance(candidate.get("play_card"), Mapping) else None
+
+        if classification == "unfillable":
+            return {
+                "action": "skip",
+                "classification": classification,
+                "probe_result": probe_result,
+                "play_card": None,
+            }
+
+        # Build the outgoing play card. The caller may pass the full
+        # play card on ``candidate['play_card']``; otherwise fall
+        # through to ``candidate`` itself (already conformant with
+        # :meth:`execute`'s expected shape if it carries
+        # ``option_legs``).
+        outgoing: dict[str, Any] = dict(
+            play_card_in if play_card_in is not None else candidate
+        )
+
+        if classification == "partial":
+            outgoing["liquidity_classification"] = "partial"
+            action = "multi"
+        else:  # "fillable"
+            outgoing["liquidity_classification"] = "fillable"
+            action = "single"
+
+        return {
+            "action": action,
+            "classification": classification,
+            "probe_result": probe_result,
+            "play_card": outgoing,
+        }
+
+    # ------------------------------------------------------------------
     # Internal: status updates during the poll loop.
     # ------------------------------------------------------------------
 
