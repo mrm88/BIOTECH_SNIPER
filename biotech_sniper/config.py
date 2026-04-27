@@ -122,6 +122,29 @@ MAX_DEPLOYED_USD: Final[int] = 750
 LIQUIDITY_PROBE_DAILY_USD_CAP: Final[int] = 20
 
 
+# ---------------------------------------------------------------------------
+# Workload caps (M4 feature f-m4-05).
+# ---------------------------------------------------------------------------
+
+# ``MAX_WORKERS`` is the hard ceiling on the ``max_workers`` argument of any
+# :class:`concurrent.futures.ThreadPoolExecutor` instantiated anywhere in
+# the project. The VPS is a 2-core box already operating near sustained
+# 2× load (HL grok service, hl-price-recorder, geo_shock_monitor, etc.),
+# so unbounded thread pools have historically caused load spikes that
+# starved sibling services. Per ``AGENTS.md`` § "Workload caps on VPS",
+# every executor MUST request ``max_workers ≤ MAX_WORKERS``.
+#
+# All callers that need a thread pool MUST go through
+# :func:`biotech_sniper.thread_pool.bounded_thread_pool`, which clamps
+# requested workers to this cap and raises
+# :class:`biotech_sniper.thread_pool.ThreadPoolCapExceeded` if a caller
+# passes a value above the cap. Direct instantiation of
+# ``ThreadPoolExecutor(max_workers=N)`` with ``N > MAX_WORKERS`` is a
+# mission-policy violation; the validation contract (VAL-M4-044) greps
+# for it.
+MAX_WORKERS: Final[int] = 4
+
+
 # ``STOP_LOSS_PCT`` is the negative percentage drawdown at which the
 # f-m3-09 stop-loss trigger fires. Default is ``-0.50`` (a 50% drop
 # from the entry mid). When ``current_mid / entry_mid - 1`` is less
@@ -393,6 +416,7 @@ __all__ = [
     "MAX_CONCURRENT_PLAYS",
     "MAX_DEPLOYED_USD",
     "LIQUIDITY_PROBE_DAILY_USD_CAP",
+    "MAX_WORKERS",
     "STOP_LOSS_PCT",
     "ENSEMBLE_WEIGHTS",
     "MIN_ENSEMBLE_SCORE",

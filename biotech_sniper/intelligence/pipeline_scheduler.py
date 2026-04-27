@@ -18,9 +18,9 @@ import json
 import datetime
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
+from biotech_sniper.config import MAX_WORKERS
 from biotech_sniper.paths import BASE_DIR
 
 # ---------------------------------------------------------------------------
@@ -176,7 +176,7 @@ def _get_due_tickers(universe: dict, pipeline_state: dict, today: datetime.date)
 
 def _run_batch_safe(
     tickers: list,
-    max_workers: int = 10,
+    max_workers: int = MAX_WORKERS,
     label: str = "",
 ) -> tuple:
     """
@@ -209,7 +209,7 @@ def _run_batch_safe(
 # ---------------------------------------------------------------------------
 
 def run_scheduled_pipelines(
-    max_workers: int = 10,
+    max_workers: int = MAX_WORKERS,
     since_date: Optional[str] = None,
 ) -> dict:
     """
@@ -226,7 +226,8 @@ def run_scheduled_pipelines(
       8. Report new catalyst discoveries
 
     Args:
-      max_workers:  ThreadPoolExecutor workers per batch
+      max_workers:  ThreadPoolExecutor workers per batch (capped at
+                    :data:`biotech_sniper.config.MAX_WORKERS`)
       since_date:   ISO date string for get_new_catalyst_discoveries (defaults to today)
 
     Returns dict:
@@ -336,7 +337,7 @@ def run_scheduled_pipelines(
 # Utility: force-refresh a specific ticker list (bypass tier schedule)
 # ---------------------------------------------------------------------------
 
-def refresh_tickers(tickers: list, max_workers: int = 10) -> dict:
+def refresh_tickers(tickers: list, max_workers: int = MAX_WORKERS) -> dict:
     """
     Force-refresh specific tickers regardless of age.
     Saves results and returns {ticker: result}.
@@ -395,8 +396,8 @@ if __name__ == "__main__":
         help="Show schedule summary without running pipelines",
     )
     parser.add_argument(
-        "--workers", type=int, default=10,
-        help="ThreadPoolExecutor max_workers (default: 10)",
+        "--workers", type=int, default=MAX_WORKERS,
+        help=f"ThreadPoolExecutor max_workers (default: {MAX_WORKERS}, hard cap: {MAX_WORKERS})",
     )
     parser.add_argument(
         "--since", type=str, default=None,

@@ -20,7 +20,10 @@ import time
 import logging
 import urllib.request
 import urllib.parse
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import as_completed
+
+from biotech_sniper.config import MAX_WORKERS
+from biotech_sniper.thread_pool import bounded_thread_pool
 from typing import Optional
 
 from biotech_sniper.paths import BASE_DIR
@@ -591,11 +594,16 @@ def run_pipeline_for_ticker(ticker: str) -> dict:
 # Batch pipeline
 # ---------------------------------------------------------------------------
 
-def run_pipeline_batch(tickers: list, max_workers: int = 10) -> dict:
+def run_pipeline_batch(tickers: list, max_workers: int = MAX_WORKERS) -> dict:
     """
     Run pipeline for multiple tickers in parallel using ThreadPoolExecutor.
     Returns {ticker: result_dict}.
     Workers sleep 0.1s between API calls to respect rate limits.
+
+    The pool size is bounded by :data:`biotech_sniper.config.MAX_WORKERS`
+    via :func:`biotech_sniper.thread_pool.bounded_thread_pool` (M4 workload
+    cap). Callers passing a value above the cap will hit
+    :class:`ThreadPoolCapExceeded` from that helper.
     """
     results = {}
     errors  = {}
@@ -610,7 +618,7 @@ def run_pipeline_batch(tickers: list, max_workers: int = 10) -> dict:
             time.sleep(0.1)
             return t, None, str(exc)
 
-    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="pipeline") as pool:
+    with bounded_thread_pool(max_workers=max_workers, thread_name_prefix="pipeline") as pool:
         futures = {pool.submit(_worker, t): t for t in tickers}
         for fut in as_completed(futures):
             t, res, err = fut.result()
@@ -769,7 +777,7 @@ if __name__ == "__main__":
         result = run_pipeline_for_ticker(tickers[0])
         print(json.dumps(result, indent=2))
     else:
-        results = run_pipeline_batch(tickers, max_workers=5)
+        results = run_pipeline_batch(tickers, max_workers=MAX_WORKERS)
         save_pipeline_state(results)
         print(f"Saved {len(results)} ticker pipelines to {STATE_FILE}")
         for t, r in results.items():
