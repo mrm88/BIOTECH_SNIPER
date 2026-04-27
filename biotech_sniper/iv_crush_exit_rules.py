@@ -36,14 +36,17 @@ from __future__ import annotations
 import json
 import datetime
 import logging
+import sqlite3
+from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
+from biotech_sniper import db as _db
 from biotech_sniper.alpaca_client import PAPER_BASE_URL
 from biotech_sniper.paper_executor import (
     PaperExecutor,
     PaperOnlyViolation,
 )
-from biotech_sniper.paths import BASE_DIR
+from biotech_sniper.paths import BASE_DIR, DATA_DIR
 
 ACTIVE_PLAYS_FILE = BASE_DIR / "state/active_plays.json"
 LEDGER_FILE = BASE_DIR / "state/performance_ledger.json"
@@ -61,10 +64,109 @@ GAP_TRIGGER_PCT = 15
 
 
 def load_active_plays() -> dict:
+    """Read active plays from the legacy ``state/active_plays.json`` file.
+
+    Kept for backwards compatibility (the legacy email-alert helpers
+    in this module — :func:`check_catalyst_days`,
+    :func:`check_dte_warnings`, :func:`check_gap_exit_alerts` —
+    still consume the JSON layout). Tests inject this loader
+    explicitly via the ``active_plays`` argument when they want to
+    exercise the JSON code path. Production wiring goes through
+    :func:`load_active_plays_from_db` instead — see f-m3-15.
+    """
     if ACTIVE_PLAYS_FILE.exists():
         with open(ACTIVE_PLAYS_FILE) as f:
             return json.load(f).get("active", {})
     return {}
+
+
+def load_active_plays_from_db(
+    *, db_path: Optional[Path] = None
+) -> list[dict[str, Any]]:
+    """Return active option plays from the SQLite ``plays`` table.
+
+    Implements VAL-M3-026's "DB is the source of truth" requirement:
+    the IV-crush autotrigger reads from
+    ``data/alpha_sniper.db`` rather than the legacy
+    ``state/active_plays.json``. The query is::
+
+        SELECT * FROM plays
+         WHERE status='active' AND catalyst_date IS NOT NULL
+
+    Each returned dict merges the row's columns with any fields
+    embedded in the original JSON ``payload`` so legacy keys
+    (``option_symbol``, ``contracts``, ``play_card_id``) flow
+    through unchanged for the ``IVCrushExitRunner`` to consume.
+    Missing ``play_card_id`` falls back to the row's
+    ``source_key`` (e.g. ``"active:IDYA"``) so the idempotency
+    short-circuit (VAL-M3-029) has a stable parent link.
+
+    Returns an empty list when the database file does not exist or
+    the ``plays`` table has not been migrated yet so the autotrigger
+    is a no-op on greenfield environments — matching the JSON-loader
+    behaviour of returning ``{}`` when ``state/active_plays.json``
+    is absent.
+
+    Parameters
+    ----------
+    db_path:
+        Override path for the SQLite db. Defaults to
+        ``DATA_DIR / 'alpha_sniper.db'``. Tests inject a
+        ``tmp_path`` here.
+    """
+    target = (
+        Path(db_path)
+        if db_path is not None
+        else DATA_DIR / "alpha_sniper.db"
+    )
+    if not target.is_file():
+        return []
+
+    try:
+        conn = _db.connect(target)
+    except sqlite3.Error:
+        return []
+    try:
+        try:
+            rows = conn.execute(
+                """
+                SELECT id, source_key, ticker, status, catalyst_date,
+                       direction, catalyst_type, option_type,
+                       option_strike, option_expiry, payload
+                  FROM plays
+                 WHERE status = 'active'
+                   AND catalyst_date IS NOT NULL
+                """
+            ).fetchall()
+        except sqlite3.OperationalError:
+            # Schema not migrated yet (no ``plays`` table) — degrade
+            # to a no-op so a fresh-clone smoke run does not crash.
+            return []
+    finally:
+        conn.close()
+
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        record: dict[str, Any] = dict(row)
+        payload_raw = record.pop("payload", None)
+        merged: dict[str, Any] = {}
+        if isinstance(payload_raw, str) and payload_raw.strip():
+            try:
+                payload_dict = json.loads(payload_raw)
+            except (TypeError, ValueError):
+                payload_dict = None
+            if isinstance(payload_dict, dict):
+                merged.update(payload_dict)
+        # Row columns override payload values for the canonical fields.
+        for key, value in record.items():
+            if value is not None:
+                merged[key] = value
+        if not merged.get("play_card_id"):
+            merged["play_card_id"] = (
+                record.get("source_key") or merged.get("ticker")
+            )
+        out.append(merged)
+    return out
 
 
 def load_ledger() -> dict:
@@ -296,14 +398,6 @@ def format_exit_section_for_email(exit_result: dict) -> str:
     return "\n".join(lines)
 
 
-if __name__ == "__main__":
-    result = run_daily_exit_check()
-    if result["alert_email_body"]:
-        print(result["alert_email_body"])
-    else:
-        print("No exit alerts today.")
-
-
 # ---------------------------------------------------------------------------
 # f-m3-05: IV-crush exit autotrigger.
 #
@@ -375,15 +469,19 @@ def _coerce_active_plays(
     """Normalise the ``active_plays`` argument to a list of position dicts.
 
     Accepts:
-    * ``None`` — falls back to :func:`load_active_plays` (legacy
-      ``state/active_plays.json`` schema).
+    * ``None`` — falls back to :func:`load_active_plays_from_db`
+      (queries the SQLite ``plays`` table — VAL-M3-026's "DB is
+      the source of truth"). The legacy JSON loader
+      :func:`load_active_plays` is no longer the default; tests
+      that want the JSON code path must inject it explicitly via
+      this argument.
     * a mapping ``{ticker: play_dict}`` — values become the position
       list; the ticker key is injected into the dict if not already
       present (the legacy active_plays.json layout).
     * a list/iterable of position dicts — passed through verbatim.
     """
     if active_plays is None:
-        active_plays = load_active_plays()
+        active_plays = load_active_plays_from_db()
     if isinstance(active_plays, Mapping):
         normalised: list[Mapping[str, Any]] = []
         for ticker, play in active_plays.items():
@@ -515,12 +613,15 @@ class IVCrushExitRunner:
 
     Position data sources
     ---------------------
-    The default :meth:`run_on_open` reads
-    ``state/active_plays.json`` via :func:`load_active_plays` so the
-    legacy bookkeeping flow keeps working unchanged. Tests (and
-    future M3 schedulers) may inject an explicit ``active_plays``
-    argument — accepts both a mapping (``{ticker: play_dict}``) and
-    a list of position dicts — to bypass the JSON read.
+    The default :meth:`run_on_open` queries the SQLite ``plays``
+    table via :func:`load_active_plays_from_db` (VAL-M3-026: DB is
+    the single source of truth for active plays). The legacy
+    JSON-backed :func:`load_active_plays` (reading
+    ``state/active_plays.json``) is preserved on the module for
+    callers that still need the JSON shape (the email-alert
+    helpers); tests that want the JSON code path inject it
+    explicitly. Production schedulers (intraday cron, M4 systemd
+    timer) read from SQLite by default.
 
     Each position dict is expected to expose:
 
@@ -556,11 +657,13 @@ class IVCrushExitRunner:
         Parameters
         ----------
         active_plays:
-            ``None`` (default) loads positions from
-            ``state/active_plays.json`` via
-            :func:`load_active_plays`. A mapping
-            (``{ticker: play_dict}``) or a list of position dicts is
-            also accepted for tests / scheduler injection.
+            ``None`` (default) loads positions from the SQLite
+            ``plays`` table via :func:`load_active_plays_from_db`
+            (VAL-M3-026). A mapping (``{ticker: play_dict}``) or a
+            list of position dicts is also accepted for tests /
+            scheduler injection — typically used by tests that want
+            to exercise the legacy JSON layout via
+            :func:`load_active_plays` without going through SQLite.
         today:
             Override for the catalyst-date comparison. Defaults to
             :meth:`datetime.date.today`. Accepts a :class:`date`,
@@ -822,3 +925,339 @@ def run_on_open(
     return IVCrushExitRunner(executor).run_on_open(
         active_plays, today=today
     )
+
+
+# ---------------------------------------------------------------------------
+# f-m3-15: production wiring.
+#
+# Exposes a top-level CLI so cron / systemd timers (M4) can invoke the
+# IV-crush exit autotrigger without writing custom Python wrappers, and
+# a fail-soft helper used by ``intraday_scanner.run_intraday_scan`` for
+# JOB 5 (IV CRUSH EXIT).
+#
+# Validation contract assertions fulfilled
+# ----------------------------------------
+# * **VAL-M3-026** — ``run_on_open()`` defaults to the SQLite ``plays``
+#   table loader (see :func:`load_active_plays_from_db`); the legacy
+#   JSON loader :func:`load_active_plays` is preserved as an explicit
+#   injection for tests / email-alert helpers.
+# ---------------------------------------------------------------------------
+
+
+_CLI_SUMMARY_KEYS: tuple[str, ...] = ("date", "considered", "exited", "errors")
+
+
+def _cli_summarise_results(
+    *,
+    date_iso: str,
+    considered: int,
+    results: Sequence[Mapping[str, Any]] | None,
+    dry_run: bool,
+    fatal_error: Optional[str] = None,
+) -> dict[str, Any]:
+    """Build the CLI's stable JSON summary.
+
+    The summary keys are pinned by VAL-M3-026 / f-m3-15 tests:
+    ``date`` (YYYY-MM-DD), ``considered`` (positions inspected for
+    today), ``exited`` (sells actually submitted), and ``errors``
+    (count of per-position failures). ``dry_run`` is added when the
+    CLI was invoked with ``--dry-run`` so operators can tell whether
+    the run was destructive. ``error`` carries a one-line message
+    when a fatal startup error (e.g. missing Alpaca creds) prevented
+    the runner from executing.
+    """
+    summary: dict[str, Any] = {
+        "date": date_iso,
+        "considered": int(considered),
+        "exited": 0,
+        "errors": 0,
+    }
+    if results:
+        for r in results:
+            status = r.get("status")
+            if status == "submitted":
+                summary["exited"] += 1
+            elif status == "error":
+                summary["errors"] += 1
+    if dry_run:
+        summary["dry_run"] = True
+    if fatal_error is not None:
+        summary["errors"] = max(summary["errors"], 1)
+        summary["error"] = fatal_error
+    return summary
+
+
+def _cli_count_dry_run_exits(
+    candidates: Iterable[Mapping[str, Any]],
+) -> int:
+    """Approximate ``exited`` count for a dry-run.
+
+    A dry-run never actually submits orders so ``exited`` is the
+    count of candidates that WOULD pass the floor(N/2) >= 1 size
+    gate (VAL-M3-027). Positions with N < 2 are dropped from the
+    count so a dry-run summary matches the real run for a
+    well-formed plays table.
+    """
+    count = 0
+    for play in candidates:
+        if _position_qty(play) // 2 >= 1:
+            count += 1
+    return count
+
+
+def _cli_main(argv: Optional[Sequence[str]] = None) -> int:
+    """Entry point for ``python -m biotech_sniper.iv_crush_exit_rules``.
+
+    Behaviour
+    ---------
+    * ``--run-on-open`` is the only supported mode (room left for
+      future ``--check-dte`` / ``--gap-alerts`` modes).
+    * ``--date YYYY-MM-DD`` (REQUIRED) — the trading day whose
+      catalyst-date plays are eligible for the 50% sell.
+    * ``--dry-run`` — query the SQLite ``plays`` table, count what
+      WOULD be exited, but never construct an Alpaca client or
+      submit an order. The summary's ``exited`` field is populated
+      from a synthetic ``floor(N/2) >= 1`` check; ``errors`` stays
+      at 0 because no broker call is made.
+    * ``--db-path`` — override path to the SQLite db (escape hatch
+      for tests). Defaults to ``DATA_DIR / 'alpha_sniper.db'``.
+
+    Output
+    ------
+    A single line of JSON to stdout matching the stable schema
+    documented in :func:`_cli_summarise_results`. Exit code 0 on
+    success (including "no active plays" → empty summary). Exit 1
+    on a fatal startup error such as a missing Alpaca credential
+    when there is real work to do; the JSON ``error`` key carries
+    the message so cron operators can grep logs.
+
+    The CLI never raises: every exception is caught, formatted into
+    the summary, and surfaced through the exit code.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="python -m biotech_sniper.iv_crush_exit_rules",
+        description=(
+            "Run the IV-crush exit autotrigger against the SQLite "
+            "plays table and emit a JSON summary."
+        ),
+    )
+    parser.add_argument(
+        "--run-on-open",
+        action="store_true",
+        help=(
+            "Execute the catalyst-day open exit policy "
+            "(IVCrushExitRunner.run_on_open)."
+        ),
+    )
+    parser.add_argument(
+        "--date",
+        required=True,
+        help="Trading day in ISO format (YYYY-MM-DD).",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Inspect candidates but do not construct an Alpaca "
+            "client or submit any sell orders."
+        ),
+    )
+    parser.add_argument(
+        "--db-path",
+        default=None,
+        help=(
+            "Override SQLite database path. Defaults to "
+            "DATA_DIR/alpha_sniper.db."
+        ),
+    )
+    args = parser.parse_args(argv)
+
+    if not args.run_on_open:
+        # Reserve room for future modes; --run-on-open is currently
+        # mandatory because that's the only sanctioned operation.
+        parser.error("--run-on-open is required")
+
+    try:
+        today = datetime.date.fromisoformat(args.date)
+    except ValueError:
+        summary = _cli_summarise_results(
+            date_iso=str(args.date),
+            considered=0,
+            results=None,
+            dry_run=bool(args.dry_run),
+            fatal_error=f"invalid --date {args.date!r}; expected YYYY-MM-DD",
+        )
+        print(json.dumps(summary, sort_keys=True))
+        return 1
+
+    db_path = Path(args.db_path) if args.db_path else None
+    try:
+        all_plays = load_active_plays_from_db(db_path=db_path)
+    except Exception as exc:  # pragma: no cover - defensive
+        summary = _cli_summarise_results(
+            date_iso=today.isoformat(),
+            considered=0,
+            results=None,
+            dry_run=bool(args.dry_run),
+            fatal_error=f"db_load_failed: {type(exc).__name__}: {exc}",
+        )
+        print(json.dumps(summary, sort_keys=True))
+        return 1
+
+    candidates = [
+        p for p in all_plays if _position_catalyst_date(p) == today
+    ]
+    considered = len(candidates)
+
+    # No catalyst-day plays ⇒ no broker work; exit 0 immediately and
+    # do NOT instantiate an Alpaca client (which would raise
+    # AlpacaAuthError when keys are missing — see f-m3-15 test (a)).
+    if considered == 0:
+        summary = _cli_summarise_results(
+            date_iso=today.isoformat(),
+            considered=0,
+            results=None,
+            dry_run=bool(args.dry_run),
+        )
+        print(json.dumps(summary, sort_keys=True))
+        return 0
+
+    if args.dry_run:
+        # Dry-run: never construct an executor; estimate ``exited``
+        # from a synthetic floor(N/2) >= 1 check so the summary
+        # reflects what a live run would have done.
+        synthetic_exits = _cli_count_dry_run_exits(candidates)
+        summary = _cli_summarise_results(
+            date_iso=today.isoformat(),
+            considered=considered,
+            results=None,
+            dry_run=True,
+        )
+        summary["exited"] = synthetic_exits
+        print(json.dumps(summary, sort_keys=True))
+        return 0
+
+    # Live mode: construct the paper executor and run.
+    try:
+        from biotech_sniper.alpaca_client import AlpacaClient
+
+        client = AlpacaClient()
+        executor = PaperExecutor(client)
+        runner = IVCrushExitRunner(executor)
+        results = runner.run_on_open(
+            active_plays=candidates, today=today
+        )
+    except Exception as exc:
+        summary = _cli_summarise_results(
+            date_iso=today.isoformat(),
+            considered=considered,
+            results=None,
+            dry_run=False,
+            fatal_error=f"{type(exc).__name__}: {exc}",
+        )
+        print(json.dumps(summary, sort_keys=True))
+        return 1
+
+    summary = _cli_summarise_results(
+        date_iso=today.isoformat(),
+        considered=considered,
+        results=results,
+        dry_run=False,
+    )
+    print(json.dumps(summary, sort_keys=True))
+    return 0
+
+
+def run_intraday_iv_crush_exit_job(
+    *,
+    today: Optional[Any] = None,
+    db_path: Optional[Path] = None,
+) -> dict[str, Any]:
+    """Best-effort IV-crush exit job invoked by ``intraday_scanner``.
+
+    Wraps :class:`IVCrushExitRunner` with the same JSON summary
+    shape as the CLI so the intraday cron + CLI report identically.
+    Every failure path returns a populated ``errors`` field rather
+    than raising, so JOB 5 in :func:`intraday_scanner.run_intraday_scan`
+    never breaks the rest of the cycle.
+
+    Returns
+    -------
+    dict
+        ``{"date", "considered", "exited", "errors"}``. Includes an
+        ``error`` key with a one-line message on the fatal-error
+        path (missing Alpaca creds, db unreadable, etc.).
+    """
+    today_date = _coerce_today(today)
+    try:
+        all_plays = load_active_plays_from_db(db_path=db_path)
+    except Exception as exc:
+        return _cli_summarise_results(
+            date_iso=today_date.isoformat(),
+            considered=0,
+            results=None,
+            dry_run=False,
+            fatal_error=f"db_load_failed: {type(exc).__name__}: {exc}",
+        )
+
+    candidates = [
+        p for p in all_plays if _position_catalyst_date(p) == today_date
+    ]
+    considered = len(candidates)
+    if considered == 0:
+        return _cli_summarise_results(
+            date_iso=today_date.isoformat(),
+            considered=0,
+            results=None,
+            dry_run=False,
+        )
+
+    try:
+        from biotech_sniper.alpaca_client import AlpacaClient
+
+        client = AlpacaClient()
+        executor = PaperExecutor(client)
+        runner = IVCrushExitRunner(executor)
+        results = runner.run_on_open(
+            active_plays=candidates, today=today_date
+        )
+    except Exception as exc:
+        return _cli_summarise_results(
+            date_iso=today_date.isoformat(),
+            considered=considered,
+            results=None,
+            dry_run=False,
+            fatal_error=f"{type(exc).__name__}: {exc}",
+        )
+
+    return _cli_summarise_results(
+        date_iso=today_date.isoformat(),
+        considered=considered,
+        results=results,
+        dry_run=False,
+    )
+
+
+if __name__ == "__main__":
+    import sys
+
+    _CLI_SENTINELS = {"--run-on-open", "--date", "--dry-run", "--db-path"}
+    if len(sys.argv) > 1 and any(
+        arg in _CLI_SENTINELS
+        or arg.startswith("--date=")
+        or arg.startswith("--db-path=")
+        for arg in sys.argv[1:]
+    ):
+        # New f-m3-15 CLI: emit JSON summary, exit non-zero on fatal error.
+        sys.exit(_cli_main(sys.argv[1:]))
+
+    # Legacy default: print the daily exit-alert email body so the
+    # original ``python -m biotech_sniper.iv_crush_exit_rules`` (no
+    # args) keeps working for operators who relied on it.
+    legacy_result = run_daily_exit_check()
+    if legacy_result["alert_email_body"]:
+        print(legacy_result["alert_email_body"])
+    else:
+        print("No exit alerts today.")

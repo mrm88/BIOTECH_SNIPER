@@ -704,6 +704,38 @@ def run_intraday_scan():
         print(f"  rotation_engine: skipped ({type(_re).__name__}: {_re})")
         rotation_result = {"decisions": [], "skips": []}
 
+    # ── JOB 5: IV CRUSH EXIT (f-m3-15) ─────────────────────────────────
+    # Best-effort IV-crush exit job. The 50% sell on a position's
+    # catalyst-day open is normally driven by the systemd timer that
+    # invokes ``python -m biotech_sniper.iv_crush_exit_rules``
+    # directly; the intraday hook here is a defence-in-depth path
+    # that runs the same logic on every hourly cycle so a missed
+    # systemd unit never causes a missed exit. Failures (missing
+    # Alpaca creds in dev, db not yet migrated, etc.) MUST NOT break
+    # the rest of the cycle — the helper itself catches every
+    # exception and returns a populated ``errors`` field.
+    print("\nJOB 5 — IV CRUSH EXIT")
+    try:
+        from biotech_sniper.iv_crush_exit_rules import (
+            run_intraday_iv_crush_exit_job,
+        )
+        iv_crush_result = run_intraday_iv_crush_exit_job()
+        print(
+            f"  considered={iv_crush_result.get('considered')} | "
+            f"exited={iv_crush_result.get('exited')} | "
+            f"errors={iv_crush_result.get('errors')}"
+        )
+    except Exception as _ie:  # pragma: no cover - defensive
+        print(
+            f"  iv_crush_exit: skipped ({type(_ie).__name__}: {_ie})"
+        )
+        iv_crush_result = {
+            "date": now.split()[0] if isinstance(now, str) else "",
+            "considered": 0,
+            "exited": 0,
+            "errors": 1,
+        }
+
     # ── EMAIL ─────────────────────────────────────────────────────────
     # New opportunities get their OWN immediate email (higher priority)
     if new_opportunities:
