@@ -75,6 +75,7 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+import sqlite3
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Optional, Sequence
 
@@ -268,48 +269,319 @@ def _merge_audit_block(
 # ---------------------------------------------------------------------------
 
 
+def _build_occ_symbol(
+    ticker: str,
+    expiry: Any,
+    option_type: Any,
+    strike: Any,
+) -> Optional[str]:
+    """Construct a standard OCC option symbol from its components.
+
+    Format: ``TICKER + YYMMDD + (C|P) + STRIKE * 1000 zero-padded to 8``.
+    Returns ``None`` when any component cannot be parsed cleanly so
+    callers can fall back to the legacy ``option_symbol`` payload key
+    or skip emitting a symbol entirely.
+
+    Example: ``AXSM`` + ``2025-06-20`` + ``call`` + ``125.0`` →
+    ``AXSM250620C00125000``.
+    """
+    if not isinstance(ticker, str) or not ticker.strip():
+        return None
+    expiry_str = str(expiry or "").strip()
+    if len(expiry_str) < 10:
+        return None
+    try:
+        # Accept both ``2025-06-20`` and ``20250620`` styles.
+        if "-" in expiry_str:
+            datetime.date.fromisoformat(expiry_str[:10])
+            yymmdd = expiry_str.replace("-", "")[2:8]
+        else:
+            yymmdd = expiry_str[2:8]
+            datetime.datetime.strptime(yymmdd, "%y%m%d")
+    except (TypeError, ValueError):
+        return None
+    opt_raw = str(option_type or "").strip().lower()
+    if opt_raw.startswith("c"):
+        cp = "C"
+    elif opt_raw.startswith("p"):
+        cp = "P"
+    else:
+        return None
+    try:
+        strike_thousandths = int(round(float(strike) * 1000.0))
+    except (TypeError, ValueError):
+        return None
+    if strike_thousandths < 0:
+        return None
+    return f"{ticker.strip().upper()}{yymmdd}{cp}{strike_thousandths:08d}"
+
+
+def _latest_filled_buy_qty(
+    conn: sqlite3.Connection, play_card_id: Optional[str]
+) -> Optional[int]:
+    """Return ``qty`` from the most-recent filled buy for ``play_card_id``.
+
+    Looks up ``paper_orders`` for ``side='buy'`` AND ``event='open'``
+    AND ``status='filled'``, ordered by ``created_at DESC`` so the
+    most recent fill wins (handles the multi-strike case where two
+    buys share the same play_card_id by returning the most recent).
+
+    Returns ``None`` when no row matches so the caller can fall back
+    to the play card's stored ``qty`` / ``contracts`` payload key
+    rather than emitting a synthetic zero (which would later trip
+    :func:`_submit_rotation_sell`'s ``qty < 1`` guard).
+    """
+    if not play_card_id:
+        return None
+    try:
+        row = conn.execute(
+            """
+            SELECT qty FROM paper_orders
+             WHERE play_card_id = ?
+               AND side = 'buy'
+               AND event = 'open'
+               AND status = 'filled'
+             ORDER BY created_at DESC, id DESC
+             LIMIT 1
+            """,
+            (play_card_id,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        # Schema not migrated yet — degrade to None so the caller
+        # falls back to the payload qty.
+        return None
+    if row is None:
+        return None
+    qty = row["qty"] if isinstance(row, sqlite3.Row) else row[0]
+    try:
+        return int(qty) if qty is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _latest_scoring_cache_for_ticker(
+    conn: sqlite3.Connection, ticker: str
+) -> Optional[dict[str, Any]]:
+    """Return the latest ``scoring_cache`` row for ``ticker`` or ``None``.
+
+    "Latest" is ordered by ``as_of_date DESC, id DESC`` so a fresh
+    intraday re-score wins over an older one. Returns the full row
+    so callers can read both ``id`` (for the debate runner's
+    ``scoring_cache_id``) and ``ensemble_score`` (for the rotation
+    weakest-pick).
+    """
+    if not ticker:
+        return None
+    try:
+        row = conn.execute(
+            """
+            SELECT id, ticker, as_of_date, ensemble_score,
+                   science_grade, claude_grade, gemini_grade,
+                   grok_score, payload
+              FROM scoring_cache
+             WHERE ticker = ?
+             ORDER BY as_of_date DESC, id DESC
+             LIMIT 1
+            """,
+            (ticker,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    return dict(row) if row is not None else None
+
+
+def _latest_play_for_ticker(
+    conn: sqlite3.Connection, ticker: str
+) -> Optional[dict[str, Any]]:
+    """Return the most-recent ``plays`` row for ``ticker`` (any status).
+
+    Used by :func:`load_today_candidates_from_db` to source option
+    leg metadata (strike, expiry, type) for a challenger that has
+    no on-disk play card yet. Falls back across statuses so a
+    recently-resolved play still surfaces a usable OCC symbol when
+    the same ticker is back in the scoring_cache today.
+    """
+    if not ticker:
+        return None
+    try:
+        row = conn.execute(
+            """
+            SELECT id, source_key, ticker, status, catalyst_date,
+                   option_type, option_strike, option_expiry, payload
+              FROM plays
+             WHERE ticker = ?
+             ORDER BY created_at DESC, id DESC
+             LIMIT 1
+            """,
+            (ticker,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    return dict(row) if row is not None else None
+
+
+def _merge_payload(record: dict[str, Any]) -> dict[str, Any]:
+    """Return ``record`` with its JSON ``payload`` merged in.
+
+    Mirrors :func:`iv_crush_exit_rules.load_active_plays_from_db`:
+    the SQL columns override JSON payload values so a row's
+    canonical ``catalyst_date`` (from the column) wins over a stale
+    payload-embedded copy.
+    """
+    payload_raw = record.pop("payload", None)
+    merged: dict[str, Any] = {}
+    if isinstance(payload_raw, str) and payload_raw.strip():
+        try:
+            payload_dict = json.loads(payload_raw)
+        except (TypeError, ValueError):
+            payload_dict = None
+        if isinstance(payload_dict, dict):
+            merged.update(payload_dict)
+    for key, value in record.items():
+        if value is not None:
+            merged[key] = value
+    return merged
+
+
 def load_active_plays_from_db(
     *, db_path: Optional[Path] = None
 ) -> list[dict[str, Any]]:
     """Return active option plays from the SQLite ``plays`` table.
 
-    Each row is augmented with the latest ``scoring_cache.ensemble_score``
-    for that ticker (today's re-scored value) so callers do not have
-    to issue a second query. Tests typically bypass this helper and
-    inject ``active_plays`` directly into :func:`evaluate_rotation`.
+    Each returned dict carries the five fields the rotation engine
+    requires for production wiring:
 
-    The returned dicts carry at minimum: ``ticker``, ``play_card_id``,
-    ``symbol``, ``catalyst_date``, ``qty``, ``ensemble_score``.
+    * ``scoring_cache_id`` — latest ``scoring_cache.id`` for the
+      ticker (joined on ticker, ordered by ``as_of_date DESC``).
+      Drives the default debate runner's ``run_debate(...)`` call.
+    * ``symbol`` — the OCC option symbol. Sourced (in priority
+      order) from the payload's legacy ``option_symbol`` /
+      ``symbol`` keys, the first leg of any embedded
+      ``option_legs``, or constructed from
+      ``ticker`` + ``option_expiry`` + ``option_type`` +
+      ``option_strike``.
+    * ``qty`` — current open contract count. Sourced from the most
+      recent ``paper_orders`` row with ``side='buy' AND
+      event='open' AND status='filled' AND play_card_id=?``
+      (per the f-m3-18 spec). Falls back to the payload's
+      ``qty`` / ``contracts`` keys when no broker fill is yet
+      persisted (greenfield environments + early-cycle wiring).
+    * ``ensemble_score`` — latest ``scoring_cache.ensemble_score``
+      for the ticker.
+    * ``catalyst_date`` — ``plays.catalyst_date`` (column).
+
+    Returns an empty list when the database file does not exist or
+    the ``plays`` table has not been migrated yet so callers can
+    treat "no DB" and "no active plays" identically.
     """
-    target = Path(db_path) if db_path is not None else DATA_DIR / "alpha_sniper.db"
+    target = (
+        Path(db_path) if db_path is not None else DATA_DIR / "alpha_sniper.db"
+    )
     if not target.is_file():
         return []
-    conn = _db.connect(target)
+    try:
+        conn = _db.connect(target)
+    except sqlite3.Error:
+        return []
     try:
         try:
             rows = conn.execute(
                 """
-                SELECT p.ticker, p.catalyst_date, p.option_strike,
-                       p.option_expiry, p.option_type, p.payload,
-                       (
-                           SELECT ensemble_score FROM scoring_cache sc
-                            WHERE sc.ticker = p.ticker
-                            ORDER BY sc.as_of_date DESC, sc.id DESC
-                            LIMIT 1
-                       ) AS ensemble_score
-                  FROM plays p
-                 WHERE p.status = 'active'
+                SELECT id, source_key, ticker, status, catalyst_date,
+                       option_type, option_strike, option_expiry,
+                       payload
+                  FROM plays
+                 WHERE status = 'active'
                 """
             ).fetchall()
-        except Exception:  # pragma: no cover - defensive
+        except sqlite3.OperationalError:
             return []
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            record = _merge_payload(dict(row))
+            ticker = str(record.get("ticker") or "").strip().upper()
+            if not ticker:
+                continue
+
+            # ``play_card_id`` from payload — fall back to source_key
+            # so a play that pre-dates the play_card_formatter still
+            # has a stable identifier to key paper_orders by.
+            play_card_id = (
+                record.get("play_card_id") or record.get("source_key")
+            )
+            record["play_card_id"] = play_card_id
+
+            # Symbol: payload override → first leg → constructed.
+            symbol = record.get("option_symbol") or record.get("symbol")
+            if not symbol:
+                legs = record.get("option_legs")
+                if isinstance(legs, Sequence) and legs and isinstance(
+                    legs[0], Mapping
+                ):
+                    symbol = legs[0].get("symbol")
+            if not symbol:
+                symbol = _build_occ_symbol(
+                    ticker,
+                    record.get("option_expiry"),
+                    record.get("option_type"),
+                    record.get("option_strike"),
+                )
+            if symbol:
+                record["symbol"] = symbol
+
+            # qty: paper_orders filled buy → payload qty/contracts.
+            qty = _latest_filled_buy_qty(conn, play_card_id)
+            if qty is None:
+                for key in ("qty", "contracts", "open_qty"):
+                    raw = record.get(key)
+                    if raw is None:
+                        continue
+                    try:
+                        qty = int(raw)
+                    except (TypeError, ValueError):
+                        continue
+                    break
+            if qty is not None:
+                record["qty"] = int(qty)
+
+            # ensemble_score + scoring_cache_id from latest
+            # scoring_cache row for this ticker.
+            score_row = _latest_scoring_cache_for_ticker(conn, ticker)
+            if score_row is not None:
+                record["scoring_cache_id"] = score_row.get("id")
+                if score_row.get("ensemble_score") is not None:
+                    record["ensemble_score"] = score_row.get(
+                        "ensemble_score"
+                    )
+
+            record["ticker"] = ticker
+            out.append(record)
+        return out
     finally:
         conn.close()
-    out: list[dict[str, Any]] = []
-    for row in rows:
-        record = dict(row)
-        out.append(record)
-    return out
+
+
+def _scoring_cache_symbol_from_payload(
+    payload_raw: Any,
+) -> Optional[str]:
+    """Return the OCC symbol embedded in the scoring_cache payload, if any."""
+    if not isinstance(payload_raw, str) or not payload_raw.strip():
+        return None
+    try:
+        data = json.loads(payload_raw)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    legs = data.get("option_legs")
+    if isinstance(legs, Sequence) and legs and isinstance(legs[0], Mapping):
+        sym = legs[0].get("symbol")
+        if isinstance(sym, str) and sym.strip():
+            return sym.strip()
+    sym = data.get("option_symbol") or data.get("symbol")
+    if isinstance(sym, str) and sym.strip():
+        return sym.strip()
+    return None
 
 
 def load_today_candidates_from_db(
@@ -317,15 +589,45 @@ def load_today_candidates_from_db(
 ) -> list[dict[str, Any]]:
     """Return today's :data:`scoring_cache` candidates ordered by score.
 
-    The query selects every row with ``as_of_date == today`` ordered
-    by ``ensemble_score DESC``. Production callers wire this to the
-    daily scoring run; tests inject ``candidates`` directly.
+    Each candidate dict carries:
+
+    * ``id`` / ``scoring_cache_id`` — the ``scoring_cache.id`` so
+      the default debate runner can call
+      :func:`run_debate(scoring_cache_id, ...)` without a second
+      lookup.
+    * ``ticker``, ``ensemble_score``, ``science_grade``,
+      ``claude_grade``, ``gemini_grade``, ``grok_score`` — the
+      static-ensemble breakdown.
+    * ``catalyst_date`` — sourced from the most-recent matching
+      ``plays`` row for the ticker (the canonical catalyst date
+      lives there because there is no separate
+      ``catalyst_calendar`` table in the M2 schema). Falls back to
+      ``payload.catalyst_date`` from the scoring_cache row when no
+      ``plays`` row exists for the ticker yet.
+    * ``option_legs`` + ``play_card`` — a buy-card shape
+      consumable by :meth:`PaperExecutor.execute`. Each leg's
+      ``symbol`` is constructed from the most-recent ``plays``
+      row's option metadata (strike, expiry, type), with sane
+      defaults so an empty challenger card still emits a single
+      valid leg.
+
+    The query selects every ``scoring_cache`` row with
+    ``as_of_date == today`` ordered by ``ensemble_score DESC``.
     """
-    today_d = _hold_policy.coerce_date(today) if today is not None else datetime.date.today()
-    target = Path(db_path) if db_path is not None else DATA_DIR / "alpha_sniper.db"
+    today_d = (
+        _hold_policy.coerce_date(today)
+        if today is not None
+        else datetime.date.today()
+    )
+    target = (
+        Path(db_path) if db_path is not None else DATA_DIR / "alpha_sniper.db"
+    )
     if not target.is_file():
         return []
-    conn = _db.connect(target)
+    try:
+        conn = _db.connect(target)
+    except sqlite3.Error:
+        return []
     try:
         try:
             rows = conn.execute(
@@ -339,11 +641,76 @@ def load_today_candidates_from_db(
                 """,
                 (today_d.isoformat(),),
             ).fetchall()
-        except Exception:  # pragma: no cover - defensive
+        except sqlite3.OperationalError:
             return []
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            record = dict(row)
+            ticker = str(record.get("ticker") or "").strip().upper()
+            if not ticker:
+                continue
+            payload_raw = record.get("payload")
+            record["scoring_cache_id"] = record.get("id")
+
+            play_row = _latest_play_for_ticker(conn, ticker)
+
+            # catalyst_date: plays row first, then payload.
+            cat = play_row.get("catalyst_date") if play_row else None
+            if not cat and isinstance(payload_raw, str):
+                try:
+                    p_dict = json.loads(payload_raw)
+                    if isinstance(p_dict, dict):
+                        cat = p_dict.get("catalyst_date")
+                except (TypeError, ValueError):
+                    pass
+            if cat:
+                record["catalyst_date"] = cat
+
+            # Build option_legs: prefer scoring_cache payload's
+            # symbol, then construct from the most-recent plays row.
+            symbol = _scoring_cache_symbol_from_payload(payload_raw)
+            opt_type = "call"
+            strike: Optional[float] = None
+            expiry: Optional[str] = None
+            if play_row:
+                opt_type = (
+                    play_row.get("option_type") or opt_type or "call"
+                )
+                strike = play_row.get("option_strike")
+                expiry = play_row.get("option_expiry")
+            if not symbol:
+                symbol = _build_occ_symbol(
+                    ticker, expiry, opt_type, strike
+                )
+
+            leg: dict[str, Any] = {
+                "ticker": ticker,
+                "side": "buy",
+                "qty": 1,
+            }
+            if symbol:
+                leg["symbol"] = symbol
+            if opt_type:
+                leg["option_type"] = opt_type
+            if strike is not None:
+                leg["strike"] = strike
+            if expiry:
+                leg["expiry"] = expiry
+
+            play_card = {
+                "play_card_id": (
+                    f"{ticker}-rotation-{today_d.isoformat()}"
+                ),
+                "ticker": ticker,
+                "option_legs": [leg],
+            }
+            record["option_legs"] = [leg]
+            record["play_card"] = play_card
+            record["ticker"] = ticker
+            out.append(record)
+        return out
     finally:
         conn.close()
-    return [dict(row) for row in rows]
 
 
 # ---------------------------------------------------------------------------

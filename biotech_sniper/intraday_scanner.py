@@ -24,6 +24,7 @@ EMAIL RULES: Only send if something actually changed.
 """
 
 import json
+import os
 import re
 import datetime
 
@@ -36,6 +37,61 @@ except Exception as _e:
 import requests
 
 from biotech_sniper.paths import BASE_DIR as BASE
+
+
+# ---------------------------------------------------------------------------
+# f-m3-18 — Paper-executor injection for JOB 4 rotation engine
+# ---------------------------------------------------------------------------
+
+
+def _paper_execute_enabled() -> bool:
+    """Return ``True`` when JOB 4 should inject a real PaperExecutor.
+
+    The gate is intentionally OPT-IN so unit tests + dry-run cron
+    invocations stay hermetic by default. Production cron sets the
+    flag in the systemd unit's ``Environment=`` block once the
+    operator is happy with paper-trading wiring.
+
+    Truthy values: ``1``, ``true``, ``yes`` (case-insensitive). Any
+    other value (or unset) returns ``False``.
+    """
+    val = os.environ.get("BIOTECH_SNIPER_PAPER_EXECUTE", "0")
+    return val.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _build_rotation_executor():
+    """Return a :class:`PaperExecutor` for JOB 4, or ``None`` to dry-run.
+
+    Construction is best-effort: when paper-execute is disabled, the
+    Alpaca SDK is missing, credentials are absent, or the broker
+    rejects the constructor (e.g. a misconfigured ``ALPACA_BASE_URL``),
+    we fall through to ``None`` so the rotation engine still records
+    its audit decisions instead of crashing the intraday cycle.
+
+    Wiring contract for f-m3-18:
+
+    * Default (``BIOTECH_SNIPER_PAPER_EXECUTE`` unset / ``0``) →
+      ``None``. Rotation engine runs in dry-run; tests stay hermetic.
+    * Flag enabled + creds present → real :class:`PaperExecutor`
+      pointed at ``https://paper-api.alpaca.markets`` (the
+      :class:`AlpacaClient` constructor enforces this).
+    * Flag enabled + creds missing / broker error → ``None`` with a
+      WARNING log line so operators can spot the misconfig.
+    """
+    if not _paper_execute_enabled():
+        return None
+    try:
+        from biotech_sniper.alpaca_client import AlpacaClient
+        from biotech_sniper.paper_executor import PaperExecutor
+
+        client = AlpacaClient()
+        return PaperExecutor(client)
+    except Exception as exc:  # noqa: BLE001 — graceful degradation
+        print(
+            f"  [intraday] rotation_executor: disabled "
+            f"({type(exc).__name__}: {exc})"
+        )
+        return None
 ACTIVE_FILE   = BASE / "state/active_plays.json"
 RESOLVED_FILE = BASE / "state/resolved_plays.json"
 SEC_STATE     = BASE / "state/sec_8k_state.json"
@@ -690,15 +746,26 @@ def run_intraday_scan():
     # rest of the intraday cycle (the rotation engine is gated by paper
     # credentials + scoring_cache freshness; in dev or without an
     # executor it short-circuits to a dry-run summary).
+    #
+    # f-m3-18: gate the executor injection behind LIVE_MODE and a
+    # ``BIOTECH_SNIPER_PAPER_EXECUTE`` flag so the dev / test suite
+    # stays hermetic. When the gate is closed (the default) we still
+    # call evaluate_rotation but pass ``executor=None`` so the engine
+    # records audit decisions without contacting the broker. When the
+    # gate is open we instantiate :class:`PaperExecutor` once per
+    # intraday cycle so the same-run sell+buy execution path actually
+    # fires through a real Alpaca paper client.
     print("\nJOB 4 — ROTATION CHECK")
     try:
         from biotech_sniper.rotation_engine import evaluate_rotation
-        rotation_result = evaluate_rotation()
+        rotation_executor = _build_rotation_executor()
+        rotation_result = evaluate_rotation(executor=rotation_executor)
         print(
             f"  active={rotation_result.get('active_count')} / "
             f"cap={rotation_result.get('capacity')} | "
             f"rotations={len(rotation_result.get('decisions', []))} | "
-            f"skips={len(rotation_result.get('skips', []))}"
+            f"skips={len(rotation_result.get('skips', []))} | "
+            f"executor={'paper' if rotation_executor is not None else 'dry-run'}"
         )
     except Exception as _re:  # pragma: no cover - defensive
         print(f"  rotation_engine: skipped ({type(_re).__name__}: {_re})")
