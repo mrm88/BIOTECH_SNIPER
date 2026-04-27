@@ -1,0 +1,28 @@
+{
+  "interactions": [
+    {
+      "type": "create",
+      "result": {
+        "id": "msg_malformed_first_001",
+        "model": "claude-opus-4-1-20250805",
+        "content_text": "{\"science_profile\": {\"moa\": \"Selective MAT2A inhibition\"}, \"letter_grade\": \"B+\", \"probability\": 0.58, \"rationale\": \"truncated mid-sentence and",
+        "usage": {
+          "input_tokens": 412,
+          "output_tokens": 32
+        }
+      }
+    },
+    {
+      "type": "create",
+      "result": {
+        "id": "msg_recovered_002",
+        "model": "claude-opus-4-1-20250805",
+        "content_text": "{\"science_profile\": {\"moa\": \"Selective MAT2A inhibition exploits MTAP-deletion synthetic lethality\", \"comparator\": \"docetaxel\", \"prior_phase_data\": \"P2 ORR 32% n=58\", \"base_rate\": 0.45, \"indication\": \"MTAP-del NSCLC 2L\", \"design_risks\": \"Open-label PFS endpoint\"}, \"letter_grade\": \"B+\", \"probability\": 0.58, \"rationale\": \"Recovered from initial truncated response. On-mechanism PD response and replicated P2 ORR support the thesis. MTAP synthetic-lethality is a well-validated target class. Net: above-base-rate probability.\", \"citations\": [{\"source\": \"NCT05123456\", \"quote_or_url\": \"https://clinicaltrials.gov/study/NCT05123456\"}]}",
+        "usage": {
+          "input_tokens": 480,
+          "output_tokens": 220
+        }
+      }
+    }
+  ]
+}

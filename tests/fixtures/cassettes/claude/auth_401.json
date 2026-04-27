@@ -1,0 +1,11 @@
+{
+  "interactions": [
+    {
+      "type": "error",
+      "error": {
+        "class": "AuthenticationError",
+        "message": "invalid x-api-key"
+      }
+    }
+  ]
+}

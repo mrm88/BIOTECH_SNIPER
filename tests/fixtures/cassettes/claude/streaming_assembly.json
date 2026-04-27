@@ -1,0 +1,27 @@
+{
+  "interactions": [
+    {
+      "type": "stream",
+      "result": {
+        "id": "msg_stream_001",
+        "model": "claude-opus-4-1-20250805",
+        "content_chunks": [
+          "{\"science_profile\": {\"moa\": \"Selective MAT2A inhibition\", ",
+          "\"comparator\": \"docetaxel\", ",
+          "\"prior_phase_data\": \"P2 ORR 32% n=58\", ",
+          "\"base_rate\": 0.45, ",
+          "\"indication\": \"MTAP-del NSCLC 2L\", ",
+          "\"design_risks\": \"Open-label PFS endpoint\"}, ",
+          "\"letter_grade\": \"B+\", ",
+          "\"probability\": 0.58, ",
+          "\"rationale\": \"Reassembled from streamed deltas. On-mechanism PD response and replicated P2 ORR support the thesis.\", ",
+          "\"citations\": [{\"source\": \"NCT05123456\", \"quote_or_url\": \"https://clinicaltrials.gov/study/NCT05123456\"}]}"
+        ],
+        "usage": {
+          "input_tokens": 412,
+          "output_tokens": 240
+        }
+      }
+    }
+  ]
+}
