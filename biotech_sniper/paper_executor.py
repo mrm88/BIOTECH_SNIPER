@@ -105,6 +105,7 @@ __all__ = [
     "size_position",
     "_options_positions",
     "_is_multi_strike",
+    "_maybe_demote_unfillable_to_single_leg",
     "MULTI_STRIKE_FILLABLE_CLASSIFICATIONS",
     "DEFAULT_DB_PATH",
     "TERMINAL_STATUSES",
@@ -368,6 +369,133 @@ def _is_multi_strike(play_card: Mapping[str, Any]) -> bool:
     ):
         return False
     return True
+
+
+def _leg_cost_estimate(leg: Mapping[str, Any]) -> float:
+    """Return a non-negative cost-per-contract estimate for ``leg``.
+
+    Used by :func:`_maybe_demote_unfillable_to_single_leg` to pick
+    the **cheaper** of two unfillable legs. Resolution order:
+
+    * ``mid = (bid + ask) / 2`` when both bid and ask are populated
+    * ``bid`` or ``ask`` (whichever is populated, one-sided quote)
+    * ``limit_price`` if numeric and > 0
+    * ``float('inf')`` so a leg with no price information at all
+      sorts AFTER every priced leg (we never prefer it).
+    """
+    if not isinstance(leg, Mapping):
+        return float("inf")
+    bid = _coerce_quote(leg.get("bid"))
+    ask = _coerce_quote(leg.get("ask"))
+    if bid > 0.0 and ask > 0.0:
+        return (bid + ask) / 2.0
+    if bid > 0.0 or ask > 0.0:
+        return bid + ask  # the populated side
+    try:
+        limit = float(leg.get("limit_price") or 0.0)
+    except (TypeError, ValueError):
+        limit = 0.0
+    if limit > 0.0:
+        return limit
+    return float("inf")
+
+
+def _maybe_demote_unfillable_to_single_leg(
+    play_card: Mapping[str, Any],
+) -> Optional[dict[str, Any]]:
+    """Return a synthesized 1-leg play card when ``play_card`` should demote.
+
+    Demotion rules (f-m3-16):
+
+    * The card carries ``option_legs`` of length **exactly 2**.
+    * Both legs are ``side='buy'`` (case-insensitive).
+    * ``liquidity_classification`` (case-insensitive) is in
+      :data:`MULTI_STRIKE_BLOCKED_CLASSIFICATIONS` (currently just
+      ``'unfillable'``).
+    * No ``order_class`` value other than ``'simple'``.
+
+    Returns:
+
+    * A new ``dict`` shaped like ``play_card`` but with a single
+      leg — the **cheaper** of the two — when all rules above match.
+      The ``liquidity_classification`` is dropped from the demoted
+      card so downstream logic does not re-trigger the demotion path
+      (single-leg cards are unaffected by the classification, but
+      keeping it is misleading).
+    * ``None`` when the demotion does not apply — the caller should
+      proceed with the original card unchanged.
+
+    The helper also emits a structured ``WARNING`` log naming the
+    demotion reason and the discarded leg, satisfying the f-m3-16
+    contract that operators see *why* the multi-strike entry was
+    converted to a single submission.
+    """
+    legs = play_card.get("option_legs")
+    if (
+        not isinstance(legs, Sequence)
+        or isinstance(legs, (str, bytes))
+        or len(legs) != 2
+    ):
+        return None
+    for leg in legs:
+        if not isinstance(leg, Mapping):
+            return None
+        side = str(leg.get("side", "buy")).strip().lower()
+        if side != "buy":
+            return None
+
+    order_class = play_card.get("order_class")
+    if order_class is not None and str(order_class).strip().lower() != "simple":
+        return None
+
+    classification = play_card.get("liquidity_classification")
+    if not (
+        isinstance(classification, str)
+        and classification.strip().lower()
+        in MULTI_STRIKE_BLOCKED_CLASSIFICATIONS
+    ):
+        return None
+
+    leg_a, leg_b = legs[0], legs[1]
+    cost_a = _leg_cost_estimate(leg_a)
+    cost_b = _leg_cost_estimate(leg_b)
+    # Prefer the cheaper leg. On tie, keep the first leg
+    # (deterministic — matches the play-card builder's natural
+    # ordering and avoids flapping between runs).
+    if cost_b < cost_a:
+        kept_leg, dropped_leg = leg_b, leg_a
+        kept_index = 1
+    else:
+        kept_leg, dropped_leg = leg_a, leg_b
+        kept_index = 0
+
+    play_card_id = play_card.get("play_card_id")
+    classification_normalised = classification.strip().lower()
+    logger.warning(
+        "paper_executor.unfillable_demotion play_card_id=%s "
+        "classification=%s kept_leg=%d kept_symbol=%s "
+        "kept_cost_estimate=%.4f dropped_symbol=%s "
+        "dropped_cost_estimate=%.4f reason=%s",
+        play_card_id,
+        classification_normalised,
+        kept_index,
+        kept_leg.get("symbol") if isinstance(kept_leg, Mapping) else None,
+        cost_a if kept_index == 0 else cost_b,
+        dropped_leg.get("symbol") if isinstance(dropped_leg, Mapping) else None,
+        cost_b if kept_index == 0 else cost_a,
+        f"liquidity_classification={classification_normalised!r} forces "
+        "single-leg submission; discarding the more expensive leg",
+    )
+
+    # Build the demoted card. ``liquidity_classification`` is
+    # stripped so downstream consumers (e.g. recursive validators)
+    # don't see a single-leg card carrying a multi-strike-only flag.
+    demoted: dict[str, Any] = {
+        k: v for k, v in play_card.items()
+        if k not in {"option_legs", "liquidity_classification"}
+    }
+    demoted["option_legs"] = [dict(kept_leg)]
+    return demoted
 
 
 def _validate_single_leg(
@@ -1090,6 +1218,20 @@ class PaperExecutor:
         # the legs.
         if _is_multi_strike(play_card):
             return self._execute_multi_strike(play_card)
+
+        # f-m3-16: unfillable demotion. A 2-leg BUY card stamped with
+        # ``liquidity_classification='unfillable'`` previously fell
+        # through to ``_validate_single_leg`` which rejected it as
+        # ``UnsupportedOrderShape`` (>1 leg). The required behaviour
+        # is to **demote** to single-leg by selecting the cheaper of
+        # the two legs and submitting it as a normal single-strike
+        # entry, with a structured WARNING log naming the demotion
+        # reason. ``_is_multi_strike`` already returns False for the
+        # unfillable classification (see f-m3-08), so we detect the
+        # demotion here right before single-leg validation.
+        demoted = _maybe_demote_unfillable_to_single_leg(play_card)
+        if demoted is not None:
+            play_card = demoted
 
         play_card_id = play_card.get("play_card_id")
         parent_play_card_id = play_card.get("parent_play_card_id")

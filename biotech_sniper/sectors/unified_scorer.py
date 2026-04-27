@@ -1160,20 +1160,34 @@ def filter_chain_gated_tickers(
     VAL-M3-045 ("every scored ticker must have a universe row with
     has_options_chain=1").
 
-    **Fallback for fresh checkouts:** when the universe table itself
-    is empty / missing (i.e. no ticker in ``tickers`` has any row at
-    all), the gate is bypassed: every ticker is returned as
-    "scored". This matches the f-m2 seed-fallback pattern where the
-    daily run can spin up before the universe builder has populated
-    the table. A WARNING is logged at the call-site so operators
-    notice the bypass.
+    **f-m3-16 fix — empty-lookup-not-bypass:** previously, when the
+    universe table was empty (or no requested ticker had a row),
+    the function returned every ticker as "scored" so a fresh
+    checkout could still produce play cards. That bypass was
+    actively unsafe — it allowed unverified tickers into
+    ``scoring_cache`` and downstream paper executions. The strict
+    semantics now apply: an empty universe lookup means **every
+    ticker is rejected** (returned in ``skipped``). A WARNING is
+    logged so operators notice the universe is missing; the daily
+    build's universe-refresh step is the only legitimate path back
+    to a populated lookup.
     """
     chain_status = _load_chain_gate_status(tickers, db_path=db_path)
     if not chain_status:
-        # Fresh checkout / universe not built yet → gate is not
-        # enforceable. Surface every ticker; the caller logs a
-        # structured warning so the bypass is auditable.
-        return list(tickers), []
+        # f-m3-16: empty lookup is a STRICT REJECT, not a bypass.
+        # Either the universe table is missing entirely or none of
+        # the requested tickers have a row — both cases mean we
+        # cannot certify any ticker as having a tradeable options
+        # chain, so we drop everything and emit a WARNING for the
+        # operator. Fresh-checkout flows must populate `universe`
+        # before invoking the scorer.
+        logger.warning(
+            "filter_chain_gated_tickers: empty universe lookup for "
+            "%d tickers; rejecting all (universe table missing or "
+            "no rows for the requested tickers)",
+            len(list(tickers)),
+        )
+        return [], list(tickers)
     scored: list[str] = []
     skipped: list[str] = []
     for ticker in tickers:
@@ -1381,24 +1395,34 @@ def main(argv: Sequence[str] | None = None) -> int:
     # listed Alpaca options chain) never reach the scoring loop and
     # therefore cannot leak into ``scoring_cache`` for ``as_of_date``
     # (VAL-M3-045). Each dropped ticker logs a structured WARNING
-    # naming the reason so operators can audit the skip set. When the
-    # universe table is missing entirely (fresh checkout) the gate is
-    # bypassed — see :func:`filter_chain_gated_tickers`.
+    # naming the reason so operators can audit the skip set.
+    #
+    # f-m3-16: an empty universe lookup is now a STRICT REJECT, not
+    # a bypass — every requested ticker is dropped (and logged) so
+    # unverified tickers cannot leak through on a fresh checkout.
+    # The daily build's universe-refresh step is the only path back
+    # to a populated lookup. This matches
+    # :func:`filter_chain_gated_tickers`.
     skipped_tickers: list[str] = []
     if args.enforce_chain_gate:
         chain_status = _load_chain_gate_status(tickers)
         if not chain_status:
-            # INFO (not WARNING) so it doesn't pollute test fixtures
-            # that pin the WARNING set on this logger. The bypass is
-            # the expected path on a fresh checkout where the
-            # universe builder has not yet run; operators do not
-            # need an alert for it.
-            logger.info(
-                "unified_scorer: chain gate bypassed — no universe "
-                "rows for the resolved tickers; the daily build must "
-                "populate `universe` before this guarantee holds"
+            logger.warning(
+                "unified_scorer: empty universe lookup for %d "
+                "tickers; rejecting all (universe table missing or "
+                "no rows for the requested tickers). The daily "
+                "build must populate `universe` before scoring can "
+                "run.",
+                len(list(tickers)),
             )
-            tickers = list(tickers)
+            for ticker in tickers:
+                skipped_tickers.append(ticker)
+                logger.warning(
+                    "unified_scorer: skipping %s reason="
+                    "no_options_chain (universe lookup empty)",
+                    ticker,
+                )
+            tickers = []
         else:
             eligible: list[str] = []
             for ticker in tickers:

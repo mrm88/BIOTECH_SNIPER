@@ -268,19 +268,61 @@ class AlpacaBackedProbe(OptionsChainProbe):
     # ------------------------------------------------------------------
 
     def probe(self, ticker: str) -> bool:
+        """Return ``True`` iff ``ticker`` has any tradeable contract within 60d.
+
+        The probe answers ``True`` when at least one contract row
+        carries an ``expiry`` in the inclusive window
+        ``[today, today + lookahead_days]``. Equivalent to
+        :meth:`nearest_contract` returning a non-``None`` row.
+        """
+        return self.nearest_contract(ticker) is not None
+
+    def nearest_contract(self, ticker: str) -> dict[str, Any] | None:
+        """Return the chain row for the nearest in-window expiry, or ``None``.
+
+        f-m3-16 fix: previously the probe sent a single
+        ``target_expiry=today+60d`` parameter, which Alpaca's
+        ``OptionChainRequest`` interprets as an **exact** match —
+        effectively asking for "contracts expiring on day 60". The
+        intent of the gate is "nearest expiry within 60 days
+        (inclusive)". This implementation fetches the chain
+        unfiltered (``expiry=None``) and selects, client-side, the
+        contract with the smallest ``expiry - today`` delta in the
+        inclusive window ``[today, today + lookahead_days]``.
+
+        Returns ``None`` when:
+        * the client cannot be constructed,
+        * the broker raises (transport / auth error),
+        * the broker returns an empty chain,
+        * no row in the broker payload carries a parseable expiry
+          inside the lookahead window AND no row carries an
+          unparseable / missing expiry. (When at least one row has
+          an unparseable expiry the fallback below applies.)
+
+        Fallback: when the broker returned rows but **none** of them
+        carry a parseable ``expiry`` string, the helper returns the
+        first dict-shaped row so the gate still respects the
+        AGENTS.md "any chain row is sufficient" relaxed filter when
+        the snapshot simply omits expiry timestamps.
+        """
         if not isinstance(ticker, str) or not ticker.strip():
-            return False
+            return None
         symbol = ticker.strip().upper()
         client = self._ensure_client()
         if client is None:
-            return False
+            return None
 
         today = _today()
         cutoff = today + datetime.timedelta(days=self._lookahead_days)
-        target_expiry = cutoff.isoformat()
 
         try:
-            chain = client.get_options_chain(symbol, target_expiry)
+            # f-m3-16: pass expiry=None so the broker returns every
+            # listed contract (or its "default" near-term snapshot,
+            # whichever the SDK decides). The 60-day window is then
+            # enforced client-side via _row_expiry_within_lookahead
+            # — which guarantees a "nearest expiry within 60 days"
+            # decision rather than the previous "exact at day 60".
+            chain = client.get_options_chain(symbol, None)
         except Exception as exc:  # noqa: BLE001 - typed below
             logger.warning(
                 "AlpacaBackedProbe: get_options_chain(%s) raised %s; "
@@ -288,39 +330,47 @@ class AlpacaBackedProbe(OptionsChainProbe):
                 symbol,
                 exc.__class__.__name__,
             )
-            return False
+            return None
 
         if not chain:
-            return False
+            return None
 
+        nearest_row: dict[str, Any] | None = None
+        nearest_delta: int | None = None
         any_parseable = False
         for row in chain:
             if not isinstance(row, dict):
                 continue
             raw = row.get("expiry")
             if isinstance(raw, str) and raw.strip():
-                # Track whether ANY row carried a parseable expiry
-                # — that determines whether the fallback below
-                # applies. A row that explicitly resolves outside
-                # the window does NOT trigger the fallback.
                 try:
-                    datetime.date.fromisoformat(raw[:10])
-                    any_parseable = True
+                    expiry = datetime.date.fromisoformat(raw[:10])
                 except ValueError:
-                    pass
-            if _row_expiry_within_lookahead(row, today, cutoff):
-                return True
+                    continue
+                any_parseable = True
+                if not (today <= expiry <= cutoff):
+                    continue
+                delta = (expiry - today).days
+                if nearest_delta is None or delta < nearest_delta:
+                    nearest_delta = delta
+                    nearest_row = row
+
+        if nearest_row is not None:
+            return nearest_row
 
         # All rows carried a parseable expiry but none landed in
         # the lookahead window → strict reject.
         if any_parseable:
-            return False
+            return None
         # The broker returned at least one row but none carried a
         # structured expiry. Respect the AGENTS.md "any chain row"
-        # relaxed filter: fall back to len > 0 so we don't demote
-        # a tradeable ticker just because the snapshot omits the
-        # expiry string.
-        return any(isinstance(row, dict) for row in chain)
+        # relaxed filter: return the first dict row so we don't
+        # demote a tradeable ticker just because the snapshot omits
+        # the expiry string.
+        for row in chain:
+            if isinstance(row, dict):
+                return row
+        return None
 
 
 # ---------------------------------------------------------------------------

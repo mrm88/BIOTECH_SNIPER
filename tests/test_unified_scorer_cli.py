@@ -193,6 +193,10 @@ def test_cli_emits_json_summary(monkeypatch, tmp_path: Path, capsys) -> None:
             "--date",
             "2026-04-27",
             "--no-emit-play-cards",
+            # f-m3-16: empty universe lookup is now a strict reject;
+            # this test exercises the CLI plumbing, not the gate, so
+            # bypass it explicitly with --no-chain-gate.
+            "--no-chain-gate",
         ]
     )
     assert rc == 0
@@ -239,6 +243,7 @@ def test_cli_writes_scoring_cache_rows(monkeypatch, tmp_path: Path) -> None:
             "--date",
             "2026-04-27",
             "--no-emit-play-cards",
+            "--no-chain-gate",
         ]
     )
     assert rc == 0
@@ -268,6 +273,7 @@ def test_cli_emits_play_cards(monkeypatch, tmp_path: Path, capsys) -> None:
             "SRPT,VRTX",
             "--date",
             "2026-04-27",
+            "--no-chain-gate",
         ]
     )
     assert rc == 0
@@ -315,6 +321,7 @@ def test_cli_warns_on_missing_gemini_key(
                 "--date",
                 "2026-04-27",
                 "--no-emit-play-cards",
+                "--no-chain-gate",
             ]
         )
     assert rc == 0
@@ -352,6 +359,7 @@ def test_cli_handles_unknown_ticker_gracefully(
                 "--date",
                 "2026-04-27",
                 "--no-emit-play-cards",
+                "--no-chain-gate",
             ]
         )
     assert rc == 0
@@ -463,6 +471,12 @@ def test_cli_seed_fallback_when_universe_empty(
             "--top-n",
             "5",
             "--no-emit-play-cards",
+            # f-m3-16: empty universe lookup is now a strict reject;
+            # the seed-fallback feeds 5 tickers but the chain gate
+            # would reject them all on an empty universe. This test
+            # exercises the seed-fallback resolver, not the gate, so
+            # bypass the gate explicitly.
+            "--no-chain-gate",
         ]
     )
     assert rc == 0

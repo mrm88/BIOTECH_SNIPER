@@ -301,19 +301,27 @@ def test_filter_chain_gated_tickers_handles_unknown_ticker(tmp_path: Path):
     assert skipped == ["NEW"]
 
 
-def test_filter_chain_gated_tickers_bypasses_when_universe_missing(
+def test_filter_chain_gated_tickers_rejects_when_universe_missing(
     tmp_path: Path,
 ):
-    """When universe table is empty, all tickers are scored (fresh checkout)."""
+    """f-m3-16: empty universe lookup is a STRICT REJECT, not a bypass.
+
+    When the universe table is empty (or no requested ticker has a
+    row), every ticker is dropped — fresh checkouts must populate
+    `universe` before invoking the scorer. The previous bypass
+    behaviour (returning all tickers as scored) was unsafe because
+    it allowed unverified tickers into ``scoring_cache`` and into
+    downstream paper executions.
+    """
     db_path = tmp_path / "alpha.db"
-    # No rows seeded → query returns empty → bypass.
+    # No rows seeded → query returns empty → strict reject.
     _db.run_migrations(_db.connect(db_path))
 
     scored, skipped = unified_scorer.filter_chain_gated_tickers(
         ["SRPT", "VRTX"], db_path=db_path
     )
-    assert scored == ["SRPT", "VRTX"]
-    assert skipped == []
+    assert scored == []
+    assert skipped == ["SRPT", "VRTX"]
 
 
 # ---------------------------------------------------------------------------

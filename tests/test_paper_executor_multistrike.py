@@ -1,7 +1,7 @@
-"""f-m3-08: Multi-strike entry tests for :mod:`paper_executor`.
+"""f-m3-08 + f-m3-16: Multi-strike entry tests for :mod:`paper_executor`.
 
-Validates the contract from the f-m3-08 feature description and
-VAL-M3-046:
+Validates the contract from the f-m3-08 feature description,
+VAL-M3-046, and the f-m3-16 surgical fixes:
 
 * A play card carrying **2 BUY legs** (different strikes, same
   ticker, no ``order_class != 'simple'``, no
@@ -16,13 +16,14 @@ VAL-M3-046:
 * A play card with **only 1 leg** keeps the single-strike default
   — ``execute()`` returns a ``str``, exactly one orders row is
   persisted.
-* A 2-leg play card carrying
+* **f-m3-16 unfillable demotion:** a 2-leg play card carrying
   ``liquidity_classification='unfillable'`` is **demoted** to
-  single-strike — :func:`_is_multi_strike` returns False so the
-  underlying single-leg validator raises
-  :class:`UnsupportedOrderShape` (because the card still has 2 legs
-  in ``option_legs``). This is the "f-m3-12 forces single-strike"
-  fallback hook.
+  single-leg by selecting the cheaper of the two legs, logging a
+  WARN with the demotion reason, and submitting exactly one buy
+  order. Previously this path raised
+  :class:`UnsupportedOrderShape`; the new behaviour keeps the
+  entry alive at smaller notional rather than forcing the play
+  card to be abandoned.
 
 Hermetic — no live network calls; uses the same ``_FakeAlpacaClient``
 double pattern as ``tests/test_paper_executor.py``.
@@ -379,22 +380,70 @@ def test_execute_single_strike_default_returns_str(make_executor, db_path: Path)
     assert rows[0]["alpaca_order_id"] == "ss-only"
 
 
-def test_execute_unfillable_2_legs_demoted_to_single_strike_raises(make_executor):
-    """liquidity_classification='unfillable' on a 2-leg card forces the
-    single-leg validator path → UnsupportedOrderShape (>1 leg).
+def test_execute_unfillable_2_legs_demoted_to_single_leg(
+    make_executor, db_path: Path, caplog
+):
+    """f-m3-16: 2-leg unfillable card demotes to one buy submission.
 
-    This pins the f-m3-12 hook: when the upstream liquidity probe
-    decides a multi-strike entry is not realistic, the executor
-    refuses the multi-strike dispatch. The play-card builder is then
-    expected to either trim to 1 leg (which would succeed) or
-    abandon the entry entirely.
+    Previously the executor fell through to ``_validate_single_leg``
+    which raised :class:`UnsupportedOrderShape`. The new contract is
+    to demote to single-leg (selecting the cheaper of the two legs),
+    log a WARN with the demotion reason, and submit exactly ONE buy
+    order — keeping the entry alive at smaller notional rather than
+    forcing the play card to be abandoned.
     """
-    fake = _FakeAlpacaClient()
+    fake = _FakeAlpacaClient(
+        submit_order_results=[
+            _broker_response(
+                order_id="demoted-only",
+                # The cheaper leg of _multi_strike_play_card() has
+                # limit_price=0.95 → strike 130 → symbol below.
+                symbol="AXSM260620C00130000",
+                qty=1,
+            )
+        ]
+    )
     executor, _ = make_executor(client=fake)
-
     card = _multi_strike_play_card(liquidity_classification="unfillable")
-    with pytest.raises(UnsupportedOrderShape, match="multi-leg"):
-        executor.execute(card)
 
-    # No broker calls were made.
-    assert fake.submit_calls == []
+    import logging as _logging
+    with caplog.at_level(_logging.WARNING, logger="biotech_sniper.paper_executor"):
+        result = executor.execute(card)
+
+    # Exactly ONE broker submission, returning a single str id.
+    assert isinstance(result, str)
+    assert result == "demoted-only"
+    assert len(fake.submit_calls) == 1
+
+    # The submission MUST be the cheaper leg (limit_price=0.95 →
+    # strike 130) — not the more expensive limit_price=1.20 leg.
+    submitted = fake.submit_calls[0]
+    assert getattr(submitted, "symbol") == "AXSM260620C00130000"
+    assert str(getattr(submitted, "side")).lower().endswith("buy")
+
+    # WARN log names the demotion reason and the discarded symbol.
+    demotion_logs = [
+        rec for rec in caplog.records
+        if rec.levelno == _logging.WARNING
+        and "unfillable_demotion" in rec.getMessage()
+    ]
+    assert demotion_logs, [r.getMessage() for r in caplog.records]
+    msg = demotion_logs[0].getMessage()
+    assert "AXSM260620C00120000" in msg  # the dropped (more expensive) leg
+
+    # Exactly ONE orders row persisted — not two, not zero.
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT alpaca_order_id, symbol, qty, status, side "
+            "FROM paper_orders WHERE play_card_id = ?",
+            (card["play_card_id"],),
+        ).fetchall()
+    finally:
+        conn.close()
+    assert len(rows) == 1
+    assert rows[0]["alpaca_order_id"] == "demoted-only"
+    assert rows[0]["symbol"] == "AXSM260620C00130000"
+    assert rows[0]["status"] == "accepted"
+    assert rows[0]["side"] == "buy"
