@@ -706,3 +706,460 @@ def test_size_entry_partial_returns_multi(db_path: Path) -> None:
     assert decision["classification"] == "partial"
     assert decision["play_card"]["liquidity_classification"] == "partial"
     assert len(decision["play_card"]["option_legs"]) == 2
+
+
+# ---------------------------------------------------------------------------
+# f-m3-20 — surgical fixes to the liquidity probe + size_entry surface.
+# ---------------------------------------------------------------------------
+
+
+def test_probe_daily_cap_pre_check_blocks_marginal_overshoot(
+    db_path: Path,
+) -> None:
+    """f-m3-20 fix (1): pre-spend cap check uses estimated_cost.
+
+    Pre-seed today_total = $19.00 and submit a probe whose
+    ``limit_price`` implies an estimated_cost of $2.00 — the sum
+    ($21.00) exceeds the daily cap ($20.00), so the probe MUST
+    raise :class:`DailyCapExceeded` BEFORE the broker is called.
+
+    The previous post-spend check (``spent >= cap``) would have
+    permitted this probe to fire and pushed the day's total over
+    the cap to $21 (the very invariant VAL-M3-066 forbids).
+    """
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            INSERT INTO liquidity_probes (
+                ticker, expiry, strike, side, probe_size,
+                submitted_at, finalized_at, outcome,
+                time_to_fill_ms, classification,
+                client_order_id, cost_usd
+            ) VALUES (
+                'NVAX','2026-06-19',100.0,'buy',1,
+                strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+                strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+                'filled',1000,'fillable',
+                'preseed-19', 19.0
+            )
+            """,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    fake = _FakeAlpacaClient(
+        submit_order_results=[
+            _broker_response(
+                order_id="probe-blocked",
+                status="filled",
+                filled_qty=1,
+                filled_avg_price=0.02,
+            )
+        ],
+    )
+    # limit_price=$0.02/share => estimated_cost = 0.02 * 100 = $2.00.
+    # 19.0 + 2.0 = 21.0 > 20.0 cap → DailyCapExceeded.
+    with pytest.raises(lp.DailyCapExceeded):
+        lp.probe_chain(
+            "AXSM",
+            "2026-06-19",
+            125.0,
+            "buy",
+            alpaca_client=fake,
+            db_path=db_path,
+            poll_interval_seconds=0.0,
+            limit_price=0.02,
+        )
+
+    # Broker MUST NOT have been touched (pre-spend check fired
+    # before the submit step).
+    assert fake.submit_calls == []
+    assert fake.cancel_calls == []
+    # No fresh paper_orders row was persisted either — the
+    # write-then-submit step also lives behind the cap check.
+    conn = sqlite3.connect(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT COUNT(*) FROM paper_orders WHERE purpose = 'liquidity_probe'"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert rows[0] == 0
+
+
+def test_probe_daily_cap_pre_check_allows_within_budget(
+    db_path: Path,
+) -> None:
+    """f-m3-20 fix (1): a probe that fits in the remaining budget runs.
+
+    Today_total = $18.00; estimated_cost @ $0.01 = $1.00; 18+1 = 19
+    which is *less than* $20 → probe proceeds as normal.
+    """
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            INSERT INTO liquidity_probes (
+                ticker, expiry, strike, side, probe_size,
+                submitted_at, finalized_at, outcome,
+                time_to_fill_ms, classification,
+                client_order_id, cost_usd
+            ) VALUES (
+                'NVAX','2026-06-19',100.0,'buy',1,
+                strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+                strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+                'filled',1000,'fillable',
+                'preseed-18', 18.0
+            )
+            """,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    fake = _FakeAlpacaClient(
+        submit_order_results=[
+            _broker_response(
+                order_id="probe-allowed",
+                status="filled",
+                filled_qty=1,
+                filled_avg_price=0.01,
+            )
+        ],
+    )
+    result = lp.probe_chain(
+        "AXSM",
+        "2026-06-19",
+        125.0,
+        "buy",
+        alpaca_client=fake,
+        db_path=db_path,
+        poll_interval_seconds=0.0,
+        limit_price=0.01,
+    )
+    assert result.outcome == "filled"
+    assert result.classification == "fillable"
+    assert fake.submit_calls != []
+
+
+def test_probe_default_effective_limit_is_conservative_per_share(
+    db_path: Path,
+) -> None:
+    """f-m3-20 fix (1): default limit price is conservative ($5/contract).
+
+    When ``limit_price`` is omitted, the probe uses
+    :data:`CONSERVATIVE_PROBE_LIMIT_USD_PER_SHARE` (= $0.05) rather
+    than the strike (which on a $125 strike would inflate the
+    estimated_cost to $12_500 and trip the daily cap on a fresh DB).
+    """
+    fake = _FakeAlpacaClient(
+        submit_order_results=[
+            _broker_response(
+                order_id="probe-default",
+                status="filled",
+                filled_qty=1,
+                filled_avg_price=1.20,
+            )
+        ],
+    )
+    result = lp.probe_chain(
+        "AXSM",
+        "2026-06-19",
+        125.0,
+        "buy",
+        alpaca_client=fake,
+        db_path=db_path,
+        poll_interval_seconds=0.0,
+        # limit_price intentionally omitted → conservative default.
+    )
+    assert result.outcome == "filled"
+    assert fake.submit_calls != []
+    submitted = fake.submit_calls[0]
+    # The order request carries the conservative default limit
+    # rather than the strike. Compare to the constant directly so
+    # this test breaks loudly if the default is later tuned.
+    assert float(submitted.limit_price) == pytest.approx(
+        lp.CONSERVATIVE_PROBE_LIMIT_USD_PER_SHARE
+    )
+
+
+def test_size_entry_uses_play_card_leg_symbol_for_put(db_path: Path) -> None:
+    """f-m3-20 fix (2): probe symbol is sourced from option_legs[0].
+
+    For a put-card candidate, the canonical OCC symbol on
+    ``play_card['option_legs'][0]['symbol']`` encodes ``P`` (put).
+    The previous code passed only ``candidate['symbol']`` (often
+    missing) into :func:`probe_chain`, which then synthesised a
+    CALL symbol via :func:`_build_probe_symbol` — wrong for puts.
+    The fix forwards the leg symbol verbatim.
+    """
+    from biotech_sniper.paper_executor import PaperExecutor
+
+    fake = _FakeAlpacaClient()
+    executor = PaperExecutor(
+        fake,  # type: ignore[arg-type]
+        db_path=db_path,
+        poll_interval_seconds=0.0,
+    )
+
+    captured_kwargs: dict[str, Any] = {}
+
+    class _StubProbeModule:
+        DailyCapExceeded = lp.DailyCapExceeded
+
+        @staticmethod
+        def probe_chain(*args: Any, **kwargs: Any) -> lp.ProbeResult:
+            captured_kwargs.update(kwargs)
+            return lp.ProbeResult(
+                ticker="AAPL",
+                expiry="2025-05-16",
+                strike=150.0,
+                side="buy",
+                probe_size=1,
+                outcome="filled",
+                classification="fillable",
+                cost_usd=120.0,
+                time_to_fill_ms=500,
+                client_order_id="stub",
+                paper_order_id="stub",
+                alpaca_order_id="ax-put-1",
+            )
+
+    put_symbol = "AAPL250516P00150000"
+    candidate = {
+        # Note: NO top-level ``symbol`` key — exercise the leg
+        # fallback path explicitly.
+        "ticker": "AAPL",
+        "expiry": "2025-05-16",
+        "strike": 150.0,
+        "side": "buy",
+        "play_card": {
+            "play_card_id": "AAPL-put",
+            "ticker": "AAPL",
+            "option_legs": [
+                {
+                    "symbol": put_symbol,
+                    "side": "buy",
+                    "qty": 1,
+                    "limit_price": 1.20,
+                }
+            ],
+        },
+    }
+    decision = executor.size_entry(
+        candidate, liquidity_probe_module=_StubProbeModule
+    )
+    assert decision["action"] == "single"
+    # The probe was called with the put-card OCC symbol — NOT a
+    # synthesised call symbol from :func:`_build_probe_symbol`.
+    assert captured_kwargs.get("symbol_override") == put_symbol
+
+
+def test_size_entry_falls_back_to_candidate_symbol_when_no_legs(
+    db_path: Path,
+) -> None:
+    """f-m3-20 fix (2): fallback to candidate['symbol'] when no legs."""
+    from biotech_sniper.paper_executor import PaperExecutor
+
+    fake = _FakeAlpacaClient()
+    executor = PaperExecutor(
+        fake,  # type: ignore[arg-type]
+        db_path=db_path,
+        poll_interval_seconds=0.0,
+    )
+
+    captured_kwargs: dict[str, Any] = {}
+
+    class _StubProbeModule:
+        DailyCapExceeded = lp.DailyCapExceeded
+
+        @staticmethod
+        def probe_chain(*args: Any, **kwargs: Any) -> lp.ProbeResult:
+            captured_kwargs.update(kwargs)
+            return lp.ProbeResult(
+                ticker="AAPL",
+                expiry="2025-05-16",
+                strike=150.0,
+                side="buy",
+                probe_size=1,
+                outcome="filled",
+                classification="fillable",
+                cost_usd=120.0,
+                time_to_fill_ms=500,
+                client_order_id="stub",
+                paper_order_id="stub",
+                alpaca_order_id="ax-fb",
+            )
+
+    candidate = {
+        "ticker": "AAPL",
+        "expiry": "2025-05-16",
+        "strike": 150.0,
+        "side": "buy",
+        "symbol": "AAPL250516C00150000",
+        # play_card omitted entirely — the fallback path must use
+        # candidate['symbol'].
+    }
+    executor.size_entry(
+        candidate, liquidity_probe_module=_StubProbeModule
+    )
+    assert (
+        captured_kwargs.get("symbol_override") == "AAPL250516C00150000"
+    )
+
+
+def test_size_entry_truncates_two_leg_card_when_action_is_single(
+    db_path: Path,
+) -> None:
+    """f-m3-20 fix (3): action='single' truncates a 2-leg card to 1 leg.
+
+    A play card carrying 2 BUY legs but classified as ``fillable``
+    by the probe (action=``single``) MUST be truncated to a single
+    leg before downstream dispatch — otherwise
+    :func:`_is_multi_strike` returns ``True`` and the executor
+    fans out the entry across both strikes despite the probe's
+    ``fillable`` classification. The cheaper of the two legs is
+    kept (mirrors :func:`_maybe_demote_unfillable_to_single_leg`).
+    """
+    from biotech_sniper.paper_executor import PaperExecutor, _is_multi_strike
+
+    fake = _FakeAlpacaClient()
+    executor = PaperExecutor(
+        fake,  # type: ignore[arg-type]
+        db_path=db_path,
+        poll_interval_seconds=0.0,
+    )
+
+    class _StubProbeModule:
+        DailyCapExceeded = lp.DailyCapExceeded
+
+        @staticmethod
+        def probe_chain(*args: Any, **kwargs: Any) -> lp.ProbeResult:
+            return lp.ProbeResult(
+                ticker="AXSM",
+                expiry="2026-06-19",
+                strike=125.0,
+                side="buy",
+                probe_size=1,
+                outcome="filled",
+                classification="fillable",
+                cost_usd=120.0,
+                time_to_fill_ms=500,
+                client_order_id="stub",
+                paper_order_id="stub",
+                alpaca_order_id="ax-1",
+            )
+
+    candidate = {
+        "ticker": "AXSM",
+        "expiry": "2026-06-19",
+        "strike": 125.0,
+        "side": "buy",
+        "play_card": {
+            "play_card_id": "AXSM-truncate",
+            "ticker": "AXSM",
+            "option_legs": [
+                {
+                    "symbol": "AXSM260620C00120000",
+                    "side": "buy",
+                    "qty": 1,
+                    "bid": 1.10,
+                    "ask": 1.30,  # mid 1.20 (more expensive)
+                },
+                {
+                    "symbol": "AXSM260620C00130000",
+                    "side": "buy",
+                    "qty": 1,
+                    "bid": 0.85,
+                    "ask": 1.05,  # mid 0.95 (cheaper — kept)
+                },
+            ],
+        },
+    }
+    decision = executor.size_entry(
+        candidate, liquidity_probe_module=_StubProbeModule
+    )
+    assert decision["action"] == "single"
+    assert decision["classification"] == "fillable"
+    legs_out = decision["play_card"]["option_legs"]
+    assert len(legs_out) == 1
+    # Cheaper leg wins.
+    assert legs_out[0]["symbol"] == "AXSM260620C00130000"
+    # Now the play card's effective leg-count agrees with
+    # ``_is_multi_strike``: single-leg → False.
+    assert _is_multi_strike(decision["play_card"]) is False
+
+
+def test_size_entry_warns_when_partial_classified_on_single_leg_card(
+    db_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """f-m3-20 fix (3): action='multi' on a 1-leg card → WARN + stay single.
+
+    A probe that returns ``partial`` (action=``multi``) on a play
+    card that only has 1 leg cannot be honoured — there is no
+    second leg to split to. We log a WARNING and leave the card
+    as a single-leg entry so :func:`_is_multi_strike` returns
+    ``False`` and the executor's single-strike path runs.
+    """
+    from biotech_sniper.paper_executor import PaperExecutor, _is_multi_strike
+
+    fake = _FakeAlpacaClient()
+    executor = PaperExecutor(
+        fake,  # type: ignore[arg-type]
+        db_path=db_path,
+        poll_interval_seconds=0.0,
+    )
+
+    class _StubProbeModule:
+        DailyCapExceeded = lp.DailyCapExceeded
+
+        @staticmethod
+        def probe_chain(*args: Any, **kwargs: Any) -> lp.ProbeResult:
+            return lp.ProbeResult(
+                ticker="AXSM",
+                expiry="2026-06-19",
+                strike=125.0,
+                side="buy",
+                probe_size=1,
+                outcome="partial",
+                classification="partial",
+                cost_usd=50.0,
+                time_to_fill_ms=60000,
+                client_order_id="stub",
+                paper_order_id="stub",
+                alpaca_order_id="ax-1",
+            )
+
+    candidate = {
+        "ticker": "AXSM",
+        "expiry": "2026-06-19",
+        "strike": 125.0,
+        "side": "buy",
+        "play_card": {
+            "play_card_id": "AXSM-partial-single",
+            "ticker": "AXSM",
+            "option_legs": [
+                {
+                    "symbol": "AXSM260620C00125000",
+                    "side": "buy",
+                    "qty": 1,
+                    "limit_price": 1.20,
+                }
+            ],
+        },
+    }
+    with caplog.at_level("WARNING", logger="biotech_sniper.paper_executor"):
+        decision = executor.size_entry(
+            candidate, liquidity_probe_module=_StubProbeModule
+        )
+    assert decision["action"] == "multi"
+    # Card stays single-leg; downstream multi-strike helper agrees.
+    assert len(decision["play_card"]["option_legs"]) == 1
+    assert _is_multi_strike(decision["play_card"]) is False
+    # WARN message surfaces for the operator.
+    assert any(
+        "partial_on_single_leg" in rec.message
+        for rec in caplog.records
+    )

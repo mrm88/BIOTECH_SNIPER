@@ -80,6 +80,7 @@ __all__ = [
     "PROBE_SIZE",
     "PROBE_TIMEOUT_SECONDS",
     "PROBE_CANCEL_TOLERANCE_SECONDS",
+    "CONSERVATIVE_PROBE_LIMIT_USD_PER_SHARE",
     "ProbeResult",
     "ProbeOutcome",
     "ProbeClassification",
@@ -115,6 +116,22 @@ PROBE_TIMEOUT_SECONDS: float = 60.0
 #: allow up to ``submitted_at + PROBE_TIMEOUT_SECONDS +
 #: PROBE_CANCEL_TOLERANCE_SECONDS`` for non-filled outcomes.
 PROBE_CANCEL_TOLERANCE_SECONDS: float = 5.0
+
+#: Conservative per-share fallback for the probe's marketable-limit
+#: price when the caller does not supply an explicit ``limit_price``.
+#: Multiplied by the contract multiplier (100) this implies a
+#: ``$5/contract`` upper-bound estimate — small enough that a
+#: handful of probes still fit inside the
+#: :data:`biotech_sniper.config.LIQUIDITY_PROBE_DAILY_USD_CAP` daily
+#: cap, large enough to remain marketable against typical option
+#: premiums in unit tests.
+#:
+#: Production callers MUST pass the live mid as ``limit_price`` —
+#: this default exists purely so unit tests / smoke runs that omit
+#: a price do not silently submit at ``strike`` (which trivially
+#: explodes the estimated cost into the thousands of dollars and
+#: would always trip the daily-cap pre-check).
+CONSERVATIVE_PROBE_LIMIT_USD_PER_SHARE: float = 0.05
 
 #: Closed-set outcome enum aligned with
 #: :data:`biotech_sniper.db.schema.sql`'s
@@ -663,22 +680,50 @@ def probe_chain(
     side_norm = _normalise_side(side)
     ticker_norm = ticker.strip().upper()
 
+    # Resolve a sane marketable-limit price BEFORE the cap check so
+    # we can compute an accurate ``estimated_cost`` upper bound.
+    if limit_price is None:
+        # Conservative default — production callers should always
+        # pass the live mid (or live ask). The previous default of
+        # ``float(strike)`` produced absurdly large estimated_cost
+        # values (e.g., a $125 strike → $12_500 estimated_cost) and
+        # would always trip the daily-cap pre-check; the conservative
+        # ``$5/contract`` fallback (i.e.,
+        # :data:`CONSERVATIVE_PROBE_LIMIT_USD_PER_SHARE` * 100) is
+        # small enough that smoke runs without an explicit price
+        # still fit comfortably inside the daily cap.
+        effective_limit = CONSERVATIVE_PROBE_LIMIT_USD_PER_SHARE
+    else:
+        effective_limit = float(limit_price)
+
+    # Pre-spend cap check: refuse to submit when the projected cost
+    # of the new probe (marketable-limit price * 100 contract
+    # multiplier * size) would push today's cumulative spend past
+    # :data:`biotech_sniper.config.LIQUIDITY_PROBE_DAILY_USD_CAP`
+    # (VAL-M3-066 — AGENTS.md "PRE-spend check, not a post-spend
+    # check"). This guarantees ``SUM(cost_usd)`` stays at or under
+    # the cap even when several probes share a day.
     cap = float(_config.LIQUIDITY_PROBE_DAILY_USD_CAP)
     spent = today_probe_spend_usd(db, today=today_date)
-    if spent >= cap:
+    estimated_cost = float(effective_limit) * float(PROBE_SIZE) * 100.0
+    if spent + estimated_cost > cap:
         logger.warning(
             "liquidity_probe.daily_cap_exceeded ticker=%s expiry=%s "
-            "strike=%s side=%s spent_usd=%.2f cap_usd=%s",
+            "strike=%s side=%s spent_usd=%.2f estimated_cost_usd=%.2f "
+            "cap_usd=%s",
             ticker_norm,
             expiry,
             strike,
             side_norm,
             spent,
+            estimated_cost,
             cap,
         )
         raise DailyCapExceeded(
-            f"liquidity_probe daily cap reached: spent_usd={spent:.2f} "
-            f">= cap={cap:.2f} (today={today_date.isoformat()})"
+            f"liquidity_probe daily cap would be exceeded: "
+            f"spent_usd={spent:.2f} + estimated_cost_usd="
+            f"{estimated_cost:.2f} > cap={cap:.2f} "
+            f"(today={today_date.isoformat()})"
         )
 
     client_order_id = _build_client_order_id(
@@ -688,16 +733,6 @@ def probe_chain(
     symbol = symbol_override or _build_probe_symbol(
         ticker_norm, expiry, float(strike), side_norm
     )
-
-    # Resolve a sane marketable-limit price.
-    if limit_price is None:
-        # Cross-the-spread default — the broker will fill at or
-        # better than the limit. ``strike`` is a coarse but
-        # well-defined ceiling for unit tests; production callers
-        # should always pass the live ask.
-        effective_limit = float(strike)
-    else:
-        effective_limit = float(limit_price)
 
     # Resolve / construct the Alpaca client. We do NOT force a
     # construction when the caller already provided one (tests).

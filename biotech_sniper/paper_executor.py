@@ -2261,7 +2261,45 @@ class PaperExecutor:
                 f"size_entry: strike must be numeric; got {strike_raw!r}"
             )
 
-        symbol_override = candidate.get("symbol")
+        # f-m3-20 fix (2): prefer the candidate's resolved option-leg
+        # symbol over the bare underlying ticker. The play-card
+        # builder stores the canonical OCC option symbol on
+        # ``candidate['play_card']['option_legs'][0]['symbol']`` —
+        # for a put-card candidate that symbol encodes ``P`` (put);
+        # the previous code passed only ``candidate['symbol']``
+        # (often missing) into :func:`probe_chain`, which then fell
+        # through to :func:`_build_probe_symbol` and synthesised a
+        # CALL symbol from ``side='buy'``. That broke probes for
+        # put cards (we'd be probing the wrong contract). We now
+        # walk the play_card → option_legs[0]['symbol'] chain and
+        # only fall back to ``candidate['symbol']`` when no leg
+        # symbol is available.
+        play_card_in_for_symbol: Optional[Mapping[str, Any]] = (
+            candidate.get("play_card")
+            if isinstance(candidate.get("play_card"), Mapping)
+            else None
+        )
+        leg_symbol: Optional[str] = None
+        if play_card_in_for_symbol is not None:
+            legs_in = play_card_in_for_symbol.get("option_legs")
+            if (
+                isinstance(legs_in, Sequence)
+                and not isinstance(legs_in, (str, bytes))
+                and len(legs_in) > 0
+                and isinstance(legs_in[0], Mapping)
+            ):
+                raw_leg_symbol = legs_in[0].get("symbol")
+                if isinstance(raw_leg_symbol, str) and raw_leg_symbol.strip():
+                    leg_symbol = raw_leg_symbol.strip()
+
+        candidate_symbol_raw = candidate.get("symbol")
+        candidate_symbol: Optional[str] = (
+            candidate_symbol_raw.strip()
+            if isinstance(candidate_symbol_raw, str)
+            and candidate_symbol_raw.strip()
+            else None
+        )
+        symbol_override = leg_symbol or candidate_symbol
         try:
             probe_result = liquidity_probe_module.probe_chain(
                 ticker_raw,
@@ -2318,6 +2356,79 @@ class PaperExecutor:
         else:  # "fillable"
             outgoing["liquidity_classification"] = "fillable"
             action = "single"
+
+        # f-m3-20 fix (3): normalise the leg count so the play card's
+        # actual ``option_legs`` length matches the classification
+        # action. The downstream ``execute()`` dispatcher uses
+        # :func:`_is_multi_strike` (which inspects leg count) to
+        # decide multi-strike vs single-strike fan-out, so when the
+        # probe classifies the chain as ``fillable`` (action=
+        # ``single``) but the original card carries 2 legs, we MUST
+        # truncate to 1 leg or the executor will silently multi-fan
+        # the entry — diverging from the probe's intent. Symmetrically,
+        # a ``partial`` classification (action=``multi``) on a 1-leg
+        # card cannot be honoured (there's no second leg to split
+        # to); we log a WARNING and leave the card as a single-leg
+        # entry so :func:`_is_multi_strike` returns ``False`` and
+        # the executor submits a single-strike order.
+        legs_out = outgoing.get("option_legs")
+        if (
+            isinstance(legs_out, Sequence)
+            and not isinstance(legs_out, (str, bytes))
+        ):
+            n_legs = len(legs_out)
+            if action == "single" and n_legs > 1:
+                # Pick the cheaper of the legs (deterministic on tie:
+                # keep the first leg). Mirrors the demotion logic in
+                # :func:`_maybe_demote_unfillable_to_single_leg`.
+                cheapest_index = 0
+                cheapest_cost = (
+                    _leg_cost_estimate(legs_out[0])
+                    if isinstance(legs_out[0], Mapping)
+                    else float("inf")
+                )
+                for idx in range(1, n_legs):
+                    leg_i = legs_out[idx]
+                    if not isinstance(leg_i, Mapping):
+                        continue
+                    cost_i = _leg_cost_estimate(leg_i)
+                    if cost_i < cheapest_cost:
+                        cheapest_cost = cost_i
+                        cheapest_index = idx
+                kept_leg = legs_out[cheapest_index]
+                logger.info(
+                    "paper_executor.size_entry.truncate_to_single "
+                    "play_card_id=%s classification=%s "
+                    "kept_index=%d kept_symbol=%s n_legs_before=%d",
+                    outgoing.get("play_card_id"),
+                    classification,
+                    cheapest_index,
+                    kept_leg.get("symbol")
+                    if isinstance(kept_leg, Mapping)
+                    else None,
+                    n_legs,
+                )
+                outgoing["option_legs"] = [
+                    dict(kept_leg) if isinstance(kept_leg, Mapping) else kept_leg
+                ]
+            elif action == "multi" and n_legs <= 1:
+                logger.warning(
+                    "paper_executor.size_entry.partial_on_single_leg "
+                    "play_card_id=%s classification=%s n_legs=%d "
+                    "reason=partial_classification_on_single_leg_card; "
+                    "leaving card as single-strike entry",
+                    outgoing.get("play_card_id"),
+                    classification,
+                    n_legs,
+                )
+                # Card stays single-leg; ``_is_multi_strike`` will
+                # therefore return False and ``execute()`` will
+                # dispatch the single-leg path. We deliberately
+                # leave ``action='multi'`` and
+                # ``liquidity_classification='partial'`` on the
+                # decision dict so the caller can see that the
+                # probe classified the chain as partial — but the
+                # actual card shape forces a single-strike entry.
 
         return {
             "action": action,
