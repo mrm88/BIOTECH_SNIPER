@@ -56,6 +56,16 @@ i-understand-this-trades-real-money
 **/models/*.lgb
 **/backups/*.gz
 
+# --- Module-import byproducts (legacy, tracked from original project) -----
+# Several modules under biotech_sniper/ write JSON/TXT/XLSX byproducts at
+# import time (twitter_report.json, batch_a_fresh.txt, the dated
+# Biotech_Catalyst_Sniper_*.xlsx). These were committed in the original
+# project import and now show up as git-status-modified after every smoke
+# run. Treat them as build-output: gitignore + git rm --cached.
+biotech_sniper/intelligence/*.json
+biotech_sniper/options_chains/*.txt
+biotech_sniper/*.xlsx
+
 # --- OS / editor noise -----------------------------------------------------
 **/.DS_Store
 Thumbs.db

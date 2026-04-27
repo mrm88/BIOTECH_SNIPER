@@ -258,18 +258,33 @@ try:
 except Exception as e:
     failures.append(f'ticker_map: {e}'); print(f'  FAIL: {e}')
 
-# ── 15. active_plays state check ────────────────────────────
-print('\n[15] active_plays.json health')
+# ── 15. active_plays seed check ─────────────────────────────
+# f-m1-03 moved the runtime state JSONs to migrations/seed/. The runtime
+# active_plays SQLite path is introduced in M2; until then, validate the
+# seed JSON shape so M2 has a clean source to backfill from.
+print('\n[15] active_plays.json health (seed)')
 try:
-    plays = json.load(open(BASE_DIR / 'state/active_plays.json'))
-    active = plays.get('active', {})
-    required_fields = ['ticker', 'direction', 'p_success', 'estimated_announcement', 'option_expiry']
-    for ticker, play in active.items():
-        missing = [f for f in required_fields if not play.get(f) and play.get('direction') != 'EQUITY_ONLY']
-        if missing:
-            print(f'  WARNING {ticker}: missing {missing}')
-    print(f'  Active: {len(active)} | Monitor: {len(plays.get("monitor",{}))}')
-    print('  OK')
+    seed_candidates = [
+        BASE_DIR / 'migrations/seed/active_plays.json',          # VPS layout (BASE_DIR=repo root)
+        BASE_DIR.parent / 'migrations/seed/active_plays.json',    # local layout (BASE_DIR=package dir)
+    ]
+    seed_path = next((p for p in seed_candidates if p.is_file()), None)
+    if seed_path is None:
+        # Not a hard failure: the seed file is only needed by the M2 backfill;
+        # M1 audit should not flag it as broken.
+        warnings.append('active_plays: migrations/seed/active_plays.json not found (expected for fresh checkouts)')
+        print('  WARNING: migrations/seed/active_plays.json not found (expected for fresh checkouts)')
+    else:
+        plays = json.load(open(seed_path))
+        active = plays.get('active', {})
+        required_fields = ['ticker', 'direction', 'p_success', 'estimated_announcement', 'option_expiry']
+        for ticker, play in active.items():
+            missing = [f for f in required_fields if not play.get(f) and play.get('direction') != 'EQUITY_ONLY']
+            if missing:
+                print(f'  WARNING {ticker}: missing {missing}')
+        print(f'  Source: {seed_path}')
+        print(f'  Active: {len(active)} | Monitor: {len(plays.get("monitor",{}))}')
+        print('  OK')
 except Exception as e:
     failures.append(f'active_plays: {e}'); print(f'  FAIL: {e}')
 
