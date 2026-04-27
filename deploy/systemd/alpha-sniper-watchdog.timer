@@ -1,0 +1,12 @@
+[Unit]
+Description=Alpha Sniper - Watchdog timer (every 15 min, staggered)
+Documentation=https://github.com/mrm88/BIOTECH_SNIPER
+
+[Timer]
+# Every 15 min, offset by 8 to avoid hl-edge cron minutes {0, 5, 7, 15, 30, 45}
+# and tier_refresh.py */30 schedule. Resolves to *:08, *:23, *:38, *:53.
+OnCalendar=*-*-* *:8/15
+Unit=alpha-sniper-watchdog.service
+
+[Install]
+WantedBy=timers.target

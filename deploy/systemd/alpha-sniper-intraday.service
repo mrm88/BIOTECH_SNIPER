@@ -1,0 +1,19 @@
+[Unit]
+Description=Alpha Sniper - Intraday scanner (news scan + adverse-news exits + stop-loss + rotation)
+Documentation=https://github.com/mrm88/BIOTECH_SNIPER
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/alpha_sniper/repo
+EnvironmentFile=/root/alpha_sniper/.env
+ExecStart=/root/alpha_sniper/repo/.venv/bin/python -m biotech_sniper.intraday_scanner
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=15min
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

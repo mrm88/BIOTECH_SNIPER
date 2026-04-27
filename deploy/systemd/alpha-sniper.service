@@ -1,0 +1,19 @@
+[Unit]
+Description=Alpha Sniper - Daily run (discovery + scoring + play cards + paper orders)
+Documentation=https://github.com/mrm88/BIOTECH_SNIPER
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/alpha_sniper/repo
+EnvironmentFile=/root/alpha_sniper/.env
+ExecStart=/root/alpha_sniper/repo/.venv/bin/python -m biotech_sniper.master_unified_run
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=30min
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

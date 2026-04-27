@@ -1,0 +1,15 @@
+[Unit]
+Description=Alpha Sniper - Daily timer (06:13 America/Los_Angeles, staggered :13)
+Documentation=https://github.com/mrm88/BIOTECH_SNIPER
+
+[Timer]
+# 6 AM Pacific Time, staggered to minute :13 to avoid HL grok / hl-edge
+# cron collisions on minutes {0, 5, 7, 15, 30, 45} and the
+# tier_refresh.py */30 schedule.
+# Resolves to 13:13 UTC (PDT) or 14:13 UTC (PST).
+OnCalendar=*-*-* 06:13:00 America/Los_Angeles
+Persistent=true
+Unit=alpha-sniper.service
+
+[Install]
+WantedBy=timers.target

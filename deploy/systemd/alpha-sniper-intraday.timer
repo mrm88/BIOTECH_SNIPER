@@ -1,0 +1,13 @@
+[Unit]
+Description=Alpha Sniper - Intraday timer (hourly Mon-Fri 13..21 UTC, staggered :22)
+Documentation=https://github.com/mrm88/BIOTECH_SNIPER
+
+[Timer]
+# US market hours coverage (covers both EDT 13:30-20:00 and EST 14:30-21:00).
+# Minute :22 chosen to avoid hl-edge cron minutes {0, 5, 7, 15, 30, 45} and
+# the tier_refresh.py */30 schedule. 9 elapses per weekday.
+OnCalendar=Mon..Fri *-*-* 13..21:22:00
+Unit=alpha-sniper-intraday.service
+
+[Install]
+WantedBy=timers.target
