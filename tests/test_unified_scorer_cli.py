@@ -400,6 +400,54 @@ def test_cli_dry_run_skips_deep_tier(monkeypatch, tmp_path: Path, capsys) -> Non
     assert summary["play_cards_written"] == 0
 
 
+def test_cli_dry_run_warns_on_missing_gemini_key(
+    monkeypatch, tmp_path: Path, capsys, caplog
+) -> None:
+    """Even with ``--dry-run``, missing GEMINI_API_KEY emits a WARNING.
+
+    Regression test for f-m2-23 / VAL-M2-050: the per-provider key-
+    presence check must run regardless of ``--dry-run`` so that
+    operators see warnings about missing deep-tier credentials. The
+    dry-run flag still suppresses the deep tier from
+    ``providers_used`` (only ``xai`` remains).
+    """
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+    db_path = _redirect_data_dir(monkeypatch, tmp_path / "data")
+    _redirect_play_cards_root(monkeypatch, tmp_path)
+    _patch_scorer_factory(monkeypatch, db_path)
+
+    with caplog.at_level(
+        logging.WARNING, logger="biotech_sniper.sectors.unified_scorer"
+    ):
+        rc = unified_scorer.main(
+            [
+                "--tickers",
+                "SRPT",
+                "--date",
+                "2030-01-02",
+                "--dry-run",
+                "--no-emit-play-cards",
+            ]
+        )
+    assert rc == 0
+
+    # WARNING line names "gemini" and the env var, even in --dry-run.
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any(
+        "gemini" in (rec.getMessage() or "")
+        and "GEMINI_API_KEY" in (rec.getMessage() or "")
+        for rec in warnings
+    ), [rec.getMessage() for rec in warnings]
+
+    summary = json.loads(
+        [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()][-1]
+    )
+    # --dry-run still suppresses deep tier from providers_used.
+    assert summary["providers_used"] == ["xai"]
+    assert "gemini" not in summary["providers_used"]
+
+
 def test_cli_seed_fallback_when_universe_empty(
     monkeypatch, tmp_path: Path, capsys
 ) -> None:

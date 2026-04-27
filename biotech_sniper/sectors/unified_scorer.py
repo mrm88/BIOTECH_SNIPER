@@ -1125,7 +1125,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     # per the f-m2-20 spec; the deep tier is filtered by both the
     # ``--dry-run`` flag and the per-provider key presence check.
     providers_used: list[str] = ["xai"]
-    deep_providers = [] if args.dry_run else _resolve_deep_providers()
+    # Always run per-provider key-presence check so warnings emit even in
+    # --dry-run mode; downstream deep-tier scoring is suppressed by
+    # _build_scorer(dry_run=True) regardless. Satisfies VAL-M2-050.
+    deep_providers = _resolve_deep_providers()
     for provider in deep_providers:
         env_var = _provider_env_var(provider)
         if env_var and not os.environ.get(env_var):
@@ -1136,7 +1139,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 env_var,
             )
             continue
-        providers_used.append(provider)
+        if not args.dry_run:
+            providers_used.append(provider)
     providers_used = sorted(providers_used)
 
     scorer = _build_scorer(dry_run=args.dry_run)
