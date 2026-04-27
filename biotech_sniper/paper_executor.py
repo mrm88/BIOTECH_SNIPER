@@ -821,41 +821,53 @@ class PaperExecutor:
         # client double) degrade to "no caps" rather than crashing
         # — production callers always pass an
         # :class:`AlpacaClient`, which implements ``get_positions``.
+        #
+        # f-m3-05: caps apply to ENTRIES only. Exit submissions
+        # (``side='sell'`` — the IV-crush exit, stop-loss, adverse-
+        # news, and rotation triggers) reduce capital deployment
+        # rather than add to it, and must not be blocked when the
+        # broker already reports ``MAX_CONCURRENT_PLAYS`` open
+        # positions (which is precisely the state in which exits
+        # are most likely to fire). We skip both the position probe
+        # and the cap arithmetic when ``side`` is sell so the exit
+        # path stays a clean passthrough to the broker.
+        is_entry = side == OrderSide.BUY
         positions: list[dict[str, Any]] = []
-        get_positions = getattr(self.client, "get_positions", None)
-        if callable(get_positions):
-            try:
-                raw_positions = get_positions() or []
-            except AlpacaClientError as exc:
-                # Surface broker errors during the cap probe as a
-                # rejection so the orders table reflects the failure
-                # without leaking a half-submitted entry.
-                reason = _broker_reason(exc)
-                logger.warning(
-                    "paper_executor.position_probe_failed "
-                    "play_card_id=%s reason=%s",
-                    play_card_id,
-                    reason,
-                )
-                self._persist_order_row(
-                    order_id=uuid.uuid4().hex,
-                    play_card_id=play_card_id,
-                    alpaca_order_id=None,
-                    symbol=symbol,
-                    side=side_str,
-                    qty=qty,
-                    status="rejected",
-                    reason=f"OrderRejected: {reason}",
-                    event=event,
-                    parent_play_card_id=parent_play_card_id,
-                )
-                raise OrderRejected(
-                    f"Failed to read positions before submission: {reason}"
-                ) from exc
-            positions = list(raw_positions)
+        if is_entry:
+            get_positions = getattr(self.client, "get_positions", None)
+            if callable(get_positions):
+                try:
+                    raw_positions = get_positions() or []
+                except AlpacaClientError as exc:
+                    # Surface broker errors during the cap probe as a
+                    # rejection so the orders table reflects the failure
+                    # without leaking a half-submitted entry.
+                    reason = _broker_reason(exc)
+                    logger.warning(
+                        "paper_executor.position_probe_failed "
+                        "play_card_id=%s reason=%s",
+                        play_card_id,
+                        reason,
+                    )
+                    self._persist_order_row(
+                        order_id=uuid.uuid4().hex,
+                        play_card_id=play_card_id,
+                        alpaca_order_id=None,
+                        symbol=symbol,
+                        side=side_str,
+                        qty=qty,
+                        status="rejected",
+                        reason=f"OrderRejected: {reason}",
+                        event=event,
+                        parent_play_card_id=parent_play_card_id,
+                    )
+                    raise OrderRejected(
+                        f"Failed to read positions before submission: {reason}"
+                    ) from exc
+                positions = list(raw_positions)
 
         cap_concurrent = _config.MAX_CONCURRENT_PLAYS
-        if len(positions) >= cap_concurrent:
+        if is_entry and len(positions) >= cap_concurrent:
             msg = (
                 f"ConcurrencyCapExceeded: {len(positions)} active positions "
                 f"meets/exceeds MAX_CONCURRENT_PLAYS={cap_concurrent}"
@@ -883,9 +895,9 @@ class PaperExecutor:
             raise ConcurrencyCapExceeded(msg)
 
         cap_deployed = _config.MAX_DEPLOYED_USD
-        deployed = _deployed_capital_usd(positions)
-        planned_cost = _planned_cost_usd(leg, qty)
-        if (deployed + planned_cost) > cap_deployed:
+        deployed = _deployed_capital_usd(positions) if is_entry else 0.0
+        planned_cost = _planned_cost_usd(leg, qty) if is_entry else 0.0
+        if is_entry and (deployed + planned_cost) > cap_deployed:
             msg = (
                 f"DeployedCapExceeded: deployed=${deployed:.2f} + "
                 f"planned=${planned_cost:.2f} = "
