@@ -86,8 +86,15 @@ def default_db_path() -> Path:
 
 
 def _now_iso() -> str:
+    """UTC ISO-8601 timestamp parseable by SQLite's date()/datetime().
+
+    ``%f`` is microseconds (6 digits, no leading period); the format
+    string MUST include ``%S.`` between minutes and microseconds so
+    SQLite's date functions treat the string as a valid timestamp.
+    Output shape: ``YYYY-MM-DDTHH:MM:SS.ffffffZ``.
+    """
     return datetime.datetime.now(datetime.timezone.utc).strftime(
-        "%Y-%m-%dT%H:%M:%fZ"
+        "%Y-%m-%dT%H:%M:%S.%fZ"
     )
 
 
