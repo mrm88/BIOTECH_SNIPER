@@ -122,10 +122,12 @@ try:
 except Exception as e:
     failures.append(f'Defense.gov: {e}'); print(f'  FAIL: {e}')
 
-# ── 6. FDA AdCom RSS ────────────────────────────────────────
-print('\n[6] FDA AdCom RSS')
+# ── 6. FDA news RSS (press releases) ────────────────────────
+# The legacy advisory-committee-meetings-coming-soon.rss endpoint now 404s;
+# use the FDA press-releases RSS as the canonical "news_rss" health source.
+print('\n[6] FDA press-releases RSS')
 try:
-    r = requests.get('https://www.fda.gov/feeds/advisory-committee-meetings-coming-soon.rss',
+    r = requests.get('https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/press-releases/rss.xml',
                      headers={'User-Agent': 'Mozilla/5.0'}, timeout=12)
     feed = feedparser.parse(r.text)
     print(f'  Status: {r.status_code} | Entries: {len(feed.entries)}')
@@ -133,7 +135,7 @@ try:
         print(f'  Sample: {feed.entries[0].get("title","")[:80]}')
     print('  OK')
     sources['news_rss'] = {'ok': r.status_code == 200, 'status': r.status_code,
-                           'entries': len(feed.entries), 'feed': 'fda_adcom_rss'}
+                           'entries': len(feed.entries), 'feed': 'fda_press_releases_rss'}
 except Exception as e:
     failures.append(f'FDA RSS: {e}'); print(f'  FAIL: {e}')
     sources['news_rss'] = {'ok': False, 'error': str(e)}
