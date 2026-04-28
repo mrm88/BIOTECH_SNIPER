@@ -42,11 +42,24 @@ Legal state-transition graph
                           ─► canceled
                           ─► expired
     submitted ─► rejected
+    (no prior event) ─► rejected   # f-cross-04: pre-submit / broker-side rejections
 
 The graph is encoded in :data:`LEGAL_TRANSITIONS` as a mapping from
 ``previous_event_type`` (or :data:`_INITIAL_STATE` for the very first
 event on an order) to the set of allowed next states. Any transition
 not in this mapping raises :class:`IllegalStateTransition`.
+
+f-cross-04 carve-out
+~~~~~~~~~~~~~~~~~~~~
+``_INITIAL_STATE → 'rejected'`` is permitted so the
+:mod:`biotech_sniper.paper_executor` rejection paths (cap-exceeded,
+contract-too-expensive, broker-side AlpacaClientError, empty
+``alpaca_order_id``, etc.) can write the corresponding
+``execution_events`` row even though no ``submitted`` event was
+ever recorded for those orders. Without this carve-out, a rejected
+``paper_orders`` row would be orphaned in ``execution_events`` (no
+telemetry trail), violating the VAL-CROSS-043 traceability
+invariant.
 """
 
 from __future__ import annotations
@@ -114,7 +127,14 @@ _INITIAL_STATE: str = "__initial__"
 #: of event types allowed to follow ``prev``. The very first event
 #: on an order is constrained against ``LEGAL_TRANSITIONS[_INITIAL_STATE]``.
 LEGAL_TRANSITIONS: dict[str, frozenset[str]] = {
-    _INITIAL_STATE: frozenset({"submitted"}),
+    # f-cross-04: ``rejected`` is permitted as the very first event on
+    # an order so the :mod:`paper_executor` rejection paths (cap
+    # exceeded, contract too expensive, broker AlpacaClientError,
+    # empty ``alpaca_order_id``) can record telemetry even when no
+    # ``submitted`` execution_event was ever written. The legacy rule
+    # (first event must be ``submitted``) caused VAL-CROSS-043
+    # orphans in ``execution_events`` for every rejection.
+    _INITIAL_STATE: frozenset({"submitted", "rejected"}),
     "submitted": frozenset({"accepted", "rejected"}),
     "accepted": frozenset({"partial_fill", "filled", "canceled", "expired"}),
     "partial_fill": frozenset({"partial_fill", "filled", "canceled", "expired"}),
@@ -205,8 +225,11 @@ def validate_state_transition(
 
     ``previous_event_type=None`` means "no prior event recorded";
     constrained against :data:`LEGAL_TRANSITIONS[_INITIAL_STATE]`,
-    which by design contains only ``'submitted'``. Any other
-    first-event attempt is rejected.
+    which contains ``'submitted'`` (the canonical first event on
+    a successful order) and ``'rejected'`` (the f-cross-04
+    carve-out for rejection-only orders that never reach the
+    broker's submitted state). Any other first-event attempt is
+    rejected.
 
     Public so tests can assert the validator directly.
     """

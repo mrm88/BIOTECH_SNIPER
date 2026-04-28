@@ -1080,6 +1080,50 @@ class PaperExecutor:
         finally:
             conn.close()
 
+    def _record_rejection_event(
+        self,
+        internal_id: str,
+        reason: str,
+    ) -> None:
+        """Best-effort record of a ``rejected`` execution_events row.
+
+        f-cross-04: every ``paper_orders`` rejection path also writes
+        a corresponding ``execution_events`` row with
+        ``event_type='rejected'`` so the telemetry stream is
+        traceable end-to-end (VAL-CROSS-043). The transition
+        ``_INITIAL_STATE → 'rejected'`` is permitted by
+        :data:`biotech_sniper.execution_subscriber.LEGAL_TRANSITIONS`
+        — the rejected event becomes the first (and last) lifecycle
+        row when no ``submitted`` event was ever recorded for the
+        order (cap-exceeded, broker AlpacaClientError before the
+        accept lifecycle event, etc.).
+
+        Telemetry failure NEVER breaks the rejection path. The
+        caller has already raised the relevant
+        :class:`PaperExecutorError`; we swallow any exception here
+        and log via :meth:`logging.Logger.exception` so the
+        operator sees the failure but the order rejection still
+        propagates cleanly. This mirrors the best-effort pattern
+        used by the successful-submit telemetry below.
+        """
+        try:
+            from biotech_sniper.execution_subscriber import (
+                record_execution_event as _record_execution_event,
+            )
+            _record_execution_event(
+                self.db_path,
+                paper_order_id=internal_id,
+                event_type="rejected",
+                event_at=_utc_now_iso(),
+                raw_payload={"reason": reason},
+            )
+        except Exception:  # pragma: no cover — telemetry is best-effort
+            logger.exception(
+                "paper_executor.rejection_event_record_failed "
+                "internal_id=%s",
+                internal_id,
+            )
+
     def _update_order_after_submit(
         self,
         order_id: str,
@@ -1298,6 +1342,10 @@ class PaperExecutor:
                     requested_mid_at_submit=mid if mid > 0 else None,
                     purpose=_infer_purpose(play_card),
                 )
+                # f-cross-04: emit the matching execution_events row
+                # so VAL-CROSS-043 traceability holds (every
+                # paper_orders rejection has a telemetry trail).
+                self._record_rejection_event(_internal_id, msg)
                 raise ContractTooExpensive(msg)
 
             # Inject the sized qty so the rest of the pipeline (the
@@ -1402,6 +1450,10 @@ class PaperExecutor:
                         requested_mid_at_submit=requested_mid_at_submit,
                         purpose=purpose,
                     )
+                    # f-cross-04: VAL-CROSS-043 traceability.
+                    self._record_rejection_event(
+                        internal_id, f"OrderRejected: {reason}"
+                    )
                     raise OrderRejected(
                         f"Failed to read positions before submission: {reason}"
                     ) from exc
@@ -1451,6 +1503,8 @@ class PaperExecutor:
                 requested_mid_at_submit=requested_mid_at_submit,
                 purpose=purpose,
             )
+            # f-cross-04: VAL-CROSS-043 traceability.
+            self._record_rejection_event(internal_id, msg)
             raise ConcurrencyCapExceeded(msg)
 
         cap_deployed = _config.MAX_DEPLOYED_USD
@@ -1489,6 +1543,8 @@ class PaperExecutor:
                 requested_mid_at_submit=requested_mid_at_submit,
                 purpose=purpose,
             )
+            # f-cross-04: VAL-CROSS-043 traceability.
+            self._record_rejection_event(internal_id, msg)
             raise DeployedCapExceeded(msg)
 
         # Build the alpaca-py request model. We deliberately use a
@@ -1570,6 +1626,15 @@ class PaperExecutor:
                 qty=None,
                 reason=reason,
             )
+            # f-cross-04: emit the matching execution_events row so
+            # VAL-CROSS-043 traceability holds. The 'submitted'
+            # event was NEVER written for this order (broker
+            # rejection short-circuits the success path at line
+            # ~1633), so 'rejected' is the first lifecycle event
+            # for this paper_orders row — permitted by the
+            # _INITIAL_STATE → 'rejected' carve-out in
+            # LEGAL_TRANSITIONS.
+            self._record_rejection_event(internal_id, reason)
             raise OrderRejected(
                 f"Alpaca rejected order for {symbol}: {reason}"
             ) from exc
@@ -1593,6 +1658,8 @@ class PaperExecutor:
                 qty=None,
                 reason=reason,
             )
+            # f-cross-04: VAL-CROSS-043 traceability.
+            self._record_rejection_event(internal_id, reason)
             raise OrderRejected(reason)
 
         broker_status = (order_dict.get("status") or "submitted").lower()
@@ -1792,6 +1859,8 @@ class PaperExecutor:
                         requested_mid_at_submit=mid if mid > 0 else None,
                         purpose=_infer_purpose(play_card),
                     )
+                    # f-cross-04: VAL-CROSS-043 traceability.
+                    self._record_rejection_event(_internal_id, msg)
                     raise ContractTooExpensive(msg)
                 sized_leg["qty"] = sized_qty
 
