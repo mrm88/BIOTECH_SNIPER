@@ -248,7 +248,7 @@ def default_probe() -> OptionsChainProbe:
 
 def _now_iso() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime(
-        "%Y-%m-%dT%H:%M:%fZ"
+        "%Y-%m-%dT%H:%M:%S.%fZ"
     )
 
 
