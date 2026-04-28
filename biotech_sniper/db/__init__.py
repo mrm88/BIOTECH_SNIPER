@@ -410,7 +410,27 @@ def _rename_legacy_orders_to_paper_orders(conn: sqlite3.Connection) -> None:
 
 
 def _paper_orders_table_has_event_check(conn: sqlite3.Connection) -> bool:
-    """Return ``True`` when ``paper_orders`` has the f-m3-09 event CHECK."""
+    """Return ``True`` when ``paper_orders`` has the f-m3-09 event CHECK.
+
+    The check is textual against the raw ``sqlite_master`` ``CREATE TABLE``
+    snapshot. Production schemas (created by an older revision of
+    :func:`_recreate_paper_orders_with_full_constraints`) store the
+    ``event`` CHECK fragment across two lines, like::
+
+        event IN ('open','iv_crush_exit','stop_loss',
+                  'adverse_news','rotation')
+
+    A naive substring match against the canonical single-line fragment
+    misses every legacy db and triggers an unnecessary recreate on
+    every connect — see f-cross-06 (production VPS-deploy regression).
+    Mirror the sibling :func:`_paper_orders_table_has_f_m3_11_constraints`
+    pattern and collapse all runs of whitespace to a single space, then
+    additionally strip whitespace around commas so the canonical
+    no-space form matches both ``foo,bar`` (schema.sql) and
+    ``foo,\nbar`` (legacy production multiline) after normalisation.
+    """
+    import re as _re
+
     row = conn.execute(
         "SELECT sql FROM sqlite_master "
         "WHERE type='table' AND name='paper_orders'"
@@ -420,7 +440,14 @@ def _paper_orders_table_has_event_check(conn: sqlite3.Connection) -> bool:
     sql = row["sql"] if isinstance(row, sqlite3.Row) else row[0]
     if not isinstance(sql, str):
         return False
-    return _PAPER_ORDERS_EVENT_CHECK_FRAGMENT in sql
+    # First collapse any run of whitespace (newlines, tabs, multiple
+    # spaces from column alignment) to a single space; then strip
+    # whitespace around commas so the IN-list normalises to the
+    # canonical no-space form regardless of how the producing DDL
+    # wrapped or padded the items.
+    normalised_sql = _re.sub(r"\s+", " ", sql)
+    normalised_sql = _re.sub(r"\s*,\s*", ",", normalised_sql)
+    return _PAPER_ORDERS_EVENT_CHECK_FRAGMENT in normalised_sql
 
 
 def _paper_orders_table_has_f_m3_11_constraints(
@@ -529,15 +556,43 @@ def _recreate_paper_orders_with_full_constraints(
        Rows with NULL/empty ``client_order_id`` get the sentinel
        ``'legacy:<id>'``. Rows with an unrecognised ``purpose``
        (defensive) are coerced to NULL.
-    3. ``DROP TABLE paper_orders`` and rename the new table.
-    4. Re-create the index set declared in ``schema.sql``.
+    3. Capture (and drop) any dependent views that ``DROP TABLE
+       paper_orders`` would otherwise turn into dangling references.
+       Currently only ``v_execution_stats`` (declared by the M5
+       execution-dataset builder) needs this treatment.
+    4. ``DROP TABLE paper_orders`` and rename the new table.
+    5. Re-create the index set declared in ``schema.sql``.
+    6. Restore any captured views so the migration is invisible to
+       downstream callers.
 
     The whole sequence runs inside the caller's transaction so a
-    failure rolls back cleanly.
+    failure rolls back cleanly. The view-capture step (f-cross-06)
+    keeps the migration idempotent and view-dependency-safe — without
+    it, ``DROP TABLE paper_orders`` left ``v_execution_stats``
+    dangling and the subsequent ``ALTER TABLE paper_orders__new
+    RENAME TO paper_orders`` would fail with ``no such table:
+    main.paper_orders`` on production databases.
     """
     import logging as _logging
 
     log = _logging.getLogger(__name__)
+
+    # f-cross-06: ``v_execution_stats`` (M5 execution-dataset rollup)
+    # SELECTs from ``paper_orders``, so SQLite forbids ``DROP TABLE
+    # paper_orders`` while the view exists. Capture the view's DDL
+    # BEFORE the drop and recreate it AFTER the rename so the
+    # migration stays idempotent and view-dependency-safe.
+    view_row = conn.execute(
+        "SELECT sql FROM sqlite_master "
+        "WHERE type='view' AND name='v_execution_stats'"
+    ).fetchone()
+    captured_view_ddl: str | None = None
+    if view_row is not None:
+        view_sql = (
+            view_row["sql"] if isinstance(view_row, sqlite3.Row) else view_row[0]
+        )
+        if isinstance(view_sql, str) and view_sql.strip():
+            captured_view_ddl = view_sql
 
     conn.execute(
         """
@@ -552,8 +607,7 @@ def _recreate_paper_orders_with_full_constraints(
             reason                      TEXT,
             event                       TEXT    CHECK(
                 event IS NULL OR
-                event IN ('open','iv_crush_exit','stop_loss',
-                          'adverse_news','rotation')
+                event IN ('open','iv_crush_exit','stop_loss','adverse_news','rotation')
             ),
             parent_play_card_id         TEXT,
             requested_mid_at_submit     REAL,
@@ -633,8 +687,22 @@ def _recreate_paper_orders_with_full_constraints(
         (*allowed_events, *allowed_purposes),
     )
 
+    # f-cross-06: drop the dependent view BEFORE the parent table so
+    # SQLite does not refuse the ``DROP TABLE paper_orders`` (and so
+    # the subsequent rename does not leave the view dangling). The
+    # view DDL was captured above; we restore it after the rename.
+    if captured_view_ddl is not None:
+        conn.execute("DROP VIEW IF EXISTS v_execution_stats")
+
     conn.execute("DROP TABLE paper_orders")
     conn.execute("ALTER TABLE paper_orders__new RENAME TO paper_orders")
+
+    # f-cross-06: restore the captured view AFTER the rename so the
+    # migration is observably idempotent — downstream callers see
+    # ``v_execution_stats`` continue to point at ``paper_orders``
+    # without interruption.
+    if captured_view_ddl is not None:
+        conn.execute(captured_view_ddl)
 
     # Restore the index set declared by ``schema.sql``.
     conn.execute(
