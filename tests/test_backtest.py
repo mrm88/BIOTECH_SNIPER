@@ -361,6 +361,166 @@ def test_calibration_backup_on_qualifying_bucket(tmp_path):
     assert result.calibration["pre_run_sha256"] == pre_run_sha
 
 
+def test_calibration_delta_persisted_when_qualifying(tmp_path):
+    """f-m5-02a: when a bucket has n>=3 and ``--apply-calibration`` is
+    set, the harness MUST compute the calibration residual
+    (mean_actual_outcome - mean_p_predicted) and persist it through
+    ``learning_engine.apply_calibration_delta`` so
+    ``calibration_params.json`` content actually changes between
+    pre-run and post-run."""
+
+    state_dir, seed_dir, reports_dir = _make_env(tmp_path)
+    extra = list(_seed_resolved())
+    for i in range(2):
+        extra.append(
+            {
+                "ticker": f"SYNTH{i}",
+                "entry_date": "2026-04-01",
+                "resolved_date": "2026-04-02",
+                "entry_p_success": 80,
+                "direction_correct": True,
+                "option_pnl_pct": 10.0,
+                "entry_catalyst_type": "READOUT",
+            }
+        )
+    (seed_dir / "resolved_plays.json").write_text(
+        json.dumps({"resolved": extra}), encoding="utf-8"
+    )
+
+    calib_path = state_dir / "calibration_params.json"
+    calib_payload = _seed_calibration()
+    calib_path.write_text(json.dumps(calib_payload), encoding="utf-8")
+    pre_run_bytes = calib_path.read_bytes()
+    pre_run_sha = hashlib.sha256(pre_run_bytes).hexdigest()
+
+    result = backtest.run_backtest(
+        frm=dt.date(2025, 10, 1),
+        to=dt.date(2026, 4, 25),
+        apply_calibration=True,
+        state_dir=state_dir,
+        seed_dir=seed_dir,
+        reports_dir=reports_dir,
+    )
+
+    # The qualifying bucket has p≈{0.77,0.80,0.80} (mean ≈ 0.79) all
+    # directionally correct (mean outcome = 1.0), so delta ≈ +0.21
+    # before clamping — well above the 0.005 epsilon. The harness
+    # MUST have called apply_calibration_delta and rewritten the file.
+    deltas = result.calibration["deltas"]
+    assert "P75-85" in deltas, deltas
+    bucket_delta = deltas["P75-85"]
+    assert bucket_delta["applied"] is True
+    assert abs(bucket_delta["delta"]) >= 0.005
+
+    # Post-run file content MUST differ from pre-run (this is the point
+    # of the fix — without delta application the file would be byte-
+    # identical to the pre-run state).
+    post_run_bytes = calib_path.read_bytes()
+    post_run_sha = hashlib.sha256(post_run_bytes).hexdigest()
+    assert post_run_sha != pre_run_sha, (
+        "calibration_params.json content must change after apply"
+    )
+
+    # The persisted file must carry the per-bucket calibration entry
+    # and a log row describing the change.
+    persisted = json.loads(calib_path.read_text(encoding="utf-8"))
+    assert "bucket_calibration" in persisted
+    assert "P75-85" in persisted["bucket_calibration"]
+    assert persisted["bucket_calibration"]["P75-85"] != 0.0
+    log = persisted.get("bucket_calibration_log", [])
+    assert log, "bucket_calibration_log must contain at least one entry"
+    last = log[-1]
+    assert last["bucket"] == "P75-85"
+    # The persisted delta is clamped to [-0.10, +0.10] but must be > 0.
+    assert 0 < last["delta"] <= 0.10
+    assert "backtest:" in last.get("reason", "")
+
+
+def test_no_apply_calibration_leaves_params_unchanged(tmp_path):
+    """f-m5-02a / VAL-M5-014 negative case: ``--no-apply-calibration``
+    means zero state mutations even when buckets would otherwise
+    qualify (n>=3)."""
+
+    state_dir, seed_dir, reports_dir = _make_env(tmp_path)
+    extra = list(_seed_resolved())
+    for i in range(2):
+        extra.append(
+            {
+                "ticker": f"SYNTH{i}",
+                "entry_date": "2026-04-01",
+                "resolved_date": "2026-04-02",
+                "entry_p_success": 80,
+                "direction_correct": True,
+                "option_pnl_pct": 10.0,
+                "entry_catalyst_type": "READOUT",
+            }
+        )
+    (seed_dir / "resolved_plays.json").write_text(
+        json.dumps({"resolved": extra}), encoding="utf-8"
+    )
+
+    calib_path = state_dir / "calibration_params.json"
+    calib_path.write_text(json.dumps(_seed_calibration()), encoding="utf-8")
+    pre_run_sha = hashlib.sha256(calib_path.read_bytes()).hexdigest()
+
+    backtest.run_backtest(
+        frm=dt.date(2025, 10, 1),
+        to=dt.date(2026, 4, 25),
+        apply_calibration=False,
+        state_dir=state_dir,
+        seed_dir=seed_dir,
+        reports_dir=reports_dir,
+    )
+
+    post_run_sha = hashlib.sha256(calib_path.read_bytes()).hexdigest()
+    assert post_run_sha == pre_run_sha
+    # No backup files, no per-bucket calibration written.
+    backups = list(state_dir.glob("calibration_params_backup_*.json"))
+    assert backups == []
+
+
+def test_apply_calibration_delta_idempotent(tmp_path):
+    """f-m5-02a: calling ``apply_calibration_delta`` twice with the
+    same (bucket, delta, reason) is a no-op on the second call — the
+    helper must not double-apply the delta."""
+
+    target = tmp_path / "calibration_params.json"
+    target.write_text(json.dumps({"version": 1}), encoding="utf-8")
+
+    first = learning_engine.apply_calibration_delta(
+        "P65-75", 0.04, reason="unit-test", path=target
+    )
+    second = learning_engine.apply_calibration_delta(
+        "P65-75", 0.04, reason="unit-test", path=target
+    )
+
+    assert first["bucket_calibration"]["P65-75"] == pytest.approx(0.04)
+    assert second["bucket_calibration"]["P65-75"] == pytest.approx(0.04)
+    log = second["bucket_calibration_log"]
+    assert len(log) == 1
+
+
+def test_apply_calibration_delta_clamps_extreme_input(tmp_path):
+    """f-m5-02a: deltas outside ``[-0.10, +0.10]`` must be clamped on
+    write — a single bad call can never nudge a bucket by more than
+    10 percentage points."""
+
+    target = tmp_path / "calibration_params.json"
+
+    learning_engine.apply_calibration_delta(
+        "P85-101", 0.42, reason="clamp-pos", path=target
+    )
+    learning_engine.apply_calibration_delta(
+        "P50-65", -0.42, reason="clamp-neg", path=target
+    )
+
+    persisted = json.loads(target.read_text(encoding="utf-8"))
+    assert persisted["bucket_calibration"]["P85-101"] == pytest.approx(0.10)
+    assert persisted["bucket_calibration"]["P50-65"] == pytest.approx(-0.10)
+    log = persisted["bucket_calibration_log"]
+    assert all(abs(entry["delta"]) <= 0.10 for entry in log)
+
+
 def test_state_files_untouched_after_run(tmp_path):
     """VAL-M5-016: backtest does not modify active/resolved/perf/discovery state."""
 

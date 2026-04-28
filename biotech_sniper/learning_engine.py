@@ -28,6 +28,8 @@ DESIGN PRINCIPLE:
 import json
 import datetime
 import math
+import os
+import tempfile
 from pathlib import Path
 
 from biotech_sniper.paths import BASE_DIR
@@ -35,6 +37,17 @@ RESOLVED_FILE = BASE_DIR / "state/resolved_plays.json"
 CALIBRATION_PARAMS_FILE = BASE_DIR / "state/calibration_params.json"
 CALIBRATION_REPORT_FILE = BASE_DIR / "reports/calibration_report.md"
 LEDGER_FILE = BASE_DIR / "state/performance_ledger.json"
+
+# Canonical write target for calibration mutation. Other modules (notably
+# the M5 backtest harness) override this by passing ``path=...`` to
+# :func:`apply_calibration_delta` so they can mutate per-test state
+# directories without touching the live runtime file.
+LEARNING_CALIBRATION_PATH: Path = CALIBRATION_PARAMS_FILE
+
+# Symmetric clamp on a single calibration-delta application. This is a
+# guardrail against runaway deltas — a single backtest pass should never
+# nudge a bucket by more than 10 percentage points.
+CALIBRATION_DELTA_CLAMP: float = 0.10
 
 
 # ── DEFAULT CALIBRATION PARAMS ───────────────────────────────────────────────
@@ -661,6 +674,131 @@ def process_event(event: dict) -> dict:
         out["ignored"] = True
 
     return out
+
+
+def apply_calibration_delta(
+    bucket_label: str,
+    delta: float,
+    *,
+    reason: str = "",
+    path: Path | None = None,
+) -> dict:
+    """Apply a per-bucket calibration delta and persist atomically.
+
+    The function reads the current calibration params from ``path``
+    (defaults to :data:`LEARNING_CALIBRATION_PATH`), clamps ``delta`` to
+    ``[-CALIBRATION_DELTA_CLAMP, +CALIBRATION_DELTA_CLAMP]``, adds it
+    onto the existing per-bucket calibration entry under
+    ``bucket_calibration[bucket_label]`` (defaulting to 0.0 when absent),
+    appends a row to ``bucket_calibration_log``, and atomically rewrites
+    the file via ``tempfile`` + :func:`os.replace`.
+
+    Idempotency: a subsequent call with the same ``(bucket_label, delta
+    after clamp, reason)`` triple is a no-op — the existing log already
+    contains a matching entry, so the function returns the current
+    params dict unchanged. This makes the helper safe to call twice for
+    the same logical update without double-applying the delta.
+
+    Returns the new (or unchanged, when idempotent) params dict.
+    """
+
+    target = Path(path) if path is not None else LEARNING_CALIBRATION_PATH
+
+    try:
+        delta_value = float(delta)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(
+            f"delta must be numeric, got {delta!r}: {exc}"
+        ) from exc
+
+    clamped = max(-CALIBRATION_DELTA_CLAMP, min(CALIBRATION_DELTA_CLAMP, delta_value))
+
+    if target.exists():
+        try:
+            with target.open("r", encoding="utf-8") as fh:
+                params = json.load(fh)
+        except json.JSONDecodeError as exc:
+            raise json.JSONDecodeError(
+                f"calibration_params at {target} is not valid JSON: {exc.msg}",
+                exc.doc,
+                exc.pos,
+            ) from exc
+        if not isinstance(params, dict):
+            params = {}
+    else:
+        params = {}
+
+    bucket_cal = params.setdefault("bucket_calibration", {})
+    if not isinstance(bucket_cal, dict):
+        bucket_cal = {}
+        params["bucket_calibration"] = bucket_cal
+    bucket_log = params.setdefault("bucket_calibration_log", [])
+    if not isinstance(bucket_log, list):
+        bucket_log = []
+        params["bucket_calibration_log"] = bucket_log
+
+    # Idempotency check: skip when an entry with the same bucket + clamped
+    # delta + reason already exists. This makes repeated calls (e.g., the
+    # same backtest run replayed) safe — the second call returns the
+    # current params without mutating the file.
+    for entry in bucket_log:
+        if (
+            isinstance(entry, dict)
+            and entry.get("bucket") == bucket_label
+            and entry.get("reason", "") == reason
+            and _floats_equal(entry.get("delta"), clamped)
+        ):
+            return params
+
+    current = bucket_cal.get(bucket_label, 0.0)
+    try:
+        current_value = float(current)
+    except (TypeError, ValueError):
+        current_value = 0.0
+    bucket_cal[bucket_label] = round(current_value + clamped, 6)
+
+    bucket_log.append(
+        {
+            "bucket": bucket_label,
+            "delta": clamped,
+            "reason": reason,
+            "applied_at": datetime.datetime.now(
+                datetime.timezone.utc
+            ).isoformat(),
+        }
+    )
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    # Atomic write via a sibling tempfile + os.replace so a crash mid-write
+    # cannot leave the calibration file truncated/corrupt.
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=target.name + ".",
+        suffix=".tmp",
+        dir=str(target.parent),
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(params, fh, indent=2)
+            fh.write("\n")
+        os.replace(tmp_name, target)
+    except Exception:
+        # Best-effort cleanup of the tempfile on failure.
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+
+    return params
+
+
+def _floats_equal(a: object, b: object, *, tol: float = 1e-9) -> bool:
+    """Return True when both values are numeric and within ``tol``."""
+
+    try:
+        return abs(float(a) - float(b)) <= tol
+    except (TypeError, ValueError):
+        return False
 
 
 if __name__ == "__main__":

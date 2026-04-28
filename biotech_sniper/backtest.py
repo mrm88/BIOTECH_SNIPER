@@ -67,6 +67,12 @@ _log = logging.getLogger(__name__)
 SEED_DIR_DEFAULT: Path = BASE_DIR / "migrations" / "seed"
 
 
+# Minimum |delta| to actually mutate calibration params. Smaller residuals
+# are recorded in the report (so operators can see them) but skipped to
+# avoid noise-driven nudges.
+CALIBRATION_DELTA_EPSILON: float = 0.005
+
+
 @dataclass
 class BacktestResult:
     """Structured summary of a backtest run."""
@@ -340,12 +346,21 @@ def _backup_calibration(state_dir: Path, *, now: dt.datetime) -> dict[str, Any]:
 
 def _aggregate(
     processed_resolved: list[dict[str, Any]],
-) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, dict[str, Any]]]:
+) -> tuple[
+    dict[str, Any],
+    list[dict[str, Any]],
+    dict[str, dict[str, Any]],
+    dict[str, dict[str, float]],
+]:
     """Aggregate the processed-event records into report metrics.
 
-    Returns ``(metrics, plays, buckets)``. ``metrics`` always contains
-    ``brier``, ``directional_accuracy``, and ``n``; the values are
-    ``None`` when no usable rows are present.
+    Returns ``(metrics, plays, buckets, bucket_stats)``. ``metrics``
+    always contains ``brier``, ``directional_accuracy``, and ``n``; the
+    values are ``None`` when no usable rows are present. ``bucket_stats``
+    accumulates per-bucket sums of the predicted probability and the
+    realised directional outcome so the caller can compute calibration
+    deltas (mean_actual_outcome - mean_p_predicted) when the n>=3 gate
+    fires.
     """
 
     plays: list[dict[str, Any]] = []
@@ -353,6 +368,7 @@ def _aggregate(
     correct = 0
     total_with_outcome = 0
     bucket_counts: dict[str, int] = {}
+    bucket_stats: dict[str, dict[str, float]] = {}
 
     for rec in processed_resolved:
         ticker = rec.get("ticker")
@@ -371,6 +387,21 @@ def _aggregate(
         bucket = rec.get("bucket")
         if bucket:
             bucket_counts[bucket] = bucket_counts.get(bucket, 0) + 1
+            stats = bucket_stats.setdefault(
+                bucket,
+                {"n": 0, "p_sum": 0.0, "outcome_sum": 0.0, "n_with_outcome": 0},
+            )
+            stats["n"] += 1
+            p_pct = rec.get("entry_p_success")
+            if p_pct is not None:
+                try:
+                    stats["p_sum"] += float(p_pct) / 100.0
+                except (TypeError, ValueError):
+                    pass
+            outcome_val = rec.get("directional_correct")
+            if outcome_val is not None:
+                stats["n_with_outcome"] += 1
+                stats["outcome_sum"] += 1.0 if outcome_val else 0.0
 
         contribution = rec.get("brier_contribution")
         if contribution is not None:
@@ -413,7 +444,7 @@ def _aggregate(
             "applied": False,  # filled in by the caller after the n>=3 gate.
         }
 
-    return metrics, plays, buckets
+    return metrics, plays, buckets, bucket_stats
 
 
 # ---------------------------------------------------------------------------
@@ -477,7 +508,7 @@ def run_backtest(
         )
         events_processed += 1
 
-    metrics, plays, buckets = _aggregate(processed_resolved)
+    metrics, plays, buckets, bucket_stats = _aggregate(processed_resolved)
 
     # ── Apply n>=3 gate per bucket (VAL-M5-014) ──────────────────────────
     bucket_lines: list[str] = []
@@ -493,17 +524,56 @@ def run_backtest(
         )
         print(bucket_lines[-1])
 
-    # ── Calibration backup (only when we'd actually mutate) ──────────────
+    # ── Calibration backup + per-bucket delta application ────────────────
+    # Backup is taken BEFORE any mutation so the pre-run SHA-256 invariant
+    # (VAL-M5-015) holds even when delta application rewrites the file.
     calibration_summary: dict[str, Any] = {
         "applied": False,
         "any_qualifying_bucket": any_qualifying_bucket,
         "backup_path": None,
         "backup_sha256": None,
         "pre_run_sha256": None,
+        "deltas": {},
     }
     if apply_calibration and any_qualifying_bucket:
         calibration_summary.update(_backup_calibration(state_dir, now=now))
         calibration_summary["applied"] = True
+
+        # Compute and apply per-bucket calibration deltas. The delta is
+        # the calibration residual: mean_actual_outcome - mean_p_predicted.
+        # We only apply when |delta| >= CALIBRATION_DELTA_EPSILON to avoid
+        # noise-driven nudges; the report records the raw delta either way
+        # so operators can audit which buckets were below the floor.
+        calib_path = state_dir / "calibration_params.json"
+        deltas: dict[str, dict[str, Any]] = {}
+        for label, info in buckets.items():
+            if not info["applied"]:
+                continue
+            stats = bucket_stats.get(label)
+            if not stats or stats["n_with_outcome"] == 0 or stats["n"] == 0:
+                continue
+            mean_p = stats["p_sum"] / stats["n"]
+            mean_actual = stats["outcome_sum"] / stats["n_with_outcome"]
+            delta = round(mean_actual - mean_p, 6)
+            entry: dict[str, Any] = {
+                "delta": delta,
+                "mean_p_predicted": round(mean_p, 6),
+                "mean_actual_outcome": round(mean_actual, 6),
+                "n": stats["n"],
+                "applied": False,
+            }
+            if abs(delta) >= CALIBRATION_DELTA_EPSILON:
+                learning_engine.apply_calibration_delta(
+                    label,
+                    delta,
+                    reason=(
+                        f"backtest:{frm.isoformat()}_{to.isoformat()}"
+                    ),
+                    path=calib_path,
+                )
+                entry["applied"] = True
+            deltas[label] = entry
+        calibration_summary["deltas"] = deltas
 
     # ── Write report ─────────────────────────────────────────────────────
     reports_dir.mkdir(parents=True, exist_ok=True)
