@@ -64,7 +64,7 @@ i-understand-this-trades-real-money
 # Biotech_Catalyst_Sniper_*.xlsx). These were committed in the original
 # project import and now show up as git-status-modified after every smoke
 # run. Treat them as build-output: gitignore + git rm --cached.
-biotech_sniper/intelligence/*.json
+**/intelligence/*.json
 biotech_sniper/options_chains/*.txt
 biotech_sniper/*.xlsx
 # Some scripts emit the Biotech_Catalyst_Sniper_*.xlsx at the repo root

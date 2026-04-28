@@ -452,3 +452,56 @@ __all__ = [
     "get_risk_per_play_usd",
     "provider_enabled",
 ]
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point — VAL-CROSS-013/014/015 surface (added by f-cross-02).
+# ---------------------------------------------------------------------------
+
+# Canonical list of env vars the codebase reads via this module. Kept in
+# sync with ``.env.example`` (VAL-CROSS-013) and used by the
+# ``check_env`` / ``dump_env_vars`` subcommands below. Order is the
+# alphabetical canonical order so callers can ``diff`` against
+# ``grep -oE '^[A-Z][A-Z0-9_]+' .env.example | sort`` cleanly.
+REQUIRED_ENV_VARS: Final[tuple[str, ...]] = (
+    "ALPACA_BASE_URL",
+    "ALPACA_KEY_ID",
+    "ALPACA_SECRET_KEY",
+    "ANTHROPIC_API_KEY",
+    "BIOTECH_SNIPER_HOME",
+    "GEMINI_API_KEY",
+    "LIVE_MODE",
+    "XAI_API_KEY",
+)
+
+
+def _cli_check_env() -> int:
+    import sys as _sys
+    missing = [n for n in REQUIRED_ENV_VARS if not (os.environ.get(n) or "").strip()]
+    if missing:
+        for n in missing:
+            print(f"ERROR: missing required env var: {n}", file=_sys.stderr)
+        return 1
+    print("OK")
+    return 0
+
+
+def _cli_dump_env_vars() -> int:
+    for n in REQUIRED_ENV_VARS:
+        print(n)
+    return 0
+
+
+if __name__ == "__main__":
+    import sys as _sys
+    _argv = _sys.argv[1:]
+    if not _argv:
+        print("usage: python -m biotech_sniper.config {check_env|dump_env_vars}", file=_sys.stderr)
+        _sys.exit(2)
+    _cmd = _argv[0]
+    if _cmd == "check_env":
+        _sys.exit(_cli_check_env())
+    if _cmd == "dump_env_vars":
+        _sys.exit(_cli_dump_env_vars())
+    print(f"ERROR: unknown subcommand: {_cmd}", file=_sys.stderr)
+    _sys.exit(2)
