@@ -55,6 +55,7 @@ i-understand-this-trades-real-money
 **/reports/*.pdf
 **/reports/*.html
 **/models/*.lgb
+**/models/*.manifest.json
 **/backups/*.gz
 
 # --- Module-import byproducts (legacy, tracked from original project) -----
