@@ -77,6 +77,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from biotech_sniper.paths import DEFAULT_VPS_LOG_DIR
+
 __all__ = [
     "JSONFormatter",
     "configure",
@@ -93,7 +95,10 @@ __all__ = [
 REDACT_TOKEN: str = "***"
 
 #: Default log directory on the VPS. Overridable via ``ALPHA_SNIPER_LOG_DIR``.
-DEFAULT_LOG_DIR: Path = Path("/var/log/alpha_sniper")
+#: Re-exported from :mod:`biotech_sniper.paths` so this module never
+#: hard-codes an absolute filesystem location — ``paths.py`` is the
+#: single source of truth for path constants across the package.
+DEFAULT_LOG_DIR: Path = DEFAULT_VPS_LOG_DIR
 
 # Substrings (lowercased) that mark a field key as sensitive.
 _SENSITIVE_SUBSTRINGS: tuple[str, ...] = (

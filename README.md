@@ -2,54 +2,74 @@
 
 Biotech catalyst-driven options paper-trading system. The pipeline ingests
 ClinicalTrials.gov, SEC EDGAR, news RSS, FDA AdCom calendars and USASpending
-contract data, scores ~370 biotech tickers through a two-tier LLM ensemble
-(Grok-4 fast tier + Claude / Gemini deep science tier), generates daily play
-cards, and submits paper-only single-leg long call/put orders to the Alpaca
-paper endpoint with hard guardrails against real-money trading.
+contract data, scores ~600 biotech tickers through a two-tier LLM ensemble
+(Grok-4 fast tier + Claude / Gemini deep-science tier with a head-to-head
+debate loop), generates daily play cards, and submits paper-only single-leg
+long call/put orders to the Alpaca paper endpoint with hard guardrails
+against real-money trading.
 
-This repository is the canonical source of truth. The VPS at
-`root@199.247.25.111` clones it into `/root/alpha_sniper/repo/` and runs
-oneshot systemd timers for the daily, intraday, and watchdog cycles.
+This repository is the canonical source of truth and the **authoritative
+operational document** for the system. The VPS at `root@199.247.25.111`
+clones it into `/root/alpha_sniper/repo/` and runs oneshot systemd timers
+for the daily, intraday and watchdog cycles. Every change is shipped via
+`git pull --ff-only` on the VPS — there is no other deploy path.
 
 ## Layout
 
 - `biotech_sniper/` — main Python package (~22k LOC, refactored from the
   original unzipped reference project).
-- `biotech_sniper/paths.py` — single source of truth for filesystem paths.
-- `biotech_sniper/config.py` — secrets, feature flags, risk defaults.
+- `biotech_sniper/paths.py` — **single source of truth for filesystem
+  paths**. No other module in the package may construct an absolute
+  ``/home``, ``/root``, ``/tmp`` or ``/var`` path.
+- `biotech_sniper/config.py` — **single source of truth for secrets**,
+  feature flags and risk defaults. No other module may call
+  `os.environ.get(...)` for an `ALPACA_*`, `XAI_*`, `ANTHROPIC_*`,
+  `GEMINI_*` or `GITHUB_*` variable.
 - `biotech_sniper/audit.py` — end-to-end source reachability probe and
   daily health-JSON writer.
-- `tests/` — pytest suites (with VCR cassettes for network-dependent
-  fixtures, added in M2).
-- `migrations/seed/` — historical state JSONs preserved as seed data for
-  the M2 SQLite backfill (6 resolved trades, 261 NCT IDs, scoring cache).
+- `biotech_sniper/training/` — M5 backtest harness, parquet feature
+  store, execution dataset builder and LightGBM ranker trainer.
+- `tests/` — pytest suites with VCR cassettes for network-dependent
+  fixtures.
+- `migrations/seed/` — historical state JSONs preserved as seed data
+  for the M2 SQLite backfill (6 resolved trades, 261 NCT IDs,
+  scoring cache).
+- `deploy/` — systemd unit files, logrotate config, and VPS deploy
+  helpers (consumed by the VPS deploy worker, not by app code).
 - `requirements.txt` — fully pinned dependency set.
 - `.env.example` — required env-var key names (no secret values).
 
 ## Environment
 
 All required environment variables are listed in `.env.example`. The
-runtime reads them from a `.env` file at the repo root (or, on the VPS,
-at `/root/alpha_sniper/.env` — one level above the checkout, mode 600,
-root-owned, never committed).
+runtime reads them from a `.env` file at the repo root locally, or — on
+the VPS — at `/root/alpha_sniper/.env` (one level above the checkout,
+mode `600`, owned by `root`, never committed).
 
-| Variable | Purpose |
-| --- | --- |
-| `BIOTECH_SNIPER_HOME` | Absolute path to the repo checkout (resolved by `paths.py`). |
-| `XAI_API_KEY` | Grok-4 fast-tier scorer (M2). |
-| `ANTHROPIC_API_KEY` | Claude deep-tier science reasoner (M2). |
-| `GEMINI_API_KEY` | Gemini 2.5 Pro deep-tier reasoner (M2 ensemble). |
-| `ALPACA_KEY_ID` / `ALPACA_SECRET_KEY` | Alpaca paper credentials (M3). |
-| `ALPACA_BASE_URL` | Locked to `https://paper-api.alpaca.markets`. |
-| `LIVE_MODE` | Default `0`. Real-money trading hard-blocked. |
+| Variable | Purpose | Notes |
+| --- | --- | --- |
+| `BIOTECH_SNIPER_HOME` | Absolute path to the repo checkout (resolved by `paths.py`). | Required on the VPS. |
+| `XAI_API_KEY` | Grok-4 fast-tier scorer (M2). | Reused from HL grok env. |
+| `ANTHROPIC_API_KEY` | Claude deep-tier science reasoner (M2). | Reused from HL grok env. |
+| `GEMINI_API_KEY` | Gemini 2.5 Pro deep-tier reasoner (M2 ensemble). | User-supplied. |
+| `ALPACA_KEY_ID` / `ALPACA_SECRET_KEY` | Alpaca **paper** credentials (M3). | Generated at app.alpaca.markets/paper. |
+| `ALPACA_BASE_URL` | Locked to `https://paper-api.alpaca.markets`. | The live endpoint is rejected. |
+| `LIVE_MODE` | Default `0`. Real-money trading hard-blocked. | See [Live-mode hard block](#live-mode-hard-block). |
+| `ALPHA_SNIPER_LOG_DIR` / `ALPHA_SNIPER_LOG_PATH` | Optional override for log destination. | Defaults to `/var/log/alpha_sniper/`. |
 
-Secrets must be read only through `biotech_sniper.config`. Calling
-`os.environ.get("XAI_API_KEY")` from anywhere else is a mission policy
-violation.
+Secrets must be read **only** through `biotech_sniper.config`. Calling
+`os.environ.get("XAI_API_KEY")` (or any other secret) from anywhere
+else is a mission policy violation that is enforced by both code review
+and the secrets-scan check (see [Secrets scan](#secrets-scan)).
 
 ## Install
 
+There are exactly **three operator-facing commands**: `install`, the
+daily run, and the intraday run. Everything else is invoked
+automatically by systemd timers on the VPS or by tests locally.
+
 ```bash
+# 1. Install
 git clone https://github.com/mrm88/BIOTECH_SNIPER.git
 cd BIOTECH_SNIPER
 python3 -m venv .venv
@@ -57,73 +77,132 @@ python3 -m venv .venv
 cp .env.example .env  # then fill in real values; never commit .env
 ```
 
-## Run
+## Daily run
 
-Daily run (parameterized by date — replaces the old `build_report_aprNN.py`
-proliferation):
+Runs the full discovery → universe refresh → news ingest → LLM scoring →
+play-card generation → paper-order submission cycle for a given trade
+date. This is what `alpha-sniper.service` executes at 06:00 PT on the
+VPS.
 
 ```bash
+# 2. Daily (parameterized by date)
 .venv/bin/python -m biotech_sniper.master_unified_run --date 2026-04-25
 ```
 
-Intraday scan (hourly during US market hours):
+Replaces the original `build_report_aprNN.py` proliferation; archived
+copies live under `archive/` for reference.
+
+## Intraday run
+
+Runs the intraday news scan, adverse-news exit checks, stop-loss tick
+and rotation evaluator. Triggered hourly during US market hours
+Mon–Fri by `alpha-sniper-intraday.service`.
 
 ```bash
+# 3. Intraday (no date arg — current market clock)
 .venv/bin/python -m biotech_sniper.intraday_scanner
 ```
 
-End-to-end source health probe (writes `state/audit_latest.json`):
+## Audit / health
+
+`audit.py` probes ClinicalTrials.gov, SEC EDGAR, news RSS feeds, and
+the Alpaca paper endpoint, writes a JSON health report to
+`state/audit_latest.json`, and exits non-zero if any source is
+unreachable. `alpha-sniper-watchdog.service` runs this every 15 minutes.
 
 ```bash
 .venv/bin/python -m biotech_sniper.audit
 ```
 
-## Audit
+## VPS deploy via `git pull`
 
-`audit.py` probes ClinicalTrials.gov, SEC EDGAR, news RSS feeds, and
-yfinance, writes a JSON health report under `state/audit_latest.json`,
-and exits non-zero if any source is unreachable. The watchdog systemd
-unit (added in M4) runs this every 15 minutes.
-
-## VPS deploy (M1)
-
-The VPS clone lives at `/root/alpha_sniper/repo/`. After pushing to
-`origin/main` from a worker session, the VPS pulls with:
+Every worker session ends with `git push origin main`. Deployment to
+the VPS is a single command — there is no build artefact, no Docker
+image, no CI promotion gate:
 
 ```bash
-ssh root@199.247.25.111 "cd /root/alpha_sniper/repo && git pull --ff-only"
+ssh root@199.247.25.111 "cd /root/alpha_sniper/repo && git pull --ff-only \
+  && .venv/bin/pip install -r requirements.txt"
 ```
 
-Three systemd units run the schedule (added in M4):
+The VPS clone lives at `/root/alpha_sniper/repo/`. The Python venv is
+at `/root/alpha_sniper/repo/.venv` (Python 3.10.12). The `.env` file
+sits one directory above the checkout at `/root/alpha_sniper/.env`
+(mode 600, root-owned). The SQLite database is at
+`/root/alpha_sniper/repo/data/alpha_sniper.db` and is backed up daily
+to `/root/alpha_sniper/backups/db_YYYY-MM-DD.gz` (30-day rotation).
 
-- `alpha-sniper.service` — daily 6 AM PT discovery + scoring + play cards.
-- `alpha-sniper-intraday.service` — hourly during US market hours Mon-Fri.
-- `alpha-sniper-watchdog.service` — health check every 15 minutes.
+## systemd units
 
-Cron minutes are staggered off the `:00` and `:30` slots used by
-HL grok on the same VPS to avoid thundering-herd load.
+Three oneshot units run the schedule on the VPS:
+
+| Unit | Cadence | Responsibility |
+| --- | --- | --- |
+| `alpha-sniper.service` (+ `.timer`) | Daily 06:00 PT (Mon–Fri) | Discovery, universe refresh, news ingest, full LLM scoring, play cards, paper-order submission. |
+| `alpha-sniper-intraday.service` (+ `.timer`) | Hourly during US market hours | Intraday news scan, adverse-news exits, stop-loss ticks, rotation evaluator. |
+| `alpha-sniper-watchdog.service` (+ `.timer`) | Every 15 minutes | Source-reachability audit and health-JSON refresh. |
+
+Unit and timer files live in `deploy/systemd/` and are installed by the
+VPS deploy worker into `/etc/systemd/system/`. Timer minutes are
+staggered off the `:00` and `:30` slots used by HL grok on the same
+VPS to avoid thundering-herd load. Logs land in
+`/var/log/alpha_sniper/{daily,intraday,watchdog}.log` (one structured
+JSON object per line, rotated by the logrotate config in
+`deploy/logrotate/alpha-sniper`).
 
 ## Live-mode hard block
 
 Real-money trading is hard-blocked behind **two independent gates**:
 
-1. Env var `LIVE_MODE=1` must be set, AND
+1. The env var `LIVE_MODE=1` must be set, **AND**
 2. The confirmation marker file `i-understand-this-trades-real-money`
    must exist at the repo root (resolved via `paths.py`).
 
-Either gate missing → `LiveTradingBlockedError` is raised before any
-order is submitted. Workers and CI MUST NOT create the confirmation
-file or set `LIVE_MODE=1`. Only the user does that, manually, via direct
-shell access.
+If either gate is missing, `LiveTradingBlockedError` is raised before
+any order is submitted. The marker file is git-ignored. Workers and
+CI **must not** create the marker file or set `LIVE_MODE=1`. Only the
+user does that, manually, via direct shell access on the VPS. The
+`paper_executor` additionally refuses to start when
+`ALPACA_BASE_URL != https://paper-api.alpaca.markets`.
+
+## Secrets scan
+
+`.env` is committed to `.gitignore` and no real keys are ever stored in
+the repo. The same checks the orchestrator runs on every milestone seal
+can be reproduced locally:
+
+```bash
+# 1. No real secret values committed anywhere.
+grep -RIE '(ALPACA_KEY_ID=[A-Z0-9]{4,}|sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,})' \
+  . --include='*.py' --include='*.md' --include='*.txt' \
+  --include='*.yaml' --include='*.yml' --include='*.json' \
+  --exclude-dir='.git' --exclude-dir='.venv'
+# expect: no output
+
+# 2. paths.py is the sole source of truth for absolute system paths.
+grep -RnE "Path\(['\"]/(home|root|tmp|var)" biotech_sniper/ \
+  --include='*.py' | grep -v paths.py
+# expect: no output
+
+# 3. config.py is the sole source of truth for secret reads.
+grep -RnE 'os\.environ\.get\(.(ALPACA|XAI|ANTHROPIC|GEMINI|GITHUB)' \
+  biotech_sniper/ --include='*.py' | grep -v config.py
+# expect: no output
+```
+
+If any of these greps return a match, treat it as a blocking finding
+and fix it before the next push.
 
 ## Testing
 
 ```bash
-.venv/bin/pytest -q
+.venv/bin/pytest -q -n 2
 ```
 
-VCR cassettes for LLM, Alpaca, CT.gov and SEC EDGAR fixtures land in
-`tests/fixtures/cassettes/` in M2.
+VCR cassettes for LLM, Alpaca, CT.gov and SEC EDGAR fixtures live
+under `tests/fixtures/cassettes/`. No live network calls are made
+during the test suite. Pytest parallelism is capped at `-n 2` to
+respect the VPS's 2-core ceiling.
 
 ## License
 

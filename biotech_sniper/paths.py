@@ -32,6 +32,7 @@ __all__ = [
     "REPORTS_DIR",
     "DATA_DIR",
     "LOGS_DIR",
+    "DEFAULT_VPS_LOG_DIR",
 ]
 
 
@@ -64,3 +65,10 @@ STATE_DIR: Path = BASE_DIR / "state"
 REPORTS_DIR: Path = BASE_DIR / "reports"
 DATA_DIR: Path = BASE_DIR / "data"
 LOGS_DIR: Path = BASE_DIR / "logs"
+
+#: Default VPS log directory used by ``logging_setup.py``. Centralized
+#: here so that ``biotech_sniper/`` contains no other absolute system
+#: paths — ``paths.py`` is the sole source of truth for filesystem
+#: anchors. Overridable via the ``ALPHA_SNIPER_LOG_DIR`` environment
+#: variable (see ``logging_setup._resolve_log_path``).
+DEFAULT_VPS_LOG_DIR: Path = Path("/var/log/alpha_sniper")
