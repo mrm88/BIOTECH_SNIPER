@@ -19,6 +19,8 @@ fail-soft via its existing ``try/except`` blocks.
 from __future__ import annotations
 
 import json
+import os
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -505,4 +507,112 @@ def test_sys_path_no_longer_contains_base_dir_intelligence_shim():
     assert not matches, (
         f"master_unified_run.py still contains active sys.path.insert calls: "
         f"{matches}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# f-m4-11 — backup_db.sh stays silent so daily_done is the FINAL
+# JSON line in journalctl -u alpha-sniper.service (VAL-M4-053).
+# ---------------------------------------------------------------------------
+
+
+def test_backup_db_sh_stays_silent_on_stdout(tmp_path: Path) -> None:
+    """f-m4-11 / VAL-M4-053: ``backup_db.sh`` must NOT emit any line
+    to stdout on the success path — otherwise it would land in the
+    systemd journal AFTER ``daily_done`` and the validator's
+    "final JSON line is daily_done" check fails.
+
+    Errors going to stderr are still allowed (they appear in the
+    journal as well, but only on real failure).
+    """
+    import shutil
+    import subprocess
+
+    if shutil.which("sqlite3") is None:
+        pytest.skip("sqlite3 CLI not available; backup_db.sh requires it")
+
+    # Build a tiny SQLite db so the .backup command has something to copy.
+    src_db = tmp_path / "alpha_sniper.db"
+    conn = sqlite3.connect(src_db)
+    try:
+        conn.execute("CREATE TABLE smoke (id INTEGER PRIMARY KEY)")
+        conn.execute("INSERT INTO smoke (id) VALUES (1)")
+        conn.commit()
+    finally:
+        conn.close()
+
+    backup_dir = tmp_path / "backups"
+    script_path = (
+        Path(master_unified_run.__file__).parents[1]
+        / "deploy"
+        / "scripts"
+        / "backup_db.sh"
+    )
+    assert script_path.is_file(), f"missing backup script at {script_path}"
+
+    proc = subprocess.run(
+        ["bash", str(script_path)],
+        env={
+            "ALPHA_SNIPER_DB_PATH": str(src_db),
+            "ALPHA_SNIPER_BACKUP_DIR": str(backup_dir),
+            "ALPHA_SNIPER_BACKUP_RETENTION_DAYS": "30",
+            "ALPHA_SNIPER_BACKUP_MAX_COUNT": "30",
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "HOME": os.environ.get("HOME", str(tmp_path)),
+        },
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode == 0, (
+        f"backup_db.sh failed: stdout={proc.stdout!r} stderr={proc.stderr!r}"
+    )
+    # The success-path stdout must be EMPTY so daily_done remains
+    # the final JSON line in the journal.
+    assert proc.stdout == "", (
+        f"backup_db.sh must be silent on stdout; got: {proc.stdout!r}"
+    )
+    # And the dated archive must exist as proof the script actually ran.
+    archives = list(backup_dir.glob("db_*.gz"))
+    assert archives, "backup_db.sh did not produce a dated archive"
+
+
+def test_backup_db_sh_log_function_routes_to_devnull() -> None:
+    """f-m4-11: the ``log()`` shell function in ``backup_db.sh`` must
+    no longer call ``printf`` directly to stdout. Source-level grep
+    locks the fix in so future drift surfaces as a test failure.
+    """
+    script_path = (
+        Path(master_unified_run.__file__).parents[1]
+        / "deploy"
+        / "scripts"
+        / "backup_db.sh"
+    )
+    src = script_path.read_text(encoding="utf-8")
+
+    # Locate the body of the ``log()`` function (everything up to the
+    # closing ``}``). The success-path printer must NOT include a bare
+    # ``printf`` to stdout; either the body is a no-op (``:``) or the
+    # printf is redirected to /dev/null.
+    log_body_match = re.search(
+        r"^log\s*\(\s*\)\s*\{(?P<body>.*?)^\}",
+        src,
+        re.MULTILINE | re.DOTALL,
+    )
+    assert log_body_match, (
+        "backup_db.sh missing a `log()` function — refactor must keep "
+        "the helper so future workers can re-enable structured logging "
+        "via a single edit."
+    )
+    body = log_body_match.group("body")
+    bare_printf = re.search(
+        r"^\s*printf\b(?!.*(>\s*/dev/null|>&2))",
+        body,
+        re.MULTILINE,
+    )
+    assert bare_printf is None, (
+        f"backup_db.sh `log()` body still emits to stdout: "
+        f"{bare_printf.group(0)!r}. Either route the printf to /dev/null "
+        f"(>/dev/null) or replace the body with a no-op (:) so "
+        f"daily_done stays the final journal line per VAL-M4-053."
     )

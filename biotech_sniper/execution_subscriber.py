@@ -59,6 +59,7 @@ from pathlib import Path as _Path
 from typing import Any, Mapping, Optional
 
 from biotech_sniper import db as _db_module
+from biotech_sniper import logging_setup as _logging_setup
 
 
 __all__ = [
@@ -73,6 +74,14 @@ __all__ = [
     "main",
 ]
 
+# f-m4-11: do NOT eagerly auto-configure the root logger from module
+# import. Entrypoints (the daily orchestrator, the intraday runner,
+# and :func:`main` below) own the ``logging_setup.configure`` call so
+# the destination log file (``daily.log`` / ``intraday.log`` /
+# ``watchdog.log``) is correct. Using a plain :func:`logging.getLogger`
+# here means importing ``execution_subscriber`` (e.g. from a unit
+# test or another helper) does not lock the destination to ``app.log``
+# before the entrypoint can install the JSON formatter.
 logger = _logging.getLogger(__name__)
 
 
@@ -393,6 +402,12 @@ def record_execution_event(
     finally:
         conn.close()
 
+    # f-m4-11: keep the legacy f-string format for the internal
+    # ``event_recorded`` DEBUG line — once :func:`logging_setup.configure`
+    # has run the JSONFormatter wraps this in a JSON object with the
+    # formatted message in ``event`` automatically. Existing tests
+    # (test_execution_events.py) grep for ``paper_order_id=<id>`` in
+    # the formatted message text, so we preserve that contract.
     logger.debug(
         "execution_subscriber.event_recorded paper_order_id=%s "
         "event_type=%s event_at=%s id=%s",
@@ -574,10 +589,12 @@ class ExecutionSubscriber:
                 broker = self.client.get_order(alpaca_order_id)
             except Exception:
                 logger.exception(
-                    "execution_subscriber.get_order_failed "
-                    "paper_order_id=%s alpaca_order_id=%s",
-                    paper_order_id,
-                    alpaca_order_id,
+                    "execution_subscriber_get_order_failed",
+                    extra={
+                        "event": "execution_subscriber_get_order_failed",
+                        "paper_order_id": str(paper_order_id),
+                        "alpaca_order_id": str(alpaca_order_id),
+                    },
                 )
                 continue
 
@@ -585,10 +602,12 @@ class ExecutionSubscriber:
             event_type = _BROKER_STATUS_TO_EVENT_TYPE.get(broker_status)
             if event_type is None:
                 logger.debug(
-                    "execution_subscriber.unmapped_status "
-                    "paper_order_id=%s broker_status=%s",
-                    paper_order_id,
-                    broker_status,
+                    "execution_subscriber_unmapped_status",
+                    extra={
+                        "event": "execution_subscriber_unmapped_status",
+                        "paper_order_id": str(paper_order_id),
+                        "broker_status": str(broker_status),
+                    },
                 )
                 continue
 
@@ -672,9 +691,14 @@ class ExecutionSubscriber:
                             # validator will surface the missing
                             # fills row downstream.
                             logger.warning(
-                                "execution_subscriber.fill_context_missing "
-                                "paper_order_id=%s; recording event-only",
-                                paper_order_id,
+                                "execution_subscriber_fill_context_missing",
+                                extra={
+                                    "event": (
+                                        "execution_subscriber_fill_context_missing"
+                                    ),
+                                    "paper_order_id": str(paper_order_id),
+                                    "fallback": "event_only",
+                                },
                             )
                             record_execution_event(
                                 self.db_path,
@@ -698,11 +722,13 @@ class ExecutionSubscriber:
                 # operator) sees the violation immediately rather
                 # than silently dropping the event.
                 logger.error(
-                    "execution_subscriber.illegal_transition "
-                    "paper_order_id=%s last=%s next=%s",
-                    paper_order_id,
-                    last_event_type,
-                    event_type,
+                    "execution_subscriber_illegal_transition",
+                    extra={
+                        "event": "execution_subscriber_illegal_transition",
+                        "paper_order_id": str(paper_order_id),
+                        "last": str(last_event_type),
+                        "next": str(event_type),
+                    },
                 )
                 raise
         return recorded
@@ -787,6 +813,15 @@ def main(
     )
     args = parser.parse_args(argv)
 
+    # f-m4-11: every CLI invocation routes through ``logging_setup`` so
+    # the JSONFormatter is attached even when the module is run via
+    # ``python -m biotech_sniper.execution_subscriber`` (i.e. NOT from
+    # the daily/intraday entrypoints, which do their own configure).
+    # ``configure`` is idempotent — if a parent process already set
+    # ``log_name='intraday'`` (or any other name) the call is a no-op
+    # and the existing destination is preserved.
+    _logging_setup.configure(log_name="intraday")
+
     target_db = _Path(db_path) if db_path is not None else _default_db_path()
     target_db.parent.mkdir(parents=True, exist_ok=True)
 
@@ -806,14 +841,13 @@ def main(
         finally:
             conn.close()
         logger.info(
-            "execution_subscriber.dry_run db_path=%s date=%s open_orders=%d",
-            target_db,
-            target_date,
-            len(open_orders),
-        )
-        print(
-            f"execution_subscriber dry-run: db={target_db} "
-            f"date={target_date} open_orders={len(open_orders)}"
+            "execution_subscriber_dry_run",
+            extra={
+                "event": "execution_subscriber_dry_run",
+                "db_path": str(target_db),
+                "date": str(target_date),
+                "open_orders": int(len(open_orders)),
+            },
         )
         return 0
 
@@ -832,8 +866,11 @@ def main(
             client = AlpacaClient()
         except Exception as exc:  # noqa: BLE001
             logger.error(
-                "execution_subscriber.alpaca_client_unavailable error=%s",
-                exc,
+                "execution_subscriber_alpaca_client_unavailable",
+                extra={
+                    "event": "execution_subscriber_alpaca_client_unavailable",
+                    "error": repr(exc),
+                },
             )
             return 1
 
@@ -842,21 +879,23 @@ def main(
         recorded = subscriber.poll_once(date=target_date)
     except Exception:  # noqa: BLE001
         logger.exception(
-            "execution_subscriber.poll_failed db_path=%s date=%s",
-            target_db,
-            target_date,
+            "execution_subscriber_poll_failed",
+            extra={
+                "event": "execution_subscriber_poll_failed",
+                "db_path": str(target_db),
+                "date": str(target_date),
+            },
         )
         return 1
 
     logger.info(
-        "execution_subscriber.poll_complete db_path=%s date=%s recorded=%d",
-        target_db,
-        target_date,
-        recorded,
-    )
-    print(
-        f"execution_subscriber poll: db={target_db} "
-        f"date={target_date} recorded={recorded}"
+        "execution_subscriber_poll_complete",
+        extra={
+            "event": "execution_subscriber_poll_complete",
+            "db_path": str(target_db),
+            "date": str(target_date),
+            "recorded": int(recorded),
+        },
     )
     return 0
 

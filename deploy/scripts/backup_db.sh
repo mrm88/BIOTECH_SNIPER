@@ -28,9 +28,14 @@ DATE_UTC="$(date -u +%F)"
 TARGET="${BACKUP_DIR}/db_${DATE_UTC}.gz"
 
 log() {
-  # Single-line JSON log — picked up by systemd-journald.
-  printf '{"ts":"%sZ","level":"INFO","event":"%s","module":"backup_db","message":"%s"}\n' \
-    "$(date -u +%Y-%m-%dT%H:%M:%S)" "$1" "${2:-}"
+  # f-m4-11: backup_db.sh runs as ExecStartPost AFTER the daily
+  # pipeline emits its canonical ``daily_done`` JSON line. To keep
+  # ``daily_done`` as the FINAL line in ``journalctl -u
+  # alpha-sniper.service`` (per VAL-M4-053), informational success
+  # logs are suppressed entirely on stdout. Errors continue to print
+  # via :func:`err` (stderr) so genuine failures remain visible to
+  # operators / the watchdog.
+  :
 }
 
 err() {
