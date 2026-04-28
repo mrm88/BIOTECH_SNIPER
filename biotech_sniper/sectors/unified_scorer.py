@@ -37,7 +37,7 @@ import datetime
 import subprocess
 import sys
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 from biotech_sniper.paths import BASE_DIR
 
@@ -278,6 +278,243 @@ def select_top_n(
         item["divergence_flag"] = bool(item.get("divergence_flag"))
         results.append(item)
     return results
+
+
+# ---------------------------------------------------------------------------
+# f-m5-04 — LightGBM ranker (supplementary signal layer).
+#
+# The ranker is OFF by default (``config.LIGHTGBM_RANKER_ENABLED``).
+# When enabled, :func:`attach_supplementary_score` decorates each play
+# card with a ``ranker_score`` field (float in ``[0, 1]``). The flag is
+# read fresh on every call so operators can toggle without a restart;
+# the booster is cached in module state once the first successful load
+# occurs (subsequent calls re-use the same in-memory model).
+#
+# Critical invariants:
+#
+# * The ranker is **supplementary** — it never overrides
+#   ``ensemble_score`` (a.k.a. ``pre_score``) which continues to drive
+#   trade gating, sizing, and entry decisions in
+#   :mod:`biotech_sniper.paper_executor` etc.
+# * ``lightgbm`` is **not** imported when the flag is off
+#   (VAL-M5-030) — the import is hidden behind a local import inside
+#   :func:`_load_ranker_singleton` and only fires when the flag flips
+#   on.
+# * Manifest mismatches surface as
+#   :class:`biotech_sniper.ranker.RankerSchemaMismatch` with a
+#   structured diff; per-call prediction failures degrade gracefully
+#   (the card is emitted without ``ranker_score``) so a bad ranker
+#   artefact never blocks the daily play-card emission.
+# ---------------------------------------------------------------------------
+
+
+_RANKER_SINGLETON_STATE: dict[str, Any] = {
+    "model": None,
+    "model_path": None,
+    "load_attempted_for_path": None,
+}
+
+
+def _resolve_ranker_model_path() -> Path | None:
+    """Return the highest-versioned ``ranker_v{N}.lgb`` under ``models/``.
+
+    Returns ``None`` when no ranker artefact has been materialised yet
+    (fresh checkouts, M5 trainer never run). The caller is expected to
+    log a WARNING and disable the supplementary signal in that case.
+    """
+    models_dir = BASE_DIR / "models"
+    if not models_dir.exists():
+        return None
+    pattern = re.compile(r"^ranker_v(\d+)\.lgb$")
+    candidates: list[tuple[int, Path]] = []
+    for entry in models_dir.iterdir():
+        if not entry.is_file():
+            continue
+        match = pattern.match(entry.name)
+        if match:
+            candidates.append((int(match.group(1)), entry))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: item[0])[1]
+
+
+def _load_ranker_singleton():
+    """Return a cached :class:`RankerModel` (or ``None`` when unavailable).
+
+    The function is the single import-site for ``lightgbm`` in the
+    play-card emission path. When :data:`config.LIGHTGBM_RANKER_ENABLED`
+    is ``False`` it returns ``None`` immediately without touching the
+    ranker module — that keeps ``lightgbm`` absent from ``sys.modules``
+    so VAL-M5-030 ("flag off → lightgbm not loaded") holds. When the
+    flag is ``True`` it lazily loads the highest-version ranker
+    artefact, caches the resulting :class:`RankerModel` in module
+    state, and reuses it across calls until the model path changes.
+    """
+    from biotech_sniper import config as _config
+
+    if not _config.LIGHTGBM_RANKER_ENABLED:
+        # Defensive: clear any cached model so a flip-off-then-flip-on
+        # cycle re-loads cleanly (the model_path may have changed in
+        # the interim — e.g. a new ranker_v2.lgb was trained).
+        _RANKER_SINGLETON_STATE["model"] = None
+        _RANKER_SINGLETON_STATE["model_path"] = None
+        _RANKER_SINGLETON_STATE["load_attempted_for_path"] = None
+        return None
+
+    model_path = _resolve_ranker_model_path()
+    if model_path is None:
+        if _RANKER_SINGLETON_STATE["load_attempted_for_path"] != "<missing>":
+            logger.warning(
+                "attach_supplementary_score: LIGHTGBM_RANKER_ENABLED=true "
+                "but no ranker_v*.lgb artefact found under %s; "
+                "supplementary signal disabled until "
+                "`python -m biotech_sniper.training.train_ranker` runs.",
+                BASE_DIR / "models",
+            )
+            _RANKER_SINGLETON_STATE["load_attempted_for_path"] = "<missing>"
+        _RANKER_SINGLETON_STATE["model"] = None
+        _RANKER_SINGLETON_STATE["model_path"] = None
+        return None
+
+    cached_path = _RANKER_SINGLETON_STATE.get("model_path")
+    cached_model = _RANKER_SINGLETON_STATE.get("model")
+    if cached_model is not None and cached_path == model_path:
+        return cached_model
+
+    # New (or first-ever) load attempt. Local import keeps
+    # ``biotech_sniper.ranker`` (and its lightgbm import) out of
+    # ``sys.modules`` until the flag is flipped on.
+    try:
+        from biotech_sniper.ranker import load_ranker as _load_ranker
+
+        model = _load_ranker(model_path)
+    except Exception as exc:  # noqa: BLE001 — never raise from a side-channel
+        logger.warning(
+            "attach_supplementary_score: ranker load failed for %s: %r; "
+            "supplementary signal disabled for this run",
+            model_path,
+            exc,
+        )
+        _RANKER_SINGLETON_STATE["model"] = None
+        _RANKER_SINGLETON_STATE["model_path"] = model_path
+        _RANKER_SINGLETON_STATE["load_attempted_for_path"] = str(model_path)
+        return None
+
+    _RANKER_SINGLETON_STATE["model"] = model
+    _RANKER_SINGLETON_STATE["model_path"] = model_path
+    _RANKER_SINGLETON_STATE["load_attempted_for_path"] = str(model_path)
+    return model
+
+
+def _candidate_to_feature_row(candidate: dict) -> dict:
+    """Map a play-card / scoring_cache candidate to the parquet schema.
+
+    The ranker was trained on the 11 features materialised by
+    :mod:`biotech_sniper.training.build_feature_store`. At play-card
+    emission time most of those features are not yet observable on
+    the candidate dict (e.g. ``iv_at_entry`` is recorded only after
+    the entry fills) so we fill in ``None`` / ``NaN`` for the
+    missing fields. LightGBM handles ``NaN`` natively for numeric
+    columns; missing categorical levels degrade to ``unknown``.
+    """
+    sg = candidate.get("science_grade")
+    if isinstance(sg, str):
+        sg = sg.strip() or None
+
+    prior_q: str | None = None
+    if isinstance(sg, str) and sg.upper() in {"A", "B", "C", "D", "F"}:
+        # The trainer encodes prior_phase2_data_quality as a string-
+        # categorical (e.g. ``"4"`` for grade A); mirror that here so
+        # the booster sees the same level.
+        from biotech_sniper.training.build_feature_store import (
+            PRIOR_PHASE2_DATA_QUALITY_MAP as _MAP,
+        )
+
+        mapped = _MAP.get(sg.upper())
+        if mapped is not None:
+            prior_q = str(mapped)
+
+    p_ensemble = candidate.get("ensemble_score")
+    if p_ensemble is None:
+        p_ensemble = candidate.get("p_ensemble")
+
+    return {
+        "science_grade": sg,
+        "base_rate": candidate.get("base_rate"),
+        "p_ensemble": (
+            float(p_ensemble) if p_ensemble is not None else float("nan")
+        ),
+        "iv_at_entry": candidate.get("iv_at_entry"),
+        "dte_at_entry": candidate.get("dte_at_entry"),
+        "market_cap": candidate.get("market_cap"),
+        "sector": candidate.get("sector"),
+        "prior_phase2_data_quality": prior_q,
+        "sponsor_size": candidate.get("sponsor_size"),
+        "indication_class": candidate.get("indication_class"),
+        "days_to_event": candidate.get("days_to_event"),
+    }
+
+
+def attach_supplementary_score(card: dict) -> dict:
+    """Decorate ``card`` with a supplementary ``ranker_score`` (in place).
+
+    Behaviour:
+
+    * When :data:`biotech_sniper.config.LIGHTGBM_RANKER_ENABLED` is
+      ``False`` the function is a no-op — the card is returned
+      unchanged and ``lightgbm`` is not imported.
+    * When the flag is ``True`` the highest-versioned
+      ``models/ranker_v{N}.lgb`` artefact is loaded (and cached) and
+      the card receives a ``ranker_score`` field with a float in
+      ``[0, 1]`` derived from the booster's class-1 probability.
+    * Per-call prediction failures degrade gracefully — they log a
+      WARNING and leave the card without a ``ranker_score`` field
+      so a bad model artefact cannot block daily play-card emission.
+
+    The function returns the (possibly mutated) card so it can be
+    used as ``payload = attach_supplementary_score(payload)`` at call
+    sites.
+    """
+    model = _load_ranker_singleton()
+    if model is None:
+        return card
+
+    try:
+        import pandas as _pd  # local import — pandas is already a hard dep
+
+        row = _candidate_to_feature_row(card)
+        df = _pd.DataFrame([row])
+        proba = model.predict_proba(df)
+    except Exception as exc:  # noqa: BLE001 — never raise from emission path
+        logger.warning(
+            "attach_supplementary_score: prediction failed for "
+            "ticker=%s: %r; emitting card without ranker_score",
+            card.get("ticker"),
+            exc,
+        )
+        return card
+
+    if proba is None:
+        return card
+    try:
+        score = float(proba[0, 1])
+    except (IndexError, TypeError, ValueError) as exc:  # pragma: no cover - defensive
+        logger.warning(
+            "attach_supplementary_score: malformed predict_proba output "
+            "for ticker=%s: %r",
+            card.get("ticker"),
+            exc,
+        )
+        return card
+
+    if not (score == score):  # NaN check
+        return card
+    if score < 0.0:
+        score = 0.0
+    if score > 1.0:
+        score = 1.0
+    card["ranker_score"] = score
+    return card
 
 
 def load_active_plays():

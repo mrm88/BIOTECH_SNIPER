@@ -365,6 +365,24 @@ def get_biotech_sniper_home() -> str | None:
 LIVE_MODE: Final[bool] = _env_bool("LIVE_MODE", default=False)
 
 
+# ``LIGHTGBM_RANKER_ENABLED`` controls whether
+# :func:`biotech_sniper.sectors.unified_scorer.attach_supplementary_score`
+# loads the M5 LightGBM ranker (``models/ranker_v{N}.lgb``) and decorates
+# every play card with a supplementary ranker probability field. Default
+# OFF — leaves the LLM ensemble as the sole source of truth for trade
+# gating, sizing and entry decisions (the ranker is a *supplementary*
+# signal, never a replacement; see VAL-M5-031). When OFF, ``lightgbm``
+# is not imported anywhere in the play-card emission path so the
+# library stays absent from ``sys.modules`` (VAL-M5-030).
+#
+# Operators flip this on by setting ``LIGHTGBM_RANKER_ENABLED=1`` in
+# the environment. The flag is read fresh on each play-card emission
+# so toggling it does not require a process restart.
+LIGHTGBM_RANKER_ENABLED: Final[bool] = _env_bool(
+    "LIGHTGBM_RANKER_ENABLED", default=False
+)
+
+
 def _resolve_llm_providers() -> dict[str, object]:
     """Build the ``LLM_PROVIDERS`` mapping, honouring env overrides.
 
@@ -422,6 +440,7 @@ __all__ = [
     "MIN_ENSEMBLE_SCORE",
     "MIN_SCIENCE_GRADE",
     "LIVE_MODE",
+    "LIGHTGBM_RANKER_ENABLED",
     "LLM_PROVIDERS",
     "get_xai_api_key",
     "get_anthropic_api_key",

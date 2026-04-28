@@ -55,7 +55,7 @@ def _build_play_card_payload(
     the card so consumers can compare static-vs-debate.
     """
     grade = debate_final_grade if debate_final_grade else candidate.get("science_grade")
-    return {
+    payload = {
         "ticker": candidate["ticker"],
         "as_of_date": as_of_date,
         "rank": int(rank),
@@ -72,6 +72,16 @@ def _build_play_card_payload(
         "debate_final_grade": debate_final_grade,
         "scoring_cache_id": candidate.get("id"),
     }
+    # f-m5-04: when the LightGBM ranker feature flag is on, the
+    # unified_scorer helper attaches a supplementary signal field to
+    # the card. When the flag is off the helper is a no-op (and
+    # ``lightgbm`` is not imported). The ranker is purely
+    # supplementary — ``ensemble_score`` is unchanged either way and
+    # remains the sole driver of trade gating + sizing.
+    from biotech_sniper.sectors import unified_scorer as _scorer
+
+    _scorer.attach_supplementary_score(payload)
+    return payload
 
 
 def emit_play_cards(
