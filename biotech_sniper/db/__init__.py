@@ -30,6 +30,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import stat
+import urllib.parse
 from pathlib import Path
 from typing import Final, Union
 
@@ -38,6 +39,7 @@ __all__ = [
     "CURRENT_VERSION",
     "DB_FILE_MODE",
     "connect",
+    "connect_readonly",
     "run_migrations",
     "current_schema_version",
     "split_sql_statements",
@@ -149,6 +151,82 @@ def connect(db_path: PathLike) -> sqlite3.Connection:
         # VAL-M2-001 (DB file mode contract assertion).
         _ensure_db_file_mode(Path(target))
     conn.execute("PRAGMA synchronous = NORMAL;")
+    return conn
+
+
+def connect_readonly(db_path: PathLike) -> sqlite3.Connection:
+    """Open a strict read-only SQLite connection that does NOT mutate the file.
+
+    Unlike :func:`connect`, this helper opens the database via the SQLite
+    URI mode ``file:<path>?mode=ro``. The ``mode=ro`` flag tells the
+    SQLite engine to refuse every write at the engine layer — any
+    ``INSERT``/``UPDATE``/``DELETE``/``CREATE``/``DROP`` raises
+    :class:`sqlite3.OperationalError` ("attempt to write a readonly
+    database") instead of silently mutating the file.
+
+    Critically, this helper does NOT issue any of the write-PRAGMAs that
+    :func:`connect` does:
+
+    * ``PRAGMA journal_mode=WAL`` — would write the WAL marker into the
+      main db file's header.
+    * ``PRAGMA synchronous=NORMAL`` — connection-level only, but bundled
+      with the WAL switch so we omit it here for parity.
+    * :func:`_ensure_db_file_mode` — ``os.chmod`` would update the file's
+      ctime even on a no-op match.
+
+    The only PRAGMA we do issue is ``foreign_keys=ON``, which is a
+    purely connection-level setting (it never writes to disk), and
+    we tolerate any ``OperationalError`` from it so a stricter SQLite
+    build cannot break read-only callers.
+
+    Use this helper when the caller only needs ``SELECT`` access and
+    must guarantee the on-disk database file is byte-for-byte
+    unchanged after the connection is closed (e.g. the M5 feature-store
+    builder, per VAL-M5-033).
+
+    Parameters
+    ----------
+    db_path:
+        Filesystem path to an existing SQLite db file. The special
+        token ``":memory:"`` is rejected because an empty in-memory
+        database has nothing to read.
+
+    Returns
+    -------
+    sqlite3.Connection
+        A connection where every write attempt raises
+        :class:`sqlite3.OperationalError` and ``row_factory`` is set
+        to :class:`sqlite3.Row`.
+
+    Raises
+    ------
+    ValueError
+        If ``db_path`` is the ``":memory:"`` sentinel.
+    """
+
+    target = str(db_path)
+    if target == ":memory:":
+        raise ValueError(
+            "connect_readonly does not support ':memory:'; "
+            "the URI mode=ro requires an existing database file on disk."
+        )
+    # SQLite URIs are URL-encoded. ``urllib.parse.quote`` keeps the path
+    # separator (``/``) unencoded by default, which is the form SQLite
+    # expects for absolute paths.
+    encoded = urllib.parse.quote(target)
+    uri = f"file:{encoded}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        # ``foreign_keys`` is a per-connection flag; it does not cause
+        # the engine to write anything to the on-disk file, so it's
+        # safe on a read-only connection. Tolerate the unlikely
+        # OperationalError from a SQLite build that disallows it on
+        # readonly connections — read-only mode itself already blocks
+        # all writes, so the FK PRAGMA is best-effort.
+        conn.execute("PRAGMA foreign_keys = ON;")
+    except sqlite3.OperationalError:
+        pass
     return conn
 
 

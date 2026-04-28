@@ -263,9 +263,16 @@ def _load_resolved_plays(db_path: Path) -> list[dict[str, Any]]:
             "Run the JSON-to-SQLite migration first."
         )
 
-    conn = db.connect(db_path)
+    # VAL-M5-033 strict-read-only contract: the feature-store builder
+    # MUST NOT mutate ``data/alpha_sniper.db``. We therefore open the
+    # connection via :func:`db.connect_readonly` (URI ``mode=ro``)
+    # which refuses every write at the SQLite engine layer and skips
+    # the write-PRAGMAs (``journal_mode=WAL``, ``synchronous=NORMAL``,
+    # ``_ensure_db_file_mode``) that :func:`db.connect` issues. The
+    # caller (or the JSON→SQLite migration) is responsible for
+    # ensuring the schema is current; this builder is a pure reader.
+    conn = db.connect_readonly(db_path)
     try:
-        db.run_migrations(conn)
         conn.row_factory = sqlite3.Row
         cur = conn.execute(
             "SELECT * FROM plays WHERE status = 'resolved' ORDER BY id"
