@@ -557,6 +557,112 @@ def format_learning_summary_for_email(learning_result: dict) -> str:
     return "\n".join(lines)
 
 
+# ── BACKTEST EVENT REPLAY ────────────────────────────────────────────────────
+# ``process_event`` is the pure-function entry point used by the M5 backtest
+# harness (``biotech_sniper.backtest``) to replay resolved plays + CT.gov
+# amendment timeline events through the same calibration logic that runs
+# nightly. It is intentionally stateless: every call returns a derived event
+# record with bucket / brier metadata and never writes to disk. The backtest
+# harness aggregates the returned records to compute window-wide metrics and
+# decide whether to apply calibration deltas (n≥3 per bucket).
+
+
+# Probability bucket boundaries used by both the daily learning cycle and the
+# backtest harness. Kept as module-level constants so the harness and the
+# evaluator agree on the exact partition (VAL-M5-014).
+P_BUCKETS: list[tuple[int, int]] = [(50, 65), (65, 75), (75, 85), (85, 101)]
+
+
+def _bucket_label(p: float | int | None) -> str | None:
+    """Return the canonical ``"P{lo}-{hi}"`` bucket label for ``p``.
+
+    Accepts probabilities in *percent* (0..100) to match the seed
+    ``entry_p_success`` convention. Returns ``None`` when ``p`` is missing
+    or outside the bucket range.
+    """
+
+    if p is None:
+        return None
+    try:
+        value = float(p)
+    except (TypeError, ValueError):
+        return None
+    for lo, hi in P_BUCKETS:
+        if lo <= value < hi:
+            return f"P{lo}-{hi}"
+    if value >= P_BUCKETS[-1][0]:
+        # Edge case: ``entry_p_success == 100`` → top bucket.
+        lo, hi = P_BUCKETS[-1]
+        return f"P{lo}-{hi}"
+    return None
+
+
+def process_event(event: dict) -> dict:
+    """Replay a single backtest event.
+
+    The function is deterministic and side-effect-free: it derives a small
+    set of helper fields (``bucket``, ``brier_contribution``,
+    ``directional_correct``, ``option_pnl_pct``) and returns a new dict
+    leaving the input ``event`` unchanged. The backtest harness collects
+    the returned records and aggregates them into window-wide metrics
+    after replay completes.
+
+    Supported event shapes:
+
+    * ``{"type": "resolved_play", "data": <resolved-play dict>}`` — replays
+      a resolved trade. Derives the probability bucket and per-play
+      Brier contribution ``(p - outcome) ** 2`` where ``p`` is in [0, 1]
+      and ``outcome`` is 1 when ``direction_correct`` else 0.
+    * ``{"type": "ctgov_amendment", "nct_id": <str>, "data": <amend>}``
+      — normalised CT.gov amendment timeline event. The function records
+      the event date so the harness can correlate amendments with plays.
+
+    Unknown event types are passed through with ``ignored: True`` so the
+    harness can log them without raising.
+    """
+
+    if not isinstance(event, dict):
+        return {"type": "invalid", "ignored": True, "reason": "non-dict event"}
+
+    out: dict = {"type": event.get("type")}
+    etype = event.get("type")
+
+    if etype == "resolved_play":
+        data = event.get("data") or {}
+        p_pct = data.get("entry_p_success")
+        direction_correct = data.get("direction_correct")
+        out["ticker"] = data.get("ticker")
+        out["entry_date"] = data.get("entry_date")
+        out["resolved_date"] = data.get("resolved_date")
+        out["option_pnl_pct"] = data.get("option_pnl_pct")
+        out["catalyst_type"] = data.get("entry_catalyst_type")
+        out["bucket"] = _bucket_label(p_pct)
+        out["entry_p_success"] = p_pct
+        if direction_correct is None:
+            out["directional_correct"] = None
+            out["brier_contribution"] = None
+        else:
+            out["directional_correct"] = bool(direction_correct)
+            if p_pct is None:
+                out["brier_contribution"] = None
+            else:
+                p_frac = float(p_pct) / 100.0
+                outcome = 1.0 if direction_correct else 0.0
+                out["brier_contribution"] = (p_frac - outcome) ** 2
+    elif etype == "ctgov_amendment":
+        data = event.get("data") or {}
+        out["nct_id"] = event.get("nct_id")
+        out["ticker"] = data.get("ticker")
+        status = data.get("status") or {}
+        out["last_update"] = status.get("last_update")
+        out["amendment_status"] = status.get("overall")
+        out["normalized"] = True
+    else:
+        out["ignored"] = True
+
+    return out
+
+
 if __name__ == "__main__":
     result = run_learning_cycle()
     print(f"\n{result['summary']}")
