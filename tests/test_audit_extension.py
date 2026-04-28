@@ -592,3 +592,106 @@ def test_write_audit_latest_handles_corrupt_existing_json(
     on_disk = json.loads(audit_path.read_text(encoding="utf-8"))
     assert on_disk == payload
     assert "generated_at" in payload
+
+
+# ---------------------------------------------------------------------------
+# f-m4-02a — print()-to-logger cleanup + hermetic import contract
+# ---------------------------------------------------------------------------
+
+
+def test_audit_module_active_code_has_no_print_calls():
+    """Active code (everything outside ``if __name__ == '__main__':``) emits zero ``print()`` calls.
+
+    The legacy probe block is wrapped in ``if __name__ == '__main__':``
+    per f-m4-02a so importing :mod:`biotech_sniper.audit` is hermetic
+    and the daily ``python -m biotech_sniper.audit`` run emits
+    structured JSON via the project's logging_setup formatter (not bare
+    stdout). This test parses the audit module's AST and asserts every
+    surviving ``print(...)`` call lives inside the ``__main__`` block.
+    """
+    import ast
+    import biotech_sniper.audit as audit
+
+    source = Path(audit.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    # Locate the ``if __name__ == '__main__':`` block. Anything
+    # textually inside that block is allowed to keep ``print``; every
+    # other ``print`` call is a regression.
+    main_block_lines: set[int] = set()
+    for node in tree.body:
+        if (
+            isinstance(node, ast.If)
+            and isinstance(node.test, ast.Compare)
+            and isinstance(node.test.left, ast.Name)
+            and node.test.left.id == "__name__"
+        ):
+            for sub in ast.walk(node):
+                if hasattr(sub, "lineno"):
+                    main_block_lines.add(sub.lineno)
+
+    assert main_block_lines, "no ``if __name__ == '__main__':`` block found"
+
+    offending: list[tuple[int, str]] = []
+    for sub in ast.walk(tree):
+        if (
+            isinstance(sub, ast.Call)
+            and isinstance(sub.func, ast.Name)
+            and sub.func.id == "print"
+        ):
+            if sub.lineno in main_block_lines:
+                continue  # acceptable: inside the legacy CLI block
+            offending.append((sub.lineno, ast.unparse(sub)))
+
+    assert offending == [], f"unexpected print() calls in active code: {offending}"
+
+
+def test_write_audit_latest_import_is_fast_and_makes_no_network_calls():
+    """``from biotech_sniper.audit import write_audit_latest`` must be hermetic.
+
+    Per the f-m4-02a feature contract: a fresh import of the audit
+    module must (a) complete in well under 100 ms and (b) issue zero
+    ``requests.get`` / ``requests.post`` calls. The legacy probe block
+    has been wrapped in ``if __name__ == '__main__':`` so importing the
+    module no longer triggers the live HTTP probes that used to run at
+    module-import time.
+    """
+    import importlib
+    import time
+
+    import requests
+
+    get_calls: list = []
+    post_calls: list = []
+
+    real_get = requests.get
+    real_post = requests.post
+
+    def _trip_get(*args, **kwargs):  # pragma: no cover — failure path
+        get_calls.append(args)
+        raise RuntimeError("network call detected during import")
+
+    def _trip_post(*args, **kwargs):  # pragma: no cover — failure path
+        post_calls.append(args)
+        raise RuntimeError("network call detected during import")
+
+    requests.get = _trip_get  # type: ignore[assignment]
+    requests.post = _trip_post  # type: ignore[assignment]
+    try:
+        # Force a fresh import so we observe the side effects (or
+        # lack thereof) on a cold module load.
+        sys.modules.pop("biotech_sniper.audit", None)
+        started = time.monotonic()
+        module = importlib.import_module("biotech_sniper.audit")
+        elapsed_ms = (time.monotonic() - started) * 1000.0
+        assert hasattr(module, "write_audit_latest")
+    finally:
+        requests.get = real_get  # type: ignore[assignment]
+        requests.post = real_post  # type: ignore[assignment]
+
+    assert get_calls == [], f"requests.get called during import: {get_calls}"
+    assert post_calls == [], f"requests.post called during import: {post_calls}"
+    # 100 ms cap per the feature description; we leave generous headroom
+    # for slow CI hosts but a regression that re-introduces the network
+    # probes will easily blow this budget (each probe times out at 10 s).
+    assert elapsed_ms < 100.0, f"import too slow: {elapsed_ms:.1f}ms"

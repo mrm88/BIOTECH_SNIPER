@@ -358,28 +358,34 @@ def refresh_tickers(tickers: list, max_workers: int = MAX_WORKERS) -> dict:
 # ---------------------------------------------------------------------------
 
 def print_schedule_summary():
-    """Print a summary of what would run without actually running it."""
+    """Emit a structured summary of what would run without actually running it.
+
+    f-m4-02a: emits via the project's structured JSON logger rather
+    than ``print``; the legacy function name is preserved so callers
+    don't break.
+    """
     today          = datetime.date.today()
     universe       = _load_full_universe()
     pipeline_state = load_pipeline_state()
     due            = _get_due_tickers(universe, pipeline_state, today)
 
     total = sum(len(v) for v in due.values())
-    print(f"\n=== Pipeline Schedule Summary ({today}) ===")
-    print(f"  Universe total : {len(universe)}")
-    print(f"  State tracked  : {len(pipeline_state)}")
-    print(f"  Due for update : {total}")
-    print(f"    New (never run) : {len(due.get('new', []))}")
-    print(f"    Tier 1 (daily)  : {len(due.get('tier_1', []))}")
-    print(f"    Tier 2 (3-day)  : {len(due.get('tier_2', []))}")
-    print(f"    Tier 3 (7-day)  : {len(due.get('tier_3', []))}")
-    print()
-
-    if due.get("tier_1"):
-        print(f"  T1 tickers: {', '.join(sorted(due['tier_1'])[:20])}")
-    if due.get("new"):
-        print(f"  New tickers (first 20): {', '.join(sorted(due['new'])[:20])}")
-    print()
+    log.info(
+        "pipeline_schedule_summary",
+        extra={
+            "event": "pipeline_schedule_summary",
+            "as_of_date": today.isoformat(),
+            "universe_total": len(universe),
+            "state_tracked": len(pipeline_state),
+            "due_total": total,
+            "due_new": len(due.get("new", [])),
+            "due_tier_1": len(due.get("tier_1", [])),
+            "due_tier_2": len(due.get("tier_2", [])),
+            "due_tier_3": len(due.get("tier_3", [])),
+            "tier_1_sample": sorted(due.get("tier_1", []))[:20],
+            "new_sample": sorted(due.get("new", []))[:20],
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -387,8 +393,14 @@ def print_schedule_summary():
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    import sys
     import argparse
+
+    # f-m4-02a: configure the structured JSON logger before any code
+    # path emits output so the CLI run produces ts/level/event/module
+    # JSON lines (and respects the secret-redaction contract).
+    from biotech_sniper.logging_setup import configure
+
+    configure(log_name="pipeline_scheduler")
 
     parser = argparse.ArgumentParser(description="Biotech Pipeline Scheduler")
     parser.add_argument(
@@ -413,13 +425,25 @@ if __name__ == "__main__":
         print_schedule_summary()
     elif args.refresh:
         results = refresh_tickers(args.refresh, max_workers=args.workers)
-        print(json.dumps(
-            {t: {k: v for k, v in r.items() if k != "active_trials"} for t, r in results.items()},
-            indent=2
-        ))
+        log.info(
+            "pipeline_force_refresh_results",
+            extra={
+                "event": "pipeline_force_refresh_results",
+                "results": {
+                    t: {k: v for k, v in r.items() if k != "active_trials"}
+                    for t, r in results.items()
+                },
+            },
+        )
     else:
         summary = run_scheduled_pipelines(
             max_workers=args.workers,
             since_date=args.since,
         )
-        print(json.dumps(summary, indent=2, default=str))
+        log.info(
+            "pipeline_scheduled_run_summary",
+            extra={
+                "event": "pipeline_scheduled_run_summary",
+                "summary": summary,
+            },
+        )

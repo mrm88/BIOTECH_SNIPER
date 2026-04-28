@@ -991,38 +991,48 @@ def _persist_news_events_to_db(result: dict) -> None:
 
 
 def _print_scan_summary(result: dict) -> None:
-    """Pretty-print scan results to stdout."""
-    hr = "=" * 70
-    print(f"\n{hr}")
-    print(f"UNIVERSAL NEWS SCAN — {result['run_ts'][:19]} UTC")
-    print(f"Tickers watched: {result['tickers_scanned']:,}")
-    print(hr)
+    """Emit a structured summary of scan results.
 
-    alerts = result["high_signal_alerts"]
-    if alerts:
-        print(f"\n🚨 HIGH-SIGNAL ALERTS ({len(alerts)}):")
-        for a in alerts:
-            tag = "📄 8-K" if a["type"] == "8K_HIGH_SIGNAL" else "📰 NEWS"
-            kw  = a.get("keyword", "")
-            print(f"  {tag} [{a['ticker']}] {kw.upper()}")
-            print(f"     {a.get('summary', a.get('headline',''))[:120]}")
-            print(f"     {a.get('url','')}")
-    else:
-        print("\n  ✓ No TIER_1 high-signal alerts.")
-
-    cats = result["new_catalyst_dates"]
-    if cats:
-        print(f"\n📅 NEW CATALYST DATES DETECTED ({len(cats)}):")
-        for c in cats:
-            print(
-                f"  [{c['ticker']}] {c['catalyst_type']} — {c['date_str']} "
-                f"(confidence {c['confidence']}%)"
-            )
-
-    n8k = len(result["new_8ks"])
-    nws = len(result["news_hits"])
-    print(f"\n  8-K filings: {n8k}  |  News mentions: {nws}")
-    print(f"{hr}\n")
+    f-m4-02a: routes the scan summary through the project's
+    structured JSON logger instead of bare ``print`` calls so the
+    output lands in ``/var/log/alpha_sniper/intraday.log`` with
+    secret-redaction + ts/level/event/module fields applied.
+    """
+    alerts = result.get("high_signal_alerts", []) or []
+    cats = result.get("new_catalyst_dates", []) or []
+    n8k = len(result.get("new_8ks", []) or [])
+    nws = len(result.get("news_hits", []) or [])
+    log.info(
+        "universal_news_scan_summary",
+        extra={
+            "event": "universal_news_scan_summary",
+            "run_ts": result.get("run_ts"),
+            "tickers_scanned": result.get("tickers_scanned", 0),
+            "high_signal_alerts_count": len(alerts),
+            "high_signal_alerts": [
+                {
+                    "type": a.get("type"),
+                    "ticker": a.get("ticker"),
+                    "keyword": a.get("keyword", ""),
+                    "summary": (a.get("summary") or a.get("headline") or "")[:120],
+                    "url": a.get("url", ""),
+                }
+                for a in alerts
+            ],
+            "new_catalyst_dates_count": len(cats),
+            "new_catalyst_dates": [
+                {
+                    "ticker": c.get("ticker"),
+                    "catalyst_type": c.get("catalyst_type"),
+                    "date_str": c.get("date_str"),
+                    "confidence": c.get("confidence"),
+                }
+                for c in cats
+            ],
+            "new_8ks_count": n8k,
+            "news_hits_count": nws,
+        },
+    )
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1219,6 +1229,13 @@ def _load_tracked_tickers() -> list:
 if __name__ == "__main__":
     import sys
 
+    # f-m4-02a: configure the structured JSON logger before any code
+    # path emits output so the CLI run produces ts/level/event/module
+    # JSON lines (and respects the secret-redaction contract).
+    from biotech_sniper.logging_setup import configure
+
+    configure(log_name="universal_news_watcher")
+
     tickers = _load_tracked_tickers()
 
     if not tickers:
@@ -1243,12 +1260,31 @@ if __name__ == "__main__":
                 "summary": "PDUFA date announced for mRNA-1283. FDA action date set for Q3 2025.",
             }
         ]
-        print(format_news_alert_email(dummy_alerts))
+        log.info(
+            "universal_news_email_draft",
+            extra={
+                "event": "universal_news_email_draft",
+                "mode": "email-test",
+                "body": format_news_alert_email(dummy_alerts),
+            },
+        )
         sys.exit(0)
 
     result = run_hourly_news_scan(tickers)
-    print(f"\nResult summary: {result['summary']}")
+    log.info(
+        "universal_news_scan_result",
+        extra={
+            "event": "universal_news_scan_result",
+            "summary": result.get("summary"),
+        },
+    )
 
-    if result["high_signal_alerts"]:
-        print("\n--- EMAIL DRAFT ---")
-        print(format_news_alert_email(result["high_signal_alerts"]))
+    if result.get("high_signal_alerts"):
+        log.info(
+            "universal_news_email_draft",
+            extra={
+                "event": "universal_news_email_draft",
+                "mode": "live",
+                "body": format_news_alert_email(result["high_signal_alerts"]),
+            },
+        )
