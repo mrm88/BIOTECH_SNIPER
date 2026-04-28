@@ -84,6 +84,48 @@ _M4_SOURCE_KEYS: tuple[str, ...] = (
 )
 
 
+# f-m4-12: VAL-M4-035 requires every entry in ``audit_latest.json``'s
+# ``sources`` map to expose a ``status`` field whose value is one of
+# the canonical enum below. Legacy entries written by the
+# module-level audit script use the older ``{'ok': bool, ...}`` shape
+# (``clinicaltrials_gov``, ``alpha_sniper_db``, ``scoring_cache``,
+# ``llm_cost_ledger``, ``news_events``, etc.) and are folded into
+# the merged ``sources`` map by :func:`write_audit_latest`. We
+# normalize those entries below so the audit file always satisfies
+# the contract.
+_M4_STATUS_ENUM: frozenset[str] = frozenset(
+    {"ok", "degraded", "error", "unknown", "missing_credential"}
+)
+
+
+def _normalize_legacy_source_entry(entry: Any) -> dict[str, Any]:
+    """Return ``entry`` augmented with a contract-conformant ``status`` key.
+
+    Mapping rules (preserves all other keys verbatim):
+
+    * If ``entry`` is not a dict, return ``{'status': 'unknown', 'value': entry}``
+      so the merged ``sources`` map stays a dict-of-dicts.
+    * If ``entry`` already carries ``status`` with a value in
+      :data:`_M4_STATUS_ENUM`, return it untouched.
+    * Else if ``entry`` has ``ok == True`` → ``status='ok'``.
+    * Else if ``entry`` has ``ok == False`` → ``status='error'``.
+    * Otherwise → ``status='unknown'``.
+    """
+    if not isinstance(entry, dict):
+        return {"status": "unknown", "value": entry}
+
+    existing_status = entry.get("status")
+    if isinstance(existing_status, str) and existing_status in _M4_STATUS_ENUM:
+        return entry
+
+    normalized = dict(entry)
+    if "ok" in normalized:
+        normalized["status"] = "ok" if normalized.get("ok") else "error"
+    else:
+        normalized["status"] = "unknown"
+    return normalized
+
+
 def _iso_utc_now() -> str:
     """Return the current time as an ISO-8601 UTC string with ``Z`` suffix."""
     return datetime.datetime.now(datetime.timezone.utc).isoformat().replace(
@@ -516,12 +558,18 @@ def write_audit_latest(
     # extra entries in WITHOUT overwriting the M4 ones — that keeps
     # rich per-source diagnostics for operators while still
     # satisfying the contract.
+    #
+    # f-m4-12: VAL-M4-035 requires every value in ``sources`` to carry a
+    # ``status`` key drawn from the canonical enum. Legacy entries use
+    # ``{'ok': bool, ...}`` instead, so we normalize them through
+    # :func:`_normalize_legacy_source_entry` while preserving all
+    # other keys (``ok``, ``error``, ``http_status``, count fields…).
     legacy_sources = payload.get("sources")
     merged_sources = dict(m4["sources"])
     if isinstance(legacy_sources, dict):
         for k, v in legacy_sources.items():
             if k not in merged_sources:
-                merged_sources[k] = v
+                merged_sources[k] = _normalize_legacy_source_entry(v)
     m4["sources"] = merged_sources
 
     payload.update(m4)

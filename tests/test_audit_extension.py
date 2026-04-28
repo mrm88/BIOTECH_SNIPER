@@ -562,7 +562,13 @@ def test_write_audit_latest_preserves_legacy_keys(audit_module, tmp_path, monkey
     assert payload["as_of_date"] == "new"
     # Legacy ``sources`` entry preserved alongside the seven canonical ones.
     assert "legacy_extra_key" in payload["sources"]
-    assert payload["sources"]["legacy_extra_key"] == {"ok": True, "note": "kept"}
+    # f-m4-12 (VAL-M4-035): legacy entries are normalized to carry a
+    # ``status`` field while every other key is preserved verbatim.
+    assert payload["sources"]["legacy_extra_key"] == {
+        "ok": True,
+        "note": "kept",
+        "status": "ok",
+    }
     # All seven canonical sources still present.
     for src in (
         "ct.gov",
@@ -695,3 +701,200 @@ def test_write_audit_latest_import_is_fast_and_makes_no_network_calls():
     # for slow CI hosts but a regression that re-introduces the network
     # probes will easily blow this budget (each probe times out at 10 s).
     assert elapsed_ms < 100.0, f"import too slow: {elapsed_ms:.1f}ms"
+
+
+# ---------------------------------------------------------------------------
+# f-m4-12 — VAL-M4-035 status normalization regression tests.
+# ---------------------------------------------------------------------------
+#
+# The legacy module-level audit script populates ``sources`` with
+# entries shaped ``{'ok': bool, ...}`` (e.g. ``clinicaltrials_gov``,
+# ``alpha_sniper_db``, ``scoring_cache``, ``llm_cost_ledger``,
+# ``news_events``). VAL-M4-035 requires every entry in the merged
+# ``sources`` map to carry a ``status`` field whose value is one of
+# {ok, degraded, error, unknown, missing_credential}. The tests
+# below pin that contract.
+
+
+_M4_STATUS_ENUM_TUPLE = ("ok", "degraded", "error", "unknown", "missing_credential")
+
+
+def test_normalize_legacy_source_entry_maps_ok_true(audit_module):
+    """Legacy ``{'ok': True, ...}`` → ``status='ok'`` with all keys preserved."""
+    out = audit_module._normalize_legacy_source_entry(
+        {"ok": True, "count": 5, "extra": "kept"}
+    )
+    assert out["status"] == "ok"
+    assert out["ok"] is True
+    assert out["count"] == 5
+    assert out["extra"] == "kept"
+
+
+def test_normalize_legacy_source_entry_maps_ok_false(audit_module):
+    """Legacy ``{'ok': False, 'error': ...}`` → ``status='error'`` preserved."""
+    out = audit_module._normalize_legacy_source_entry(
+        {"ok": False, "error": "timeout"}
+    )
+    assert out["status"] == "error"
+    assert out["ok"] is False
+    assert out["error"] == "timeout"
+
+
+def test_normalize_legacy_source_entry_keeps_existing_valid_status(audit_module):
+    """Entry already carrying a contract-valid ``status`` is returned untouched."""
+    entry = {"status": "degraded", "reason": "credentials_missing"}
+    out = audit_module._normalize_legacy_source_entry(entry)
+    assert out is entry  # preserves identity when already valid
+    assert out["status"] == "degraded"
+
+
+def test_normalize_legacy_source_entry_unknown_when_no_ok_or_status(audit_module):
+    """Entry without ``ok`` or recognised ``status`` falls back to ``unknown``."""
+    out = audit_module._normalize_legacy_source_entry({"foo": 1})
+    assert out["status"] == "unknown"
+    assert out["foo"] == 1
+
+
+def test_normalize_legacy_source_entry_overrides_invalid_status(audit_module):
+    """A non-enum ``status`` value is replaced via the ``ok`` mapping."""
+    out = audit_module._normalize_legacy_source_entry(
+        {"status": "weird-value", "ok": True}
+    )
+    assert out["status"] == "ok"
+
+
+def test_write_audit_latest_normalizes_legacy_ok_true_entry(
+    audit_module, tmp_path, monkeypatch
+):
+    """``payload.sources`` legacy ``{'ok': True, 'count': 5}`` becomes ``status='ok'``.
+
+    Pinned by VAL-M4-035: every value in ``audit_latest.json``'s
+    ``sources`` map must carry a ``status`` field. The legacy entry's
+    other keys (``count`` here) must be preserved verbatim.
+    """
+    _patch_all_probes_ok(monkeypatch)
+    audit_path = tmp_path / "state" / "audit_latest.json"
+    audit_path.parent.mkdir(parents=True)
+    audit_path.write_text(
+        json.dumps(
+            {
+                "sources": {
+                    "legacy_ok": {"ok": True, "count": 5},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = audit_module.write_audit_latest(
+        audit_path, db_path=tmp_path / "missing.db"
+    )
+
+    legacy = payload["sources"]["legacy_ok"]
+    assert legacy["status"] == "ok"
+    assert legacy["count"] == 5
+    assert legacy["ok"] is True
+
+
+def test_write_audit_latest_normalizes_legacy_ok_false_entry(
+    audit_module, tmp_path, monkeypatch
+):
+    """Legacy ``{'ok': False, 'error': 'timeout'}`` becomes ``status='error'`` with error preserved."""
+    _patch_all_probes_ok(monkeypatch)
+    audit_path = tmp_path / "state" / "audit_latest.json"
+    audit_path.parent.mkdir(parents=True)
+    audit_path.write_text(
+        json.dumps(
+            {
+                "sources": {
+                    "legacy_err": {"ok": False, "error": "timeout"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = audit_module.write_audit_latest(
+        audit_path, db_path=tmp_path / "missing.db"
+    )
+
+    legacy = payload["sources"]["legacy_err"]
+    assert legacy["status"] == "error"
+    assert legacy["error"] == "timeout"
+    assert legacy["ok"] is False
+
+
+def test_write_audit_latest_every_source_has_valid_status(
+    audit_module, tmp_path, monkeypatch
+):
+    """Comprehensive VAL-M4-035 contract check across legacy + canonical entries.
+
+    Seeds the on-disk file with a representative slice of the legacy
+    ``sources`` shapes the live ``__main__`` block emits (``ok=True``,
+    ``ok=False``, no ``ok`` key) and asserts every merged value
+    carries a contract-valid ``status``. Also confirms the seven
+    canonical M4 sources retain their probe-derived ``status`` rather
+    than being clobbered.
+    """
+    _patch_all_probes_ok(monkeypatch)
+    audit_path = tmp_path / "state" / "audit_latest.json"
+    audit_path.parent.mkdir(parents=True)
+    audit_path.write_text(
+        json.dumps(
+            {
+                "sources": {
+                    "clinicaltrials_gov": {"ok": True, "studies": 5},
+                    "alpha_sniper_db": {
+                        "ok": False,
+                        "error": "missing",
+                        "present": False,
+                    },
+                    "scoring_cache": {"ok": True, "rows_total": 12},
+                    "llm_cost_ledger": {"ok": True, "rows_total": 8},
+                    "news_events": {"ok": False, "reason": "db_missing"},
+                    "weird_no_ok": {"unrelated_field": 1},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = audit_module.write_audit_latest(
+        audit_path, db_path=tmp_path / "missing.db"
+    )
+
+    sources = payload["sources"]
+
+    # Every entry has a status field with a value in the canonical enum.
+    for name, value in sources.items():
+        assert isinstance(value, dict), f"{name}: non-dict value {value!r}"
+        assert "status" in value, f"{name} missing status: {value!r}"
+        assert value["status"] in _M4_STATUS_ENUM_TUPLE, (
+            f"{name} bad status: {value['status']!r}"
+        )
+
+    # Legacy entries got the right enum mapping with original keys preserved.
+    assert sources["clinicaltrials_gov"]["status"] == "ok"
+    assert sources["clinicaltrials_gov"]["studies"] == 5
+    assert sources["alpha_sniper_db"]["status"] == "error"
+    assert sources["alpha_sniper_db"]["error"] == "missing"
+    assert sources["alpha_sniper_db"]["present"] is False
+    assert sources["news_events"]["status"] == "error"
+    assert sources["news_events"]["reason"] == "db_missing"
+    assert sources["weird_no_ok"]["status"] == "unknown"
+    assert sources["weird_no_ok"]["unrelated_field"] == 1
+
+    # The seven M4 canonical sources keep their original probe-derived status
+    # (every probe was patched to return ``status='ok'``). They must not be
+    # overwritten by the legacy normalizer.
+    for canonical in (
+        "ct.gov",
+        "sec_edgar",
+        "news_rss",
+        "alpaca_paper",
+        "xai",
+        "anthropic",
+        "gemini",
+    ):
+        assert canonical in sources
+        assert sources[canonical]["status"] == "ok"
