@@ -98,6 +98,30 @@ def _ensure_parent_under_data_dir(target: Path) -> None:
     OperationalError" behaviour rather than silently auto-creating
     the directory.
 
+    Boundary check (f-misc-15 hardening)
+    ------------------------------------
+    Both ``DATA_DIR`` and the candidate target are canonicalised via
+    :py:meth:`pathlib.Path.resolve(strict=False)` BEFORE the
+    ``relative_to()`` check. ``resolve(strict=False)`` normalises
+    ``..`` segments and follows symlinks (without requiring the
+    leaf to exist), so escape attempts of either flavour are
+    rejected by the boundary check rather than silently triggering
+    a ``mkdir`` outside :data:`DATA_DIR`:
+
+    * ``<DATA_DIR>/../outside/sub/foo.db`` → after ``resolve()`` the
+      parent is ``<parent-of-DATA_DIR>/outside/sub``, which is NOT
+      under ``DATA_DIR``; ``relative_to()`` raises ``ValueError``
+      and the helper returns without ``mkdir``.
+    * ``<DATA_DIR>/escape/sub/foo.db`` where ``data/escape`` is a
+      symlink to ``/tmp/realescape`` → after ``resolve()`` the
+      parent is ``/tmp/realescape/sub``, again outside ``DATA_DIR``,
+      and the helper returns without ``mkdir``.
+
+    Without canonicalisation, the lexical-prefix ``relative_to``
+    check incorrectly accepts both inputs (because their string
+    representation begins with ``DATA_DIR``) and ``mkdir`` lands
+    on a directory OUTSIDE :data:`DATA_DIR` — see f-misc-15.
+
     :func:`connect_readonly` does NOT call this helper — read-only
     connections must never mutate the filesystem (no chmod, no
     mkdir, no journal_mode write). The "raises if path absent"
@@ -115,12 +139,25 @@ def _ensure_parent_under_data_dir(target: Path) -> None:
         # caller can still surface the original sqlite3 error.
         return
     abs_target = target if target.is_absolute() else Path.cwd() / target
+    # f-misc-15: canonicalise BOTH paths via ``resolve(strict=False)``
+    # so the boundary check rejects ``..`` and symlink escape
+    # attempts that lexically begin with ``DATA_DIR``. ``strict=False``
+    # is required because the leaf (and possibly intermediate
+    # components) does not yet exist on disk — that's the whole point
+    # of the helper. ``resolve()`` is technically infallible on POSIX
+    # filesystems but we still wrap it for defence in depth: a
+    # transient OS error must never crash a connect.
     try:
-        abs_target.relative_to(_DATA_DIR)
+        resolved_data_dir = _DATA_DIR.resolve(strict=False)
+        resolved_target = abs_target.resolve(strict=False)
+    except OSError:
+        return
+    try:
+        resolved_target.relative_to(resolved_data_dir)
     except ValueError:
         return
     try:
-        abs_target.parent.mkdir(parents=True, exist_ok=True)
+        resolved_target.parent.mkdir(parents=True, exist_ok=True)
     except OSError:
         # Read-only filesystem or similar — let the subsequent
         # ``sqlite3.connect`` raise the canonical OperationalError

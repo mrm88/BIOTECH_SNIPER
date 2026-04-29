@@ -790,3 +790,105 @@ def test_ensure_parent_under_data_dir_is_public_alias():
     """f-misc-08: the public alias is exported."""
     assert db.ensure_parent_under_data_dir is db._ensure_parent_under_data_dir
     assert "ensure_parent_under_data_dir" in db.__all__
+
+
+# ---------------------------------------------------------------------------
+# f-misc-15 — canonicalise DATA_DIR + target before boundary check
+# ---------------------------------------------------------------------------
+
+
+def test_ensure_parent_does_not_mkdir_on_dotdot_escape_attempt(
+    monkeypatch, tmp_path
+):
+    """f-misc-15: ``..``-escape paths must NOT trigger mkdir outside DATA_DIR.
+
+    Without canonicalisation, ``<DATA_DIR>/../outside/sub/foo.db`` passes
+    the lexical ``Path.relative_to(DATA_DIR)`` check (the path string
+    begins with the DATA_DIR prefix) and ``parent.mkdir(parents=True)``
+    creates ``<parent-of-DATA_DIR>/outside/sub`` — OUTSIDE DATA_DIR.
+    After the f-misc-15 fix, both paths are canonicalised via
+    :py:meth:`Path.resolve(strict=False)` BEFORE the boundary check,
+    so the escape is rejected and no mkdir occurs.
+    """
+    monkeypatch.setenv("BIOTECH_SNIPER_HOME", str(tmp_path))
+    paths_mod = _reload_paths_under_home(tmp_path)
+    paths_mod.DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    # ``<DATA_DIR>/../outside/sub/foo.db`` lexically begins with DATA_DIR
+    # but resolves to ``<parent-of-DATA_DIR>/outside/sub/foo.db``.
+    escape_target = paths_mod.DATA_DIR / ".." / "outside" / "sub" / "foo.db"
+    expected_outside = tmp_path / "outside"
+    assert not expected_outside.exists(), "precondition: outside/ must not exist"
+
+    db.ensure_parent_under_data_dir(escape_target)
+
+    assert not expected_outside.exists(), (
+        "ensure_parent_under_data_dir must NOT mkdir outside DATA_DIR "
+        "when the input path escapes via '..' segments"
+    )
+    # The parent of the escape target (resolved) must also not exist.
+    assert not (expected_outside / "sub").exists()
+
+
+def test_ensure_parent_does_not_mkdir_on_symlink_escape(monkeypatch, tmp_path):
+    """f-misc-15: a symlink under DATA_DIR pointing OUTSIDE DATA_DIR must
+    NOT trigger mkdir on the symlink target.
+
+    Without canonicalisation, ``<DATA_DIR>/escape/sub/foo.db`` passes the
+    lexical ``relative_to(DATA_DIR)`` check and
+    ``parent.mkdir(parents=True)`` follows the symlink and creates
+    ``/tmp/realescape/sub`` — OUTSIDE DATA_DIR. After the f-misc-15 fix,
+    ``resolve()`` follows the symlink BEFORE the boundary check, so the
+    escape is rejected.
+    """
+    monkeypatch.setenv("BIOTECH_SNIPER_HOME", str(tmp_path))
+    paths_mod = _reload_paths_under_home(tmp_path)
+    paths_mod.DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    # The ``real_escape`` directory lives OUTSIDE DATA_DIR (as a sibling
+    # under tmp_path) so the escape via the symlink is observable.
+    real_escape = tmp_path / "realescape"
+    real_escape.mkdir()
+    # Sanity: the real_escape resolved path is genuinely outside DATA_DIR.
+    assert real_escape.resolve() != paths_mod.DATA_DIR.resolve()
+
+    symlink = paths_mod.DATA_DIR / "escape"
+    symlink.symlink_to(real_escape, target_is_directory=True)
+
+    # ``<DATA_DIR>/escape/sub/foo.db`` lexically passes ``relative_to``
+    # but resolves through the symlink to ``<real_escape>/sub/foo.db``.
+    escape_target = symlink / "sub" / "foo.db"
+    db.ensure_parent_under_data_dir(escape_target)
+
+    # The real escape target must not have gained a child directory.
+    real_resolved = real_escape.resolve()
+    children = list(real_resolved.iterdir())
+    assert children == [], (
+        "ensure_parent_under_data_dir must NOT mkdir outside DATA_DIR "
+        f"via a symlink escape; found unexpected children: {children!r}"
+    )
+
+
+def test_ensure_parent_works_with_resolved_canonical_dir(monkeypatch, tmp_path):
+    """f-misc-15: legitimate paths under DATA_DIR continue to auto-mkdir.
+
+    Regression guard: the canonicalisation hardening must not break
+    the original f-misc-08 contract for the happy path.
+    """
+    monkeypatch.setenv("BIOTECH_SNIPER_HOME", str(tmp_path))
+    paths_mod = _reload_paths_under_home(tmp_path)
+    paths_mod.DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    legit = paths_mod.DATA_DIR / "legit" / "sub" / "foo.db"
+    assert not legit.parent.exists(), "precondition: parent absent"
+
+    db.ensure_parent_under_data_dir(legit)
+
+    assert legit.parent.exists(), (
+        "ensure_parent_under_data_dir must mkdir legitimate paths "
+        "under DATA_DIR (regression guard for the f-misc-08 contract)"
+    )
+    # And the resolved sub/ lives genuinely under the resolved DATA_DIR.
+    assert (
+        legit.parent.resolve().is_relative_to(paths_mod.DATA_DIR.resolve())
+    )
