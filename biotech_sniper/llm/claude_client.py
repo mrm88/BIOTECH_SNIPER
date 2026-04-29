@@ -715,7 +715,8 @@ class ClaudeClient:
         not catastrophic).
         """
         try:
-            self._db_path.parent.mkdir(parents=True, exist_ok=True)
+            # f-misc-08: ``db.connect`` centralises the parent mkdir
+            # for paths under DATA_DIR; no need to mkdir here.
             conn = db.connect(self._db_path)
             try:
                 db.run_migrations(conn)

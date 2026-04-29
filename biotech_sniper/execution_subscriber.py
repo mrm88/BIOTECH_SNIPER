@@ -846,7 +846,8 @@ def main(
     _logging_setup.configure(log_name="intraday")
 
     target_db = _Path(db_path) if db_path is not None else _default_db_path()
-    target_db.parent.mkdir(parents=True, exist_ok=True)
+    # f-misc-08: ``db.connect`` centralises the parent mkdir for
+    # paths under DATA_DIR; no need to open-code it here.
 
     target_date: Optional[str] = args.date
     if (args.poll_once or args.dry_run) and target_date is None:

@@ -561,12 +561,12 @@ class XAIClient:
         not catastrophic).
         """
         try:
-            # Ensure the parent directory exists. ``DATA_DIR`` is not
-            # auto-created by ``paths.py`` (by design — see paths
-            # docstring), so the first call after a fresh checkout
-            # would otherwise hit ``OperationalError: unable to open
-            # database file``.
-            self._db_path.parent.mkdir(parents=True, exist_ok=True)
+            # f-misc-08: ``db.connect`` centralises the
+            # ``parent.mkdir(parents=True, exist_ok=True)`` for
+            # paths under DATA_DIR, so we no longer need to do it
+            # here. ``DATA_DIR`` is not auto-created by ``paths.py``
+            # (by design — see paths docstring), so connect() handles
+            # the first-after-fresh-checkout case.
             conn = db.connect(self._db_path)
             try:
                 db.run_migrations(conn)

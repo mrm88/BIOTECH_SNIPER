@@ -510,9 +510,9 @@ def migrate(
         )
 
     target = ":memory:" if dry_run else str(db_path)
-    if not dry_run:
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-
+    # f-misc-08: ``db.connect`` centralises the parent mkdir for
+    # paths under DATA_DIR; no need to open-code it here. (``dry_run``
+    # uses an in-memory db so the helper short-circuits cleanly.)
     conn = db.connect(target)
     try:
         db.run_migrations(conn)

@@ -6,6 +6,7 @@ Each test uses an isolated SQLite db (either ``:memory:`` or
 
 from __future__ import annotations
 
+import importlib
 import sqlite3
 
 import pytest
@@ -685,3 +686,107 @@ def test_run_migrations_swallows_duplicate_column_during_alter(tmp_path, monkeyp
         assert "schema_version" in tables
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# f-misc-08 — centralised parent.mkdir-before-open in db.connect()
+# ---------------------------------------------------------------------------
+
+
+def _reload_paths_under_home(home_path):
+    """Helper: reload :mod:`biotech_sniper.paths` so ``DATA_DIR`` is
+    rooted at ``home_path / 'data'`` for the lifetime of the test.
+    """
+    import biotech_sniper.paths as _paths_mod
+
+    return importlib.reload(_paths_mod)
+
+
+def test_connect_auto_mkdirs_missing_parent_under_data_dir(monkeypatch, tmp_path):
+    """f-misc-08: :func:`db.connect` auto-mkdirs ``parent`` for paths
+    under :data:`DATA_DIR`.
+
+    Mirrors the pattern that paper_executor / xai_client / claude_client /
+    gemini_client / ensemble / llm_debate / migrations /
+    execution_subscriber used to open-code (``self._db_path.parent
+    .mkdir(parents=True, exist_ok=True)`` immediately before
+    ``db.connect()``). After centralisation, callers no longer need
+    that boilerplate — :func:`db.connect` handles it for them when
+    the target lives under ``DATA_DIR``.
+    """
+    monkeypatch.setenv("BIOTECH_SNIPER_HOME", str(tmp_path))
+    paths_mod = _reload_paths_under_home(tmp_path)
+
+    # Construct a deeply-nested target under the (still missing)
+    # ``DATA_DIR`` so the test exercises the ``parents=True`` flag.
+    nested_db = paths_mod.DATA_DIR / "deep" / "nested" / "alpha.db"
+    assert not nested_db.parent.exists(), "precondition: parent must be absent"
+    assert not paths_mod.DATA_DIR.exists(), "precondition: DATA_DIR absent"
+
+    conn = db.connect(nested_db)
+    try:
+        assert nested_db.parent.exists(), (
+            "db.connect should have auto-mkdir'd the parent under DATA_DIR"
+        )
+        assert nested_db.exists(), (
+            "sqlite3 should have created the database file at the target path"
+        )
+        # The connection itself works end-to-end.
+        db.run_migrations(conn)
+        version = conn.execute(
+            "SELECT MAX(version) FROM schema_version"
+        ).fetchone()[0]
+        assert version == db.CURRENT_VERSION
+    finally:
+        conn.close()
+
+
+def test_connect_does_not_mkdir_outside_data_dir(monkeypatch, tmp_path):
+    """f-misc-08: the auto-mkdir is scoped to paths under
+    :data:`DATA_DIR` so off-path callers (test fixtures pointing at
+    arbitrary tmp directories, operator backup scripts, etc.) keep
+    the canonical "missing parent → OperationalError" behaviour.
+    """
+    monkeypatch.setenv("BIOTECH_SNIPER_HOME", str(tmp_path / "home"))
+    _reload_paths_under_home(tmp_path / "home")
+
+    # Off-DATA_DIR target with a missing parent → connect should NOT
+    # auto-mkdir, so sqlite3 raises OperationalError.
+    off_path = tmp_path / "elsewhere" / "missing_parent" / "x.db"
+    assert not off_path.parent.exists()
+
+    with pytest.raises(sqlite3.OperationalError):
+        db.connect(off_path)
+    assert not off_path.parent.exists(), (
+        "db.connect must not mkdir outside DATA_DIR"
+    )
+
+
+def test_connect_readonly_does_not_auto_mkdir(monkeypatch, tmp_path):
+    """f-misc-08: :func:`db.connect_readonly` must NOT auto-mkdir.
+
+    Read-only connections must never mutate the filesystem (no
+    chmod, no mkdir, no journal_mode write). The "raises if path
+    absent" contract is preserved by SQLite's ``mode=ro`` URI flag.
+    """
+    monkeypatch.setenv("BIOTECH_SNIPER_HOME", str(tmp_path))
+    paths_mod = _reload_paths_under_home(tmp_path)
+
+    missing_db = paths_mod.DATA_DIR / "nonexistent" / "alpha.db"
+    assert not missing_db.parent.exists()
+
+    with pytest.raises(sqlite3.OperationalError):
+        db.connect_readonly(missing_db)
+
+    assert not missing_db.parent.exists(), (
+        "connect_readonly must NOT create the parent directory"
+    )
+    assert not missing_db.exists(), (
+        "connect_readonly must NOT create the database file"
+    )
+
+
+def test_ensure_parent_under_data_dir_is_public_alias():
+    """f-misc-08: the public alias is exported."""
+    assert db.ensure_parent_under_data_dir is db._ensure_parent_under_data_dir
+    assert "ensure_parent_under_data_dir" in db.__all__

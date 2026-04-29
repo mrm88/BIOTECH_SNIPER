@@ -207,7 +207,8 @@ def run_debate(
     )
     today_date = today or datetime.datetime.now(datetime.timezone.utc).date()
 
-    target_db.parent.mkdir(parents=True, exist_ok=True)
+    # f-misc-08: ``db.connect`` centralises the parent mkdir for
+    # paths under DATA_DIR; no need to open-code it here.
     conn = db.connect(target_db)
     try:
         db.run_migrations(conn)

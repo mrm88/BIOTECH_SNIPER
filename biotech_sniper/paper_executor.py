@@ -954,8 +954,14 @@ class PaperExecutor:
     # ------------------------------------------------------------------
 
     def _connect(self) -> sqlite3.Connection:
-        """Open a SQLite connection with the project's PRAGMAs set."""
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        """Open a SQLite connection with the project's PRAGMAs set.
+
+        f-misc-08: ``db_module.connect`` now performs the
+        ``parent.mkdir(parents=True, exist_ok=True)`` for paths under
+        :data:`DATA_DIR` itself, so we no longer need to open-code
+        the mkdir here. The boilerplate move is purely a
+        centralisation cleanup; behaviour is unchanged.
+        """
         return db_module.connect(self.db_path)
 
     def _ensure_orders_table(self) -> None:

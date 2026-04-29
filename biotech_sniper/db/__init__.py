@@ -40,6 +40,7 @@ __all__ = [
     "DB_FILE_MODE",
     "connect",
     "connect_readonly",
+    "ensure_parent_under_data_dir",
     "run_migrations",
     "current_schema_version",
     "split_sql_statements",
@@ -77,6 +78,54 @@ DB_FILE_MODE: Final[int] = 0o640
 
 
 PathLike = Union[str, Path]
+
+
+def _ensure_parent_under_data_dir(target: Path) -> None:
+    """Idempotently ``mkdir(parents=True, exist_ok=True)`` for ``target.parent``
+    when ``target`` resolves under :data:`biotech_sniper.paths.DATA_DIR`.
+
+    f-misc-08 centralisation: every prior caller of :func:`connect`
+    (paper_executor, llm clients, migrations, execution_subscriber)
+    open-coded ``self._db_path.parent.mkdir(parents=True, exist_ok=True)``
+    immediately before invoking :func:`db.connect`. This helper folds
+    that boilerplate into the connect path so call sites no longer
+    need to remember it.
+
+    Scope is intentionally limited to paths under :data:`DATA_DIR` so
+    callers that point :func:`connect` at off-path locations (test
+    fixtures pointing at ``tmp_path``, operator scripts pointing at
+    backup directories, etc.) keep the current "missing parent →
+    OperationalError" behaviour rather than silently auto-creating
+    the directory.
+
+    :func:`connect_readonly` does NOT call this helper — read-only
+    connections must never mutate the filesystem (no chmod, no
+    mkdir, no journal_mode write). The "raises if path absent"
+    contract for ``connect_readonly`` is preserved by SQLite's
+    ``mode=ro`` URI flag.
+    """
+    # Late import: paths.DATA_DIR is read at call time so test
+    # fixtures that ``importlib.reload(biotech_sniper.paths)`` after
+    # setting ``BIOTECH_SNIPER_HOME`` see the refreshed value.
+    try:
+        from biotech_sniper.paths import DATA_DIR as _DATA_DIR
+    except Exception:
+        # If paths.py cannot be imported (highly unlikely — would
+        # mean the package is broken), fall back to no-op so the
+        # caller can still surface the original sqlite3 error.
+        return
+    abs_target = target if target.is_absolute() else Path.cwd() / target
+    try:
+        abs_target.relative_to(_DATA_DIR)
+    except ValueError:
+        return
+    try:
+        abs_target.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        # Read-only filesystem or similar — let the subsequent
+        # ``sqlite3.connect`` raise the canonical OperationalError
+        # so the caller sees a familiar error type.
+        return
 
 
 def _ensure_db_file_mode(path: Path, mode: int = DB_FILE_MODE) -> None:
@@ -134,6 +183,15 @@ def connect(db_path: PathLike) -> sqlite3.Connection:
     # accepts both str and Path on Python 3.10+ but we normalise here
     # so debug logging is consistent.
     target = str(db_path)
+    if target != ":memory:":
+        # f-misc-08: centralised parent.mkdir for paths under DATA_DIR.
+        # MUST run BEFORE sqlite3.connect() — sqlite3 raises
+        # ``OperationalError: unable to open database file`` when the
+        # parent directory is missing, so the mkdir has to land first
+        # to give the helper any effect. See
+        # :func:`_ensure_parent_under_data_dir` for the under-DATA_DIR
+        # gating rationale.
+        _ensure_parent_under_data_dir(Path(target))
     conn = sqlite3.connect(target)
     conn.row_factory = sqlite3.Row
 
@@ -853,6 +911,13 @@ def _cleanup_scoring_cache_chain_gate_violations(
 cleanup_scoring_cache_chain_gate_violations = (
     _cleanup_scoring_cache_chain_gate_violations
 )
+
+
+# Public alias for the f-misc-08 centralised mkdir-before-open
+# helper. Exposed so future callers and regression tests can invoke
+# the helper directly without poking at the underscore-prefixed
+# implementation.
+ensure_parent_under_data_dir = _ensure_parent_under_data_dir
 
 
 def _apply_pending_alter_table_migrations(conn: sqlite3.Connection) -> None:
