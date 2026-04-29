@@ -130,6 +130,14 @@ def load_log():
     return {"seen_urls": [], "seen_award_ids": [], "last_scan": None, "alerts_sent": []}
 
 def save_log(log):
+    # f-misc-07-intraday-save-log-mkdir: defensive mkdir so a fresh
+    # BIOTECH_SNIPER_HOME (dev workstation, ephemeral CI, fresh
+    # checkout) without an existing ``state/`` directory does not
+    # crash the intraday cycle with FileNotFoundError. Production
+    # has ``state/`` pre-created by the M1 deploy worker, but the
+    # cost of an idempotent ``parents=True, exist_ok=True`` mkdir is
+    # negligible and removes the ordering dependency entirely.
+    INTRADAY_LOG.parent.mkdir(parents=True, exist_ok=True)
     with open(INTRADAY_LOG, "w") as f:
         json.dump(log, f, indent=2)
 
