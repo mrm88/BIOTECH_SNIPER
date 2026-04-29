@@ -882,12 +882,12 @@ def run_intraday_scan():
     # New opportunities get their OWN immediate email (higher priority)
     if new_opportunities:
         new_opp_body = format_new_opp_email(new_opportunities, now)
-        # Send new opp email immediately
-        try:
-            import sys; sys.path.insert(0, '.')
-            from list_external_tools import list_tools
-        except Exception:
-            pass
+        # f-misc-09: dropped a dead ``try/except`` that performed
+        # ``sys.path.insert(0, '.')`` and imported the long-gone
+        # ``list_external_tools`` shim. The import always failed
+        # under the bare ``except`` and the symbol was never used,
+        # so the only observable effect was a sys.path mutation that
+        # leaked into every subsequent intraday-scan import.
         # Store for caller to send
         result_new_opps = new_opportunities
     else:

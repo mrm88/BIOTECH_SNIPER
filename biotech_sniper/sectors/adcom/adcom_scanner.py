@@ -30,7 +30,6 @@ import re
 import requests
 import datetime
 import hashlib
-import sys
 from pathlib import Path
 
 from biotech_sniper.paths import BASE_DIR
@@ -38,7 +37,11 @@ ADCOM_STATE_FILE = BASE_DIR / "state/adcom_state.json"
 ADCOM_OUTPUT     = BASE_DIR / "sectors/adcom/adcom_report.json"
 ACTIVE_PLAYS     = BASE_DIR / "state/active_plays.json"
 
-sys.path.insert(0, str(BASE_DIR / "intelligence"))
+# f-misc-09: removed module-level ``sys.path.insert(BASE_DIR /
+# 'intelligence')``. The bare ``from company_resolver import ...``
+# inside ``run_adcom_scan`` is replaced with the canonical
+# ``biotech_sniper.intelligence.company_resolver`` absolute import,
+# matching the f-misc-03 cleanup pattern.
 
 HEADERS     = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
 SEC_HEADERS = {"User-Agent": "BioCatalystBot research@mantisvc.com"}
@@ -852,7 +855,14 @@ def run_adcom_scan() -> dict:
             resolved_profile = {}
             if ticker and not already_tracked:
                 try:
-                    from company_resolver import resolve_company, update_registry_with_company
+                    # f-misc-09: replaced bare ``from company_resolver
+                    # import ...`` (which only resolved when the legacy
+                    # module-level ``sys.path.insert`` mutated sys.path)
+                    # with the canonical absolute import.
+                    from biotech_sniper.intelligence.company_resolver import (
+                        resolve_company,
+                        update_registry_with_company,
+                    )
                     resolved_profile = resolve_company(
                         ticker=ticker,
                         company_name=next(

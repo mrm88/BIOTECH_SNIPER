@@ -228,3 +228,88 @@ def test_no_sys_path_insert_in_targeted_files(module_dotted: str) -> None:
     assert offending == [], (
         f"{module_dotted} still carries live sys.path.insert calls: {offending}"
     )
+
+
+# ---------------------------------------------------------------------------
+# 4) f-misc-09 — Tree-wide AST guard
+# ---------------------------------------------------------------------------
+#
+# f-misc-03 cleared every site under ``biotech_sniper/intelligence/``;
+# f-misc-09 finishes the job for the rest of the package tree:
+#   * biotech_sniper/intraday_scanner.py
+#   * biotech_sniper/new_opportunity_sniper.py
+#   * biotech_sniper/email_formatter.py
+#   * biotech_sniper/play_card_formatter.py
+#   * biotech_sniper/sectors/adcom/adcom_scanner.py
+#
+# The guard below walks every ``*.py`` file under ``biotech_sniper/``
+# and asserts that no executable ``sys.path.insert(...)`` call remains.
+# Comments that mention the pattern are intentionally allowed — they
+# document the historical fix (and are needed for forensic clarity in
+# both f-misc-03 and f-misc-09 cleanup commits). Tests/ are out of
+# scope: pytest collection occasionally inserts paths legitimately,
+# and the guard is about the production package only.
+
+
+def _iter_package_python_files() -> list[Path]:
+    """Return every ``*.py`` file under the ``biotech_sniper`` package.
+
+    Resolves the package directory via ``biotech_sniper.__file__`` so
+    the test runs from any CWD and matches the *installed* layout
+    rather than guessing repo-relative paths.
+    """
+    import biotech_sniper as _pkg
+
+    pkg_root = Path(_pkg.__file__).parent
+    # Skip ``__pycache__`` (compiled bytecode) and any auto-generated
+    # ``*.pyi`` stubs. Only ``*.py`` source files are relevant.
+    return sorted(p for p in pkg_root.rglob("*.py") if "__pycache__" not in p.parts)
+
+
+def test_tree_wide_no_live_sys_path_insert() -> None:
+    """No executable ``sys.path.insert`` anywhere under ``biotech_sniper/``.
+
+    AST-walks every ``*.py`` source file under the installed package
+    root and asserts the count of live ``sys.path.insert(...)`` calls
+    is zero. Commented-out references are allowed (and used to
+    document the f-misc-03 / f-misc-09 cleanup history).
+    """
+    offenders: dict[str, list[tuple[int, str]]] = {}
+    for source_path in _iter_package_python_files():
+        offending = _live_sys_path_insert_lines(source_path)
+        if offending:
+            offenders[str(source_path)] = offending
+
+    assert offenders == {}, (
+        "Live ``sys.path.insert`` call sites remain under biotech_sniper/. "
+        "Convert each to a canonical ``biotech_sniper.*`` absolute import "
+        "(see f-misc-03 / f-misc-09 cleanup pattern). Offenders:\n"
+        + "\n".join(
+            f"  {path}: {sites}" for path, sites in sorted(offenders.items())
+        )
+    )
+
+
+def test_tree_wide_guard_covers_f_misc_09_targets() -> None:
+    """Sanity-check that the tree-wide guard actually scans every file
+    that f-misc-09 touched.
+
+    Without this assertion a future refactor could rename / move one
+    of the target files and silently regress: the tree-wide guard
+    would still pass (no offenders) but the protection invariant
+    would be lost. Pinning the expected set keeps the cleanup
+    contract honest.
+    """
+    scanned = {p.name for p in _iter_package_python_files()}
+    expected = {
+        "intraday_scanner.py",
+        "new_opportunity_sniper.py",
+        "email_formatter.py",
+        "play_card_formatter.py",
+        "adcom_scanner.py",
+    }
+    missing = expected - scanned
+    assert not missing, (
+        f"f-misc-09 target files are no longer present in the package "
+        f"tree: {missing}. Update the guard or the target list."
+    )

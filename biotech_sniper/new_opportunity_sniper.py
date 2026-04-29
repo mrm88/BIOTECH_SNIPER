@@ -332,9 +332,12 @@ def quick_score_candidate(candidate: dict, science_prompt: Optional[str] = None)
     then return a structured score dict. Candidates that clear the threshold still get
     the full science-enriched prompt saved so the 6AM cron can re-score properly.
     """
-    import sys
-    sys.path.insert(0, str(BASE_DIR))
-    sys.path.insert(0, str(BASE_DIR / "sectors"))
+    # f-misc-09: removed legacy ``sys.path.insert(BASE_DIR)`` +
+    # ``sys.path.insert(BASE_DIR / 'sectors')``. The only cross-package
+    # import this helper actually performs lives a few lines below
+    # (``intelligence.science_scorer.get_indication_base_rate``) and
+    # has been migrated to the canonical
+    # ``biotech_sniper.intelligence.science_scorer`` absolute path.
 
     ticker     = candidate.get("ticker", "UNKNOWN")
     drug       = candidate.get("drug", "")
@@ -360,8 +363,12 @@ def quick_score_candidate(candidate: dict, science_prompt: Optional[str] = None)
 
     # Indication base rate from science_scorer
     try:
-        sys.path.insert(0, str(BASE_DIR / "intelligence"))
-        from intelligence.science_scorer import get_indication_base_rate
+        # f-misc-09: replaced legacy bare ``from intelligence.science_scorer
+        # import ...`` (gated by a now-removed ``sys.path.insert``)
+        # with the canonical absolute import.
+        from biotech_sniper.intelligence.science_scorer import (
+            get_indication_base_rate,
+        )
         base_rate, matched = get_indication_base_rate(indication, [indication])
         p_success = round(base_rate * 100)
     except Exception:
@@ -624,11 +631,17 @@ def score_and_price_candidate(candidate: dict) -> Optional[dict]:
     science_grade  = None
     if nct_id and nct_id.startswith("NCT"):
         try:
-            import sys
-            sys.path.insert(0, str(BASE_DIR))
-            sys.path.insert(0, str(BASE_DIR / "intelligence"))
-            from intelligence.trial_science_reader import get_science_profile
-            from intelligence.science_scorer import compute_science_grade
+            # f-misc-09: replaced legacy ``sys.path.insert(BASE_DIR)``
+            # + ``sys.path.insert(BASE_DIR / 'intelligence')`` and the
+            # bare ``from intelligence.* import ...`` namespace pattern
+            # with canonical ``biotech_sniper.intelligence.*`` absolute
+            # imports.
+            from biotech_sniper.intelligence.trial_science_reader import (
+                get_science_profile,
+            )
+            from biotech_sniper.intelligence.science_scorer import (
+                compute_science_grade,
+            )
             sp = get_science_profile(nct_id, candidate)
             science_prompt = sp.get("science_prompt")
             grade_result   = compute_science_grade(sp)

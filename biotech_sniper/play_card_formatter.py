@@ -577,8 +577,12 @@ The calculate_multiple() function handles all math automatically.
 
 if __name__ == "__main__":
     # Demo: show what the card looks like when AI lines are provided externally
-    import sys
-    sys.path.insert(0, str(BASE))
+    # f-misc-09: removed ``sys.path.insert(0, str(BASE))`` — the demo
+    # block runs as ``python -m biotech_sniper.play_card_formatter``,
+    # so the package is already on ``sys.path`` and no mutation is
+    # needed. The historical insert was a leftover from the bare-
+    # namespace ``intelligence/`` / ``sectors/`` layout that pre-dates
+    # the ``biotech_sniper.*`` packageification.
 
     plays = json.load(open(BASE / "state/active_plays.json"))
 

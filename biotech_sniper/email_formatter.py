@@ -322,10 +322,13 @@ def build_daily_email(
 
     # ── IV CRUSH + JOINT PROBABILITY WARNINGS
     try:
-        import sys as _sys
-        _sys.path.insert(0, str(BASE))
-        from calibration_utils import get_joint_probability_warning
-        from sectors.unified_scorer import check_iv_crush_risk
+        # f-misc-09: replaced ``sys.path.insert(0, str(BASE))`` +
+        # bare ``from calibration_utils ...`` / ``from sectors.unified_scorer ...``
+        # with canonical ``biotech_sniper.*`` absolute imports.
+        from biotech_sniper.calibration_utils import (
+            get_joint_probability_warning,
+        )
+        from biotech_sniper.sectors.unified_scorer import check_iv_crush_risk
         risk_warnings = []
         for ticker, play in active_plays.items():
             iv_pct = play.get('iv_pct')
@@ -347,7 +350,13 @@ def build_daily_email(
 
     # ── CALIBRATION RULES FOOTER
     try:
-        from calibration_utils import format_calibration_summary_for_email
+        # f-misc-09: bare ``from calibration_utils import ...``
+        # only worked because the previous block had inserted
+        # ``BASE`` into ``sys.path``. Use the canonical absolute path
+        # directly.
+        from biotech_sniper.calibration_utils import (
+            format_calibration_summary_for_email,
+        )
         lines.append(format_calibration_summary_for_email())
     except Exception:
         pass
@@ -369,8 +378,11 @@ def build_daily_email(
 
 if __name__ == "__main__":
     # Quick smoke test
-    import sys
-    sys.path.insert(0, str(BASE))
+    # f-misc-09: removed the legacy ``sys.path.insert(0, str(BASE))``
+    # — running this module via ``python -m biotech_sniper.email_formatter``
+    # already places the package on ``sys.path``, so the mutation was
+    # a no-op for the supported entry point and a side-effect for
+    # everyone else.
 
     plays = json.load(open(BASE / "state/active_plays.json"))
     signals = json.load(open(BASE / "intelligence/unified_master_signals.json"))
