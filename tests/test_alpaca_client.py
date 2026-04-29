@@ -687,3 +687,204 @@ def test_get_positions_empty_list_default(make_client):
     trading = _FakeTradingClient(positions=[])
     client = make_client(trading_client=trading)
     assert client.get_positions() == []
+
+
+# ---------------------------------------------------------------------------
+# f-misc-04 (5): AlpacaClient.get_latest_trade — centralized
+# stock latest-trade access so callers (e.g. new_opportunity_sniper)
+# never import alpaca-py directly. Cassette-backed, mirrors the
+# patterns above (account/options-chain/orders): hand-crafted JSON
+# fixture replayed through a duck-typed fake stock-data client.
+# ---------------------------------------------------------------------------
+
+
+class _FakeStockDataClient:
+    """Minimal duck-type substitute for ``StockHistoricalDataClient``.
+
+    Backs :meth:`AlpacaClient.get_latest_trade`. The single method
+    returns a pre-canned ``{ticker: Trade}`` dict (or raises a queued
+    exception) so tests can pin both happy-path and error-path
+    behaviour without a network call.
+    """
+
+    def __init__(
+        self,
+        *,
+        latest_trade_response: Any = None,
+        errors: Any = None,
+    ):
+        self.latest_trade_response = latest_trade_response
+        self._errors = errors or {}
+        self.calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
+
+    def get_stock_latest_trade(self, request: Any) -> Any:
+        self.calls.append(("get_stock_latest_trade", (request,), {}))
+        if "get_stock_latest_trade" in self._errors:
+            raise self._errors["get_stock_latest_trade"]
+        return self.latest_trade_response
+
+
+def _make_client_with_stocks(
+    *,
+    stock_data_client: Any,
+    trading_client: Any = None,
+    option_data_client: Any = None,
+) -> AlpacaClient:
+    """Build an AlpacaClient with all three SDK doubles wired.
+
+    Mirrors the ``make_client`` fixture but forwards the stock client
+    explicitly so :meth:`get_latest_trade` can be exercised hermetic.
+    """
+    return AlpacaClient(
+        api_key="AKTEST_KEY_ID_VISIBLE_FOR_LEAK_CHECK",
+        secret_key="SK_TEST_SECRET_VISIBLE_FOR_LEAK_CHECK_XYZ",
+        base_url=PAPER_BASE_URL,
+        trading_client=trading_client or _FakeTradingClient(),
+        option_data_client=option_data_client or _FakeOptionsDataClient(),
+        stock_data_client=stock_data_client,
+    )
+
+
+def test_get_latest_trade_returns_price_from_cassette(paper_env):
+    """Happy path: cassette → trade dict → positive float price."""
+    cassette = _load_cassette("stock_latest_trade_success.json")
+    stocks = _FakeStockDataClient(latest_trade_response=cassette["result"])
+    client = _make_client_with_stocks(stock_data_client=stocks)
+
+    price = client.get_latest_trade("AAPL")
+
+    assert isinstance(price, float)
+    assert price == 192.50
+    # Exactly one SDK call was made.
+    assert [call[0] for call in stocks.calls] == ["get_stock_latest_trade"]
+
+
+def test_get_latest_trade_returns_none_for_empty_ticker(paper_env):
+    """``get_latest_trade('')`` short-circuits to ``None`` without an API call."""
+    stocks = _FakeStockDataClient(latest_trade_response={})
+    client = _make_client_with_stocks(stock_data_client=stocks)
+
+    assert client.get_latest_trade("") is None
+    # No SDK call issued for the empty ticker.
+    assert stocks.calls == []
+
+
+def test_get_latest_trade_returns_none_when_response_missing_ticker(paper_env):
+    """Response with no entry for the ticker must yield ``None``, not raise."""
+    stocks = _FakeStockDataClient(latest_trade_response={"OTHER": {"price": 9.99}})
+    client = _make_client_with_stocks(stock_data_client=stocks)
+
+    assert client.get_latest_trade("AAPL") is None
+
+
+def test_get_latest_trade_returns_none_for_zero_or_negative_price(paper_env):
+    """Defensive: zero or negative quotes must be treated as missing."""
+    stocks = _FakeStockDataClient(
+        latest_trade_response={"AAPL": {"symbol": "AAPL", "price": 0}}
+    )
+    client = _make_client_with_stocks(stock_data_client=stocks)
+    assert client.get_latest_trade("AAPL") is None
+
+    stocks_neg = _FakeStockDataClient(
+        latest_trade_response={"AAPL": {"symbol": "AAPL", "price": -1.5}}
+    )
+    client_neg = _make_client_with_stocks(stock_data_client=stocks_neg)
+    assert client_neg.get_latest_trade("AAPL") is None
+
+
+def test_get_latest_trade_raises_auth_when_no_stock_client(monkeypatch):
+    """Without a configured stock-data client, the wrapper raises AuthError.
+
+    Reproduces the production guarantee that calling
+    :meth:`get_latest_trade` on a wrapper built with only trading +
+    options doubles surfaces a typed :class:`AlpacaAuthError` instead
+    of an attribute-error / silent ``None``.
+    """
+    # paper_env-equivalent setup but explicitly drop creds so the
+    # constructor's missing-creds branch picks the ``_stocks=None``
+    # path (injected_doubles tolerates the missing creds because
+    # both trading + options doubles are present).
+    monkeypatch.setenv("ALPACA_BASE_URL", PAPER_BASE_URL)
+    monkeypatch.setenv("LIVE_MODE", "0")
+    monkeypatch.setattr(ac.config, "LIVE_MODE", False)
+    monkeypatch.setattr(ac.config, "get_alpaca_key_id", lambda: None)
+    monkeypatch.setattr(ac.config, "get_alpaca_secret_key", lambda: None)
+    monkeypatch.setattr(ac.config, "get_alpaca_base_url", lambda: PAPER_BASE_URL)
+
+    client = AlpacaClient(
+        api_key=None,
+        secret_key=None,
+        base_url=PAPER_BASE_URL,
+        trading_client=_FakeTradingClient(),
+        option_data_client=_FakeOptionsDataClient(),
+    )
+
+    with pytest.raises(AlpacaAuthError, match="get_latest_trade"):
+        client.get_latest_trade("AAPL")
+
+
+def test_get_latest_trade_classifies_401_as_auth_error(paper_env):
+    """API 401 from the stock data plane → :class:`AlpacaAuthError`."""
+    err = _make_fake_api_error(401, "unauthorized")
+    stocks = _FakeStockDataClient(errors={"get_stock_latest_trade": err})
+    client = _make_client_with_stocks(stock_data_client=stocks)
+
+    with pytest.raises(AlpacaAuthError):
+        client.get_latest_trade("AAPL")
+
+
+def test_get_latest_trade_classifies_503_as_transport_error(paper_env):
+    """API 5xx from the stock data plane → :class:`AlpacaTransportError`."""
+    err = _make_fake_api_error(503, "service unavailable")
+    stocks = _FakeStockDataClient(errors={"get_stock_latest_trade": err})
+    client = _make_client_with_stocks(stock_data_client=stocks)
+
+    with pytest.raises(AlpacaTransportError):
+        client.get_latest_trade("AAPL")
+
+
+def test_get_latest_trade_handles_pydantic_like_attribute_access(paper_env):
+    """Accept attribute-style trade objects (real SDK shape), not just dicts."""
+
+    class _PydanticishTrade:
+        symbol = "AAPL"
+        price = 199.99
+
+    class _PydanticishResponse:
+        AAPL = _PydanticishTrade()
+
+    stocks = _FakeStockDataClient(latest_trade_response=_PydanticishResponse())
+    client = _make_client_with_stocks(stock_data_client=stocks)
+
+    price = client.get_latest_trade("AAPL")
+    assert price == 199.99
+
+
+def test_module_does_not_import_stock_client_outside_alpaca_client():
+    """Boundary check: only ``alpaca_client.py`` imports the alpaca-py SDK.
+
+    The module docstring states that ``alpaca-py is only imported in
+    alpaca_client.py``. f-misc-04 (5) re-asserts that boundary by
+    moving the stock-latest-trade lookup off ``new_opportunity_sniper``
+    and into :meth:`AlpacaClient.get_latest_trade`. This regression
+    test fails if any future patch re-introduces a direct
+    ``alpaca.data.historical.stock`` / ``alpaca.data.requests`` import
+    in ``new_opportunity_sniper.py``.
+    """
+    sniper_path = (
+        Path(ac.__file__).parent / "new_opportunity_sniper.py"
+    )
+    src = sniper_path.read_text(encoding="utf-8")
+    assert "from alpaca.data.historical.stock" not in src, (
+        "new_opportunity_sniper.py must not import alpaca-py directly; "
+        "use AlpacaClient.get_latest_trade instead."
+    )
+    assert "StockLatestTradeRequest" not in src, (
+        "new_opportunity_sniper.py must not reference alpaca-py request "
+        "types directly; route latest-trade calls through "
+        "AlpacaClient.get_latest_trade."
+    )
+    assert "AlpacaClient" in src and "get_latest_trade" in src, (
+        "new_opportunity_sniper.py must delegate to "
+        "AlpacaClient.get_latest_trade for underlying-price lookups."
+    )

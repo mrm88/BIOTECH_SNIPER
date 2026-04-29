@@ -146,7 +146,7 @@ def _save_seen_accessions(seen: set) -> None:
     # Trim to last 5 000 to prevent unbounded growth
     trimmed = sorted(seen)[-5000:]
     with open(SEEN_ACCESSIONS, "w") as f:
-        json.dump({"accessions": trimmed, "updated": datetime.datetime.utcnow().isoformat()}, f, indent=2)
+        json.dump({"accessions": trimmed, "updated": datetime.datetime.now(datetime.timezone.utc).isoformat()}, f, indent=2)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -273,7 +273,7 @@ def scan_new_8ks(tickers: list, since_hours: int = 24) -> list:
     results: list = []
     new_accessions: set = set()
 
-    cutoff_dt = datetime.datetime.utcnow() - datetime.timedelta(hours=since_hours)
+    cutoff_dt = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=since_hours)
     cutoff_date = cutoff_dt.strftime("%Y-%m-%d")
 
     # ── Step 1: Scan SEC 8-K RSS feed ────────────────────────────────────
@@ -807,7 +807,7 @@ def run_hourly_news_scan(tickers: list) -> dict:
         summary:             human-readable summary string,
       }
     """
-    run_ts = datetime.datetime.utcnow().isoformat()
+    run_ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
     log.info(f"=== HOURLY NEWS SCAN — {run_ts} | {len(tickers)} tickers ===")
 
     # ── 1. Scan 8-Ks ─────────────────────────────────────────────────────
@@ -1057,7 +1057,7 @@ def format_news_alert_email(alerts: list) -> str:
             "No high-signal events detected in this scan.\n"
         )
 
-    now_str  = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    now_str  = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     tier1_8k = [a for a in alerts if a["type"] == "8K_HIGH_SIGNAL" and a.get("signal_tier") == "TIER_1"]
     tier1_nw = [a for a in alerts if a["type"] == "NEWS_HIGH_SIGNAL" and a.get("signal_tier") == "TIER_1"]
     tier2    = [a for a in alerts if a.get("signal_tier") == "TIER_2"]

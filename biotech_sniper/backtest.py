@@ -466,8 +466,8 @@ def run_backtest(
     a backtest report. Returns a :class:`BacktestResult`.
 
     ``now`` is exposed for tests; the production CLI uses
-    :meth:`datetime.utcnow` so the calibration backup carries a stable
-    UTC timestamp.
+    :func:`datetime.datetime.now` with :data:`datetime.timezone.utc` so
+    the calibration backup carries a stable UTC timestamp.
     """
 
     if to < frm:

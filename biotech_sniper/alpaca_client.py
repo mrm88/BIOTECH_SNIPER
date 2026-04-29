@@ -70,7 +70,8 @@ from typing import Any, Optional
 
 from alpaca.common.exceptions import APIError
 from alpaca.data.historical.option import OptionHistoricalDataClient
-from alpaca.data.requests import OptionChainRequest
+from alpaca.data.historical.stock import StockHistoricalDataClient
+from alpaca.data.requests import OptionChainRequest, StockLatestTradeRequest
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import (
     GetOptionContractsRequest,
@@ -442,6 +443,12 @@ class AlpacaClient:
         Optional pre-built
         :class:`alpaca.data.historical.option.OptionHistoricalDataClient`
         (or duck-typed substitute exposing ``get_option_chain``).
+    stock_data_client:
+        Optional pre-built
+        :class:`alpaca.data.historical.stock.StockHistoricalDataClient`
+        (or duck-typed substitute exposing ``get_stock_latest_trade``).
+        Backs :meth:`get_latest_trade`. Tests inject a fake; production
+        callers leave this ``None``.
     """
 
     def __init__(
@@ -452,6 +459,7 @@ class AlpacaClient:
         base_url: Optional[str] = None,
         trading_client: Optional[Any] = None,
         option_data_client: Optional[Any] = None,
+        stock_data_client: Optional[Any] = None,
     ) -> None:
         resolved_key = (
             api_key if api_key is not None else config.get_alpaca_key_id()
@@ -520,6 +528,24 @@ class AlpacaClient:
                 api_key=resolved_key,
                 secret_key=resolved_secret,
             )
+
+        # f-misc-04 (5): centralize stock latest-trade access here so
+        # ``new_opportunity_sniper`` (and anything else that needs an
+        # underlying-price quote) does not import alpaca-py directly,
+        # respecting the module-docstring boundary that "alpaca-py is
+        # only imported in alpaca_client.py".
+        if stock_data_client is not None:
+            self._stocks = stock_data_client
+        elif resolved_key and resolved_secret:
+            self._stocks = StockHistoricalDataClient(
+                api_key=resolved_key,
+                secret_key=resolved_secret,
+            )
+        else:
+            # Tests with injected trading + options doubles may omit
+            # stock creds; calls into ``get_latest_trade`` will raise
+            # AlpacaAuthError when the stock client is missing.
+            self._stocks = None
 
         # DEBUG-level redacted construction trace. Keys are redacted
         # to the literal "***" so the file is greppable for redaction
@@ -701,3 +727,83 @@ class AlpacaClient:
             raise _classify_api_error(exc) from exc
 
         logger.debug("alpaca.cancel_order ok id=%s", order_id)
+
+    # ------------------------------------------------------------------
+    # Stock latest-trade quote
+    # ------------------------------------------------------------------
+
+    def get_latest_trade(self, ticker: str) -> Optional[float]:
+        """Return the latest trade price for an underlying equity.
+
+        Best-effort accessor backed by alpaca-py's
+        :class:`StockHistoricalDataClient.get_stock_latest_trade`.
+        Returns ``None`` when:
+
+        * ``ticker`` is empty.
+        * The stock-data client is not configured (e.g. tests built
+          the wrapper with only trading + options doubles).
+        * Alpaca returns no trade for the ticker.
+        * The returned price is missing or non-positive.
+
+        This helper is the single canonical entry point for
+        underlying-price lookups so the alpaca-py boundary stated in
+        this module's docstring (``"alpaca-py is only imported in
+        alpaca_client.py"``) is preserved. Callers that need a price
+        delegate here instead of pulling
+        :class:`StockHistoricalDataClient` themselves.
+
+        Auth and transport failures are classified through the typed
+        exception hierarchy (:class:`AlpacaAuthError` /
+        :class:`AlpacaTransportError`) so they bubble up the same way
+        as the other public methods.
+        """
+        if not ticker:
+            return None
+        if self._stocks is None:
+            raise AlpacaAuthError(
+                "AlpacaClient.get_latest_trade requires stock data "
+                "client configuration (ALPACA_KEY_ID / ALPACA_SECRET_KEY "
+                "or an injected stock_data_client double)."
+            )
+
+        try:
+            resp = self._stocks.get_stock_latest_trade(
+                StockLatestTradeRequest(symbol_or_symbols=ticker)
+            )
+        except APIError as exc:
+            raise _classify_api_error(exc) from exc
+        except Exception as exc:
+            raise _classify_api_error(exc) from exc
+
+        # Alpaca returns ``{symbol: Trade}``. Tests / cassettes inject
+        # plain dicts; real SDK returns pydantic models with attribute
+        # access. ``_attr`` handles both. We also defend against a
+        # ``None``/empty response so the wrapper is safe to call on a
+        # ticker that has never traded.
+        trade = None
+        if isinstance(resp, dict):
+            trade = resp.get(ticker) or resp.get(ticker.upper())
+        else:
+            trade = _attr(resp, ticker) or _attr(resp, ticker.upper())
+        if trade is None:
+            logger.debug(
+                "alpaca.get_latest_trade ticker=%s no trade in response",
+                ticker,
+            )
+            return None
+
+        price = _maybe_float(_attr(trade, "price"))
+        if price is None or price <= 0:
+            logger.debug(
+                "alpaca.get_latest_trade ticker=%s invalid price=%r",
+                ticker,
+                price,
+            )
+            return None
+
+        logger.debug(
+            "alpaca.get_latest_trade ticker=%s price=%s",
+            ticker,
+            price,
+        )
+        return price

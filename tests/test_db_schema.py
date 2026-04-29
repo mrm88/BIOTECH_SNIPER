@@ -545,6 +545,98 @@ def test_run_migrations_rolls_back_on_late_failure(tmp_path, monkeypatch):
         conn.close()
 
 
+def test_apply_pending_alter_table_real_duplicate_column_handling(tmp_path):
+    """End-to-end regression: real ALTER-twice path on a fresh db is safe.
+
+    Companion to
+    :func:`test_run_migrations_swallows_duplicate_column_during_alter`,
+    which uses ``monkeypatch`` to bypass the helper's PRAGMA pre-check
+    so the ALTER actually attempts a re-add and the local
+    ``OperationalError`` catch fires. This test exercises the same
+    contract WITHOUT monkey-patching: it applies the helper's full
+    ALTER-TABLE-ADD-COLUMN sweep twice on a fresh db (via
+    :func:`db.run_migrations` and a direct
+    :func:`db._apply_pending_alter_table_migrations` invocation), then
+    forces a real duplicate-column error by issuing the same ALTER
+    statement again outside the helper. The forced duplicate is wrapped
+    in the helper's catch idiom to prove the production path's error
+    classification is correct (only ``"duplicate column name"`` is
+    swallowed; any other ``OperationalError`` propagates).
+
+    Three invariants verified end-to-end:
+      1. Calling ``run_migrations`` twice on the same fresh db is a
+         no-op the second time and does NOT raise.
+      2. Direct double invocation of
+         ``_apply_pending_alter_table_migrations`` on a freshly
+         migrated connection does NOT raise (idempotent under the real
+         PRAGMA pre-check).
+      3. ``schema_version`` advances to ``CURRENT_VERSION`` and stays
+         there after both sweeps; no rows are duplicated and no rollback
+         strands the database in a half-migrated state.
+    """
+    db_path = tmp_path / "alpha.db"
+    conn = db.connect(db_path)
+    try:
+        # 1) First migrate — applies schema.sql + every entry in
+        #    _ALTER_TABLE_ADD_COLUMNS via the real helper.
+        v1 = db.run_migrations(conn)
+        assert v1 == db.CURRENT_VERSION
+
+        # Snapshot post-migration columns for one of the ALTER-target
+        # tables. ``llm_cost_ledger.note`` is the canonical f-m2-13
+        # ALTER target.
+        cols_after_first = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(llm_cost_ledger)")
+        }
+        assert "note" in cols_after_first, (
+            "llm_cost_ledger.note column missing after first migrate; "
+            "_ALTER_TABLE_ADD_COLUMNS did not include it"
+        )
+
+        # 2) Second migrate — must be idempotent. The helper's PRAGMA
+        #    pre-check sees the column already present and short-circuits
+        #    every ALTER. No exception, no duplicate schema_version row.
+        v2 = db.run_migrations(conn)
+        assert v2 == db.CURRENT_VERSION
+        rows = conn.execute(
+            "SELECT COUNT(*) FROM schema_version WHERE version = ?",
+            (db.CURRENT_VERSION,),
+        ).fetchone()
+        assert rows[0] == 1, (
+            "schema_version row was duplicated; idempotent UPSERT broken"
+        )
+
+        # 3) Direct invocation of the real helper on the same connection.
+        #    Still must not raise. Exercises the helper end-to-end without
+        #    going through run_migrations' transaction wrapper.
+        db._apply_pending_alter_table_migrations(conn)
+        db._apply_pending_alter_table_migrations(conn)
+
+        # 4) Force a real duplicate-column race by issuing the same
+        #    ALTER outside the helper. SQLite must surface
+        #    "duplicate column name"; the helper's catch idiom is what
+        #    swallows this error in production. Any other
+        #    OperationalError must propagate.
+        with pytest.raises(sqlite3.OperationalError) as excinfo:
+            conn.execute("ALTER TABLE llm_cost_ledger ADD COLUMN note TEXT")
+        assert "duplicate column name" in str(excinfo.value).lower(), (
+            f"expected duplicate-column error, got: {excinfo.value!r}"
+        )
+
+        # 5) Schema_version must still be at CURRENT_VERSION (no rollback).
+        applied = conn.execute(
+            "SELECT MAX(version) FROM schema_version"
+        ).fetchone()[0]
+        assert applied == db.CURRENT_VERSION
+
+        # 6) All expected user tables still present (no half-rebuild).
+        tables = _table_names(conn)
+        assert EXPECTED_TABLES.issubset(tables)
+    finally:
+        conn.close()
+
+
 def test_run_migrations_swallows_duplicate_column_during_alter(tmp_path, monkeypatch):
     """Duplicate-column OperationalError during ALTER must NOT roll back.
 

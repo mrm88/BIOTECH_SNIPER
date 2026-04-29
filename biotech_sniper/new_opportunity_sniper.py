@@ -157,43 +157,35 @@ def validate_ticker(ticker: str) -> dict:
 
 
 def _resolve_underlying_price(ticker: str) -> Optional[float]:
-    """Best-effort underlying-price lookup using the Alpaca SDK.
+    """Best-effort underlying-price lookup via :class:`AlpacaClient`.
 
     Added by f-m3-13 as the explicit fallback when
     :func:`validate_ticker` returns ``price=None`` (the new default
-    after the f-m3-02 market-data vendor swap). The lookup is
-    best-effort: any failure (no SDK, no creds, network error)
-    returns ``None`` so the caller can decide whether to skip-with-WARN
-    or proceed with a different sizing path. Never raises.
+    after the f-m3-02 market-data vendor swap).
+
+    f-misc-04 (5): the alpaca-py SDK is intentionally imported only
+    inside :mod:`biotech_sniper.alpaca_client` (per that module's
+    docstring boundary). This helper now delegates to
+    :meth:`AlpacaClient.get_latest_trade` so the centralized wrapper
+    owns every Alpaca call. The earlier inline ``StockHistoricalDataClient``
+    import broke that invariant and left two parallel
+    construction/auth code paths in the project; one canonical path is
+    easier to reason about and to test.
+
+    The lookup remains best-effort: any failure (no SDK, no creds,
+    network error, missing trade) returns ``None`` so the caller can
+    decide whether to skip-with-WARN or proceed with a different
+    sizing path. Never raises.
     """
     if not ticker:
         return None
     try:
-        # Local import: keeps the new_opportunity_sniper import-cheap
-        # on hosts without alpaca-py creds (e.g. CI smoke gate).
-        from alpaca.data.historical.stock import StockHistoricalDataClient
-        from alpaca.data.requests import StockLatestTradeRequest
+        # Local import keeps this module import-cheap on hosts that
+        # never need a price quote (e.g. CI smoke gate).
+        from biotech_sniper.alpaca_client import AlpacaClient
 
-        from biotech_sniper import config
-
-        api_key = config.get_alpaca_key_id()
-        secret_key = config.get_alpaca_secret_key()
-        if not api_key or not secret_key:
-            return None
-        client = StockHistoricalDataClient(api_key=api_key, secret_key=secret_key)
-        resp = client.get_stock_latest_trade(
-            StockLatestTradeRequest(symbol_or_symbols=ticker)
-        )
-        trade = resp.get(ticker) if isinstance(resp, dict) else None
-        if trade is None:
-            return None
-        raw_price = getattr(trade, "price", None)
-        if raw_price is None:
-            return None
-        price = float(raw_price)
-        if price <= 0:
-            return None
-        return price
+        client = AlpacaClient()
+        return client.get_latest_trade(ticker)
     except Exception:
         return None
 

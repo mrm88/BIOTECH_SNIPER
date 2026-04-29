@@ -205,7 +205,7 @@ def run_debate(
         if audit_path is not None
         else BASE_DIR / "state" / "audit_latest.json"
     )
-    today_date = today or datetime.datetime.utcnow().date()
+    today_date = today or datetime.datetime.now(datetime.timezone.utc).date()
 
     target_db.parent.mkdir(parents=True, exist_ok=True)
     conn = db.connect(target_db)
@@ -520,7 +520,7 @@ def _record_short_circuit(
         "count": new_count,
         "last_ticker": ticker,
         "last_scoring_cache_id": int(scoring_cache_id),
-        "recorded_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "recorded_at": datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z",
     }
 
     tmp = audit_path.with_suffix(audit_path.suffix + ".tmp")

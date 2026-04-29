@@ -1,0 +1,17 @@
+{
+  "comment": "Hand-crafted cassette mimicking a 200 response from /v2/stocks/{symbol}/trades/latest on the Alpaca data sandbox. The wrapped object emulates the {symbol: Trade} shape returned by alpaca-py's StockHistoricalDataClient.get_stock_latest_trade. No real market data here.",
+  "type": "result",
+  "ticker": "AAPL",
+  "result": {
+    "AAPL": {
+      "symbol": "AAPL",
+      "timestamp": "2026-04-27T13:30:00.000000Z",
+      "exchange": "NASDAQ",
+      "price": 192.50,
+      "size": 100,
+      "id": 9876543210,
+      "tape": "C",
+      "conditions": ["@"]
+    }
+  }
+}
