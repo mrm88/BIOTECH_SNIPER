@@ -1,0 +1,9 @@
+{
+  "cik": "1318605",
+  "entityType": "operating",
+  "sic": "3711",
+  "sicDescription": "MOTOR VEHICLES & PASSENGER CAR BODIES",
+  "name": "Tesla, Inc.",
+  "tickers": ["TSLA"],
+  "exchanges": ["Nasdaq"]
+}

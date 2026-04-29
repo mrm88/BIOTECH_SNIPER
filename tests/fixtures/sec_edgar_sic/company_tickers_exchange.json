@@ -1,0 +1,12 @@
+{
+  "fields": ["cik", "name", "ticker", "exchange"],
+  "data": [
+    [320193, "Apple Inc.", "AAPL", "Nasdaq"],
+    [875320, "VERTEX PHARMACEUTICALS INC / MA", "VRTX", "Nasdaq"],
+    [1318605, "Tesla, Inc.", "TSLA", "Nasdaq"],
+    [1657312, "IDEAYA Biosciences, Inc.", "IDYA", "Nasdaq"],
+    [1689548, "Novavax, Inc.", "NVAX", "Nasdaq"],
+    [1672619, "Axsome Therapeutics, Inc.", "AXSM", "Nasdaq"],
+    [1739410, "X5XX Test Co", "X5XX", "Nasdaq"]
+  ]
+}
