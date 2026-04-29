@@ -47,31 +47,25 @@ TIER_INTERVALS = {
 NEW_TICKER_BATCH_SIZE = 50  # process new tickers in batches of this size
 
 # ---------------------------------------------------------------------------
-# Import pipeline functions (lazy-safe)
+# Import pipeline functions
 # ---------------------------------------------------------------------------
-try:
-    from biotech_sniper.intelligence.company_pipeline_manager import (
-        run_pipeline_batch,
-        load_pipeline_state,
-        save_pipeline_state,
-        get_new_catalyst_discoveries,
-    )
-except ImportError:
-    # Legacy fallback: when the package is not on sys.path (e.g. a
-    # script runs ``intelligence/pipeline_scheduler.py`` directly),
-    # add the repo root and retry. We deliberately do NOT add the
-    # package directory anymore — that pattern made
-    # ``Path(__file__).parent``-style writers leak under
-    # ``<package>/state/`` (the read-only reference tree on the
-    # VPS). See VAL-M2-061.
-    import sys
-    sys.path.insert(0, str(BASE_DIR))
-    from biotech_sniper.intelligence.company_pipeline_manager import (
-        run_pipeline_batch,
-        load_pipeline_state,
-        save_pipeline_state,
-        get_new_catalyst_discoveries,
-    )
+#
+# f-misc-03: previously this block carried a ``try/except ImportError``
+# fallback that performed ``sys.path.insert(0, str(BASE_DIR))`` and
+# retried the (already-absolute) import. The fallback was dead code
+# whenever the package was importable as ``biotech_sniper.*`` (the
+# canonical install path on both the VPS and local clones), and the
+# ``sys.path`` mutation it performed leaked into every subsequent
+# import the interpreter resolved. The fallback has been removed in
+# favour of a single absolute import; if ``biotech_sniper`` is not on
+# ``sys.path`` the resulting ``ModuleNotFoundError`` is the correct
+# signal to fix the caller's environment, not to silently mutate it.
+from biotech_sniper.intelligence.company_pipeline_manager import (
+    run_pipeline_batch,
+    load_pipeline_state,
+    save_pipeline_state,
+    get_new_catalyst_discoveries,
+)
 
 
 # ---------------------------------------------------------------------------

@@ -153,8 +153,13 @@ def resolve_and_register(ticker: str, company_name: str = "",
     Returns the profile dict.
     """
     try:
-        sys.path.insert(0, str(BASE_DIR / "intelligence"))
-        from company_resolver import resolve_company, update_registry_with_company
+        # f-misc-03: legacy ``sys.path.insert`` + bare-namespace
+        # ``from company_resolver import ...`` replaced with a
+        # canonical absolute import.
+        from biotech_sniper.intelligence.company_resolver import (
+            resolve_company,
+            update_registry_with_company,
+        )
         profile = resolve_company(
             ticker=ticker,
             company_name=company_name,
@@ -1159,8 +1164,13 @@ def discover_adcom_rss(state: dict, registry: dict, active_plays: dict) -> list:
 
         # Import drug-ticker map from adcom_scanner
         try:
-            sys.path.insert(0, str(BASE_DIR / "sectors/adcom"))
-            from adcom_scanner import build_drug_ticker_map
+            # f-misc-03: replaced sys.path.insert + bare-namespace
+            # ``from adcom_scanner import ...`` with the canonical
+            # ``biotech_sniper.sectors.adcom.adcom_scanner`` absolute
+            # import.
+            from biotech_sniper.sectors.adcom.adcom_scanner import (
+                build_drug_ticker_map,
+            )
             drug_map = build_drug_ticker_map()
         except Exception as e:
             print(f"  [adcom_rss] Could not load drug_ticker_map: {e}")
@@ -1335,8 +1345,12 @@ def discover_adcom_fdatracker(state: dict, registry: dict, active_plays: dict) -
         html = r.text
         # Try to extract company/drug/date combos
         try:
-            sys.path.insert(0, str(BASE_DIR / "sectors/adcom"))
-            from adcom_scanner import build_drug_ticker_map
+            # f-misc-03: replaced sys.path.insert + bare-namespace
+            # ``from adcom_scanner import ...`` with the canonical
+            # absolute import.
+            from biotech_sniper.sectors.adcom.adcom_scanner import (
+                build_drug_ticker_map,
+            )
             drug_map = build_drug_ticker_map()
         except:
             drug_map = {}
@@ -1647,8 +1661,13 @@ def run_discovery() -> dict:
 
     # Source 4: Federal Register FDA notices (always works — JSON API)
     try:
-        sys.path.insert(0, str(BASE_DIR / "sectors/adcom"))
-        from adcom_scanner import fetch_federal_register_adcom, build_drug_ticker_map
+        # f-misc-03: replaced sys.path.insert + bare-namespace
+        # ``from adcom_scanner import ...`` with the canonical
+        # absolute import.
+        from biotech_sniper.sectors.adcom.adcom_scanner import (
+            build_drug_ticker_map,
+            fetch_federal_register_adcom,
+        )
         fed_reg_meetings = fetch_federal_register_adcom()
         drug_map_for_fr  = build_drug_ticker_map()
         seen_adcom_ids   = set(state.get("seen_adcom_ids", []))

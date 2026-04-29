@@ -286,9 +286,16 @@ def run_ir_events_check():
 
     # Step 0: Auto-fix any broken IR URLs before checking
     try:
-        import sys
-        sys.path.insert(0, str(BASE_DIR / "intelligence"))
-        from company_resolver import auto_resolve_missing_ir_urls
+        # f-misc-03: replaced the legacy
+        # ``sys.path.insert(BASE_DIR/'intelligence')`` +
+        # ``from company_resolver import ...`` pattern with a
+        # canonical absolute import. The legacy form mutated
+        # ``sys.path`` for every caller of this function — it was a
+        # holdover from when ``intelligence/`` was a sibling
+        # directory rather than a package.
+        from biotech_sniper.intelligence.company_resolver import (
+            auto_resolve_missing_ir_urls,
+        )
         auto_resolve_missing_ir_urls()
         # Reload registry after fixes
         registry = load_registry()

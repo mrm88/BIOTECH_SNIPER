@@ -27,9 +27,17 @@ def run_all_modules():
     print(f"# BIOTECH SNIPER INTELLIGENCE SUITE — {today}")
     print(f"{'#'*70}")
 
+    # f-misc-03: each module is imported via its canonical
+    # ``biotech_sniper.intelligence.*`` absolute path. The legacy
+    # bare-namespace imports (``from amendment_tracker import ...``)
+    # required a ``sys.path.insert(BASE_DIR/'intelligence')`` to
+    # resolve and have been removed.
+
     # ── MODULE 1: ClinicalTrials.gov Amendment Tracker ───────────────────
     try:
-        from amendment_tracker import run_amendment_check
+        from biotech_sniper.intelligence.amendment_tracker import (
+            run_amendment_check,
+        )
         print("\n[1/4] Running ClinicalTrials.gov amendment tracker...")
         result = run_amendment_check()
         module_results["amendment_tracker"] = result
@@ -41,7 +49,9 @@ def run_all_modules():
 
     # ── MODULE 2: IR Events Calendar Watcher ─────────────────────────────
     try:
-        from ir_events_watcher import run_ir_events_check
+        from biotech_sniper.intelligence.ir_events_watcher import (
+            run_ir_events_check,
+        )
         print("\n[2/4] Running IR events calendar watcher...")
         result = run_ir_events_check()
         module_results["ir_events"] = result
@@ -53,7 +63,7 @@ def run_all_modules():
 
     # ── MODULE 3: SEC 8-K Monitor ─────────────────────────────────────────
     try:
-        from sec_8k_monitor import run_8k_monitor
+        from biotech_sniper.intelligence.sec_8k_monitor import run_8k_monitor
         print("\n[3/4] Running SEC 8-K monitor...")
         result = run_8k_monitor(mode="daily")
         module_results["sec_8k"] = result
@@ -65,7 +75,9 @@ def run_all_modules():
 
     # ── MODULE 4: Twitter Biotech Monitor ────────────────────────────────
     try:
-        from twitter_biotech_monitor import run_twitter_monitor
+        from biotech_sniper.intelligence.twitter_biotech_monitor import (
+            run_twitter_monitor,
+        )
         print("\n[4/4] Running Twitter biotech monitor...")
         result = run_twitter_monitor()
         module_results["twitter"] = result
@@ -144,15 +156,13 @@ def format_email_summary(all_signals, critical, high):
 
     return "\n".join(lines)
 
-if __name__ == "__main__":
-    # Add intelligence dir to path
-    sys.path.insert(0, str(BASE_DIR / "intelligence"))
-    run_all_modules()
-
 def run_all_with_lifecycle():
     """Full run including lifecycle management."""
-    import sys
-    sys.path.insert(0, str(BASE_DIR / "intelligence"))
+    # f-misc-03: legacy ``sys.path.insert(BASE_DIR/'intelligence')``
+    # removed; every sibling import below now uses its canonical
+    # ``biotech_sniper.intelligence.*`` path so callers don't end up
+    # mutating ``sys.path`` simply by exercising the lifecycle entry
+    # point.
 
     # Step 1: Run intelligence modules
     today = datetime.date.today().isoformat()
@@ -165,7 +175,9 @@ def run_all_with_lifecycle():
 
     # Run amendment tracker
     try:
-        from amendment_tracker import run_amendment_check
+        from biotech_sniper.intelligence.amendment_tracker import (
+            run_amendment_check,
+        )
         result = run_amendment_check()
         module_results["amendment"] = result
         all_signals.extend(result.get("signals", []))
@@ -174,7 +186,9 @@ def run_all_with_lifecycle():
 
     # Run IR events watcher
     try:
-        from ir_events_watcher import run_ir_events_check
+        from biotech_sniper.intelligence.ir_events_watcher import (
+            run_ir_events_check,
+        )
         result = run_ir_events_check()
         module_results["ir_events"] = result
         all_signals.extend(result.get("signals", []))
@@ -183,7 +197,7 @@ def run_all_with_lifecycle():
 
     # Run 8-K monitor
     try:
-        from sec_8k_monitor import run_8k_monitor
+        from biotech_sniper.intelligence.sec_8k_monitor import run_8k_monitor
         result = run_8k_monitor(mode="daily")
         module_results["sec_8k"] = result
         all_signals.extend(result.get("signals", []))
@@ -192,7 +206,9 @@ def run_all_with_lifecycle():
 
     # Run Twitter monitor
     try:
-        from twitter_biotech_monitor import run_twitter_monitor
+        from biotech_sniper.intelligence.twitter_biotech_monitor import (
+            run_twitter_monitor,
+        )
         result = run_twitter_monitor()
         module_results["twitter"] = result
         all_signals.extend(result.get("signals", []))
@@ -201,7 +217,9 @@ def run_all_with_lifecycle():
 
     # Step 2: Run lifecycle manager with signal inputs
     try:
-        from watchlist_lifecycle import run_lifecycle_check
+        from biotech_sniper.intelligence.watchlist_lifecycle import (
+            run_lifecycle_check,
+        )
         lifecycle = run_lifecycle_check(
             sec_8k_report=module_results.get("sec_8k"),
             ir_events_report=module_results.get("ir_events")
@@ -237,7 +255,10 @@ def run_all_with_lifecycle():
 
     return master
 
+
 if __name__ == "__main__":
-    import sys
-    sys.path.insert(0, str(BASE_DIR / "intelligence"))
+    # f-misc-03: legacy ``sys.path.insert(BASE_DIR/'intelligence')``
+    # removed; the module now relies on canonical absolute imports for
+    # every sibling intelligence module. Preserves prior CLI behaviour:
+    # the lifecycle-aware variant is the canonical entry point.
     run_all_with_lifecycle()

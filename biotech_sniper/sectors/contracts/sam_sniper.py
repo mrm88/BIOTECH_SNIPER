@@ -22,13 +22,47 @@ Signal tiers:
 """
 
 import json
+import logging
 import requests
 import datetime
 import re
 from pathlib import Path
 
 from biotech_sniper.paths import BASE_DIR
-TICKER_MAP_FILE      = BASE_DIR / "sectors/contracts/company_ticker_map.json"
+
+log = logging.getLogger(__name__)
+
+
+# f-misc-03: ``BIOTECH_SNIPER_HOME`` (the value that drives
+# :data:`BASE_DIR`) varies by deploy: on the VPS it points at the repo
+# root (``/root/alpha_sniper/repo``) so ``BASE_DIR/sectors/...``
+# resolves correctly, but on local clones (and inside hermetic test
+# fixtures) it points at the package parent so the runtime asset
+# lives under ``BASE_DIR/biotech_sniper/sectors/...``. Mirror the
+# candidate-path approach added to ``audit.py`` in f-m2-07: try every
+# plausible layout and warn-but-continue if none is present rather
+# than letting a ``FileNotFoundError`` blow up the entire scan.
+TICKER_MAP_CANDIDATES = (
+    BASE_DIR / "biotech_sniper/sectors/contracts/company_ticker_map.json",
+    BASE_DIR / "sectors/contracts/company_ticker_map.json",
+)
+
+
+def _resolve_ticker_map_path() -> Path:
+    """Return the first existing ``company_ticker_map.json`` candidate.
+
+    Falls back to the first candidate when none of the paths exist so
+    callers using ``open(...)`` raise the canonical ``FileNotFoundError``
+    against a path that mirrors the canonical layout (matters for
+    error-message readability).
+    """
+    for candidate in TICKER_MAP_CANDIDATES:
+        if candidate.is_file():
+            return candidate
+    return TICKER_MAP_CANDIDATES[0]
+
+
+TICKER_MAP_FILE      = _resolve_ticker_map_path()
 CONTRACTS_STATE_FILE = BASE_DIR / "state/contracts_state.json"
 CONTRACTS_OUTPUT     = BASE_DIR / "sectors/contracts/contracts_report.json"
 
@@ -36,8 +70,25 @@ HEADERS = {"User-Agent": "ContractSniperBot research@mantisvc.com"}
 USA_SPENDING_BASE = "https://api.usaspending.gov/api/v2"
 
 
-def load_ticker_map():
-    with open(TICKER_MAP_FILE) as f:
+def load_ticker_map() -> dict:
+    """Load ``company_ticker_map.json`` with graceful fallback.
+
+    f-misc-03: if no candidate path exists (e.g. fresh checkout where
+    the asset has not yet been seeded into the active tree, or
+    hermetic test environments without sandbox state), log a warning
+    and return an empty ticker map. Callers downstream interpret an
+    empty ``companies`` block as "no tickers tracked" and short-circuit
+    cleanly to a zero-match response.
+    """
+    path = _resolve_ticker_map_path()
+    if not path.is_file():
+        log.warning(
+            "company_ticker_map.json not found in any candidate path "
+            "(searched: %s); returning empty ticker map",
+            [str(p) for p in TICKER_MAP_CANDIDATES],
+        )
+        return {"companies": {}}
+    with open(path) as f:
         return json.load(f)
 
 def load_state():

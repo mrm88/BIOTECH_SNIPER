@@ -77,14 +77,13 @@ EVENT_TYPE_EARNINGS = "EARNINGS"
 try:
     from biotech_sniper.intelligence.bulk_universe_scanner import PDUFA_CALENDAR
 except ImportError:
-    try:
-        import sys
-        sys.path.insert(0, str(BASE_DIR))
-        from biotech_sniper.intelligence.bulk_universe_scanner import (
-            PDUFA_CALENDAR,
-        )
-    except ImportError:
-        PDUFA_CALENDAR = {}
+    # f-misc-03: previously a nested ``sys.path.insert`` retried the
+    # (already-absolute) import here. The fallback was dead code
+    # whenever the package was importable as ``biotech_sniper.*`` and
+    # the ``sys.path`` mutation leaked into the wider interpreter, so
+    # the legacy fallback has been removed in favour of an empty
+    # default.
+    PDUFA_CALENDAR = {}
 
 # ---------------------------------------------------------------------------
 # Helpers: HTTP
