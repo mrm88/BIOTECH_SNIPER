@@ -5,7 +5,7 @@ Assembles the final daily email body from all components.
 All text is dynamic. Nothing hardcoded. Called by the daily cron.
 
 Usage:
-    from email_formatter import build_daily_email, build_subject_line
+    from biotech_sniper.email_formatter import build_daily_email, build_subject_line
 """
 
 import datetime
@@ -156,7 +156,7 @@ def build_daily_email(
     lines.append(f"  {'TICKER':<7} {'DAYS':>4}  {'P%':>4}  DIRECTION          ANNOUNCEMENT")
     lines.append(f"  {'──────':<7} {'────':>4}  {'──':>4}  ─────────────────  ────────────────────")
 
-    from play_card_formatter import _estimate_days
+    from biotech_sniper.play_card_formatter import _estimate_days
     sorted_plays = sorted(
         active_plays.items(),
         key=lambda x: _estimate_days(x[1])
@@ -200,7 +200,7 @@ def build_daily_email(
     # ── LIVE P&L TRACKER ────────────────────────────────────────────────────
     if tracker_results:
         try:
-            from performance_tracker import format_pnl_table_for_email
+            from biotech_sniper.performance_tracker import format_pnl_table_for_email
             pnl_block = format_pnl_table_for_email(tracker_results)
             if pnl_block:
                 lines.append(pnl_block)
@@ -211,7 +211,7 @@ def build_daily_email(
     # ── RESOLVED TRADES TODAY ────────────────────────────────────────────────
     if resolver_results and resolver_results.get("new_resolutions", 0) > 0:
         try:
-            from auto_resolver import format_resolutions_for_email
+            from biotech_sniper.auto_resolver import format_resolutions_for_email
             res_block = format_resolutions_for_email(resolver_results)
             if res_block:
                 lines.append(res_block)
@@ -222,7 +222,7 @@ def build_daily_email(
     # ── LEARNING ENGINE SUMMARY ──────────────────────────────────────────────
     if learning_results and learning_results.get("n", 0) > 0:
         try:
-            from learning_engine import format_learning_summary_for_email
+            from biotech_sniper.learning_engine import format_learning_summary_for_email
             learn_block = format_learning_summary_for_email(learning_results)
             if learn_block:
                 lines.append(learn_block)

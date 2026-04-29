@@ -313,3 +313,115 @@ def test_tree_wide_guard_covers_f_misc_09_targets() -> None:
         f"f-misc-09 target files are no longer present in the package "
         f"tree: {missing}. Update the guard or the target list."
     )
+
+
+# ---------------------------------------------------------------------------
+# 5) f-misc-14 — email_formatter.py bare-namespace import guard
+# ---------------------------------------------------------------------------
+#
+# Discovered during f-misc-09 (commit c297fa8): four bare-namespace
+# imports inside ``biotech_sniper.email_formatter.build_daily_email``
+# only resolved when an earlier-loaded module had incidentally mutated
+# ``sys.path``:
+#   * ``from play_card_formatter import _estimate_days``
+#   * ``from performance_tracker import format_pnl_table_for_email``
+#   * ``from auto_resolver  import format_resolutions_for_email``
+#   * ``from learning_engine import format_learning_summary_for_email``
+#
+# These are NOT ``sys.path.insert`` call sites (so f-misc-09 was
+# correctly out of scope), but they share the same fragility: they
+# rely on the legacy bare ``biotech_sniper/`` directory being on
+# ``sys.path`` rather than the canonical absolute package path. The
+# guard below AST-walks ``email_formatter.py`` and asserts every
+# ``from <pkg> import ...`` statement starts with either
+# ``biotech_sniper`` or a stdlib top-level module name (relative
+# imports — ``from . import x`` — are allowed and implicitly
+# resolve under the current package).
+
+
+def _bare_namespace_import_lines(
+    module_path: Path, allowed_top_level: frozenset[str]
+) -> list[tuple[int, str]]:
+    """Return ``(lineno, source)`` for each offending ``ImportFrom`` node.
+
+    A node is offending when:
+
+    * It is an absolute import (``level == 0``), AND
+    * Its top-level module segment is not in ``allowed_top_level``
+      (i.e., not ``biotech_sniper`` and not a stdlib module).
+
+    Relative imports (``from . import x``) are allowed because they
+    resolve via the package they live in, not via ``sys.path``.
+    """
+    src = module_path.read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    offending: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        # Relative imports (level > 0) are not bare-namespace risks.
+        if node.level and node.level > 0:
+            continue
+        if node.module is None:
+            continue
+        top_level = node.module.split(".", 1)[0]
+        if top_level in allowed_top_level:
+            continue
+        offending.append((node.lineno, ast.unparse(node)))
+    return offending
+
+
+def test_email_formatter_has_no_bare_namespace_imports() -> None:
+    """``biotech_sniper/email_formatter.py`` carries no bare-namespace
+    ``from <pkg> import ...`` statements outside ``biotech_sniper``
+    or the standard library.
+
+    The four originally-broken sites (``play_card_formatter``,
+    ``performance_tracker``, ``auto_resolver``, ``learning_engine``)
+    have been migrated to canonical ``biotech_sniper.*`` absolute
+    paths in this commit; this guard prevents regressions.
+    """
+    import sys
+
+    import biotech_sniper.email_formatter as ef
+
+    # ``sys.stdlib_module_names`` is a frozenset of every top-level
+    # stdlib module name; available since Python 3.10. The project
+    # pins to 3.10+ (see AGENTS.md), so this is always present.
+    allowed = frozenset({"biotech_sniper"}) | sys.stdlib_module_names
+
+    offending = _bare_namespace_import_lines(Path(ef.__file__), allowed)
+    assert offending == [], (
+        "email_formatter.py contains bare-namespace 'from <pkg> import ...' "
+        "statements that don't begin with 'biotech_sniper' or a stdlib module. "
+        "Convert each to a canonical 'biotech_sniper.*' absolute import. "
+        f"Offenders: {offending}"
+    )
+
+
+def test_email_formatter_build_daily_email_imports_resolve_canonically() -> None:
+    """Smoke-check that ``build_daily_email`` imports cleanly via the
+    canonical package path, with no reliance on a previously-loaded
+    module having mutated ``sys.path``.
+
+    A fresh sub-interpreter import (clearing the four formerly-bare
+    targets from ``sys.modules`` first) confirms the canonical paths
+    are wired correctly even when nothing has front-loaded the bare
+    namespace into the search path.
+    """
+    import importlib
+    import sys as _sys
+
+    for legacy in (
+        "play_card_formatter",
+        "performance_tracker",
+        "auto_resolver",
+        "learning_engine",
+        "biotech_sniper.email_formatter",
+    ):
+        _sys.modules.pop(legacy, None)
+
+    module = importlib.import_module("biotech_sniper.email_formatter")
+    assert hasattr(module, "build_daily_email"), (
+        "build_daily_email must remain exported from email_formatter"
+    )
