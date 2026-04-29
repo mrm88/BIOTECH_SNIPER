@@ -204,6 +204,34 @@ under `tests/fixtures/cassettes/`. No live network calls are made
 during the test suite. Pytest parallelism is capped at `-n 2` to
 respect the VPS's 2-core ceiling.
 
+## Recent post-seal cleanup
+
+After the cross-final seal (commit `e340262`), a series of `f-misc-*`
+milestones landed surgical hardening across the runtime without changing
+any user-facing behaviour. The current head is `38c6b83` on `main`, with
+**1079 tests passing / 4 skipped**.
+
+- **Hermetic runtime.** All `sys.path.insert` sites have been swept from
+  the package (tree-wide AST guard in tests). Live LLM cassette
+  infrastructure is wired for 3 of 4 providers (Gemini parked on user
+  billing) so the suite never touches the network.
+- **Dependency drift fixed.** `urllib3==2.2.3`, `chardet==5.2.0` and
+  `charset-normalizer==3.4.0` are now pinned in `requirements.txt`.
+  `yfinance` is no longer a runtime dependency (guarded for absence).
+  The Gemini SDK `HttpOptions` drift is corrected and `unified_scorer`
+  reports honest `providers_used`.
+- **DATA_DIR boundary hardened.** `biotech_sniper.paths.ensure_data_dir()`
+  is the canonical helper, `db.connect()` centralizes `parent.mkdir`
+  under `DATA_DIR`, and `_ensure_parent_under_data_dir` canonicalizes
+  both sides via `Path.resolve(strict=False)` before the boundary check
+  to defeat `..` / symlink escapes.
+- **Audit module hermetic on import.** `audit.py` no longer makes
+  network calls at import time, tolerates expected provider failures,
+  and stamps `last_daily_run` in UTC. Defensive `mkdir` calls were
+  added to `intraday_scanner.save_log` and the `email_formatter`
+  bare-namespace imports were normalized to canonical `biotech_sniper.*`
+  paths (AST guard).
+
 ## License
 
 Private / unreleased.
