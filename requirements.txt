@@ -8,6 +8,16 @@
 
 # --- HTTP / parsing ---------------------------------------------------------
 requests==2.32.3
+# Transitive deps of `requests` pinned explicitly to silence
+# `RequestsDependencyWarning`. requests 2.32.x runs a per-import
+# `check_compatibility` that asserts:
+#   - urllib3 >= 1.21.1 (no upper bound today, but pinning insulates us)
+#   - chardet in [3.0.2, 6.0.0)        <-- chardet 7.x trips this
+#   - charset_normalizer in [2.0.0, 4.0.0)
+# See f-misc-12-vps-urllib3-chardet-drift in library/environment.md.
+urllib3==2.2.3
+chardet==5.2.0
+charset-normalizer==3.4.0
 feedparser==6.0.11
 beautifulsoup4==4.12.3
 
