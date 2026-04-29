@@ -317,13 +317,74 @@ class GeminiClient:
             # ``timeout`` (in milliseconds) is forwarded via
             # ``http_options`` so the SDK plumbs it through to the
             # underlying ``requests``-based transport.
-            http_options = genai_types.HttpOptions(
-                timeout=int(self._timeout * 1000),
-            )
+            #
+            # We pass the ``HttpOptionsDict`` (plain dict) form rather
+            # than the ``HttpOptions`` dataclass: the dataclass moved
+            # between ``google.genai.types`` and the private
+            # ``google.genai._api_client`` module across SDK versions
+            # (e.g. 0.4.0 only exposes it under the private path),
+            # and importing from a private module would tightly
+            # couple us to one SDK release. The dict form is
+            # documented and accepted across all currently shipping
+            # versions — see ``genai.Client.__init__``'s
+            # ``http_options: HttpOptions | HttpOptionsDict | None``
+            # signature. Dropping this dict (or reaching for the
+            # dataclass) is what triggered the f-misc-05 bug:
+            # ``module 'google.genai.types' has no attribute
+            # 'HttpOptions'`` on every CLI invocation, silently
+            # degrading the ensemble to xai+anthropic only even with
+            # ``GEMINI_API_KEY`` set.
             self._client = genai.Client(
                 api_key=resolved_key,
-                http_options=http_options,
+                http_options={"timeout": int(self._timeout * 1000)},
             )
+
+    # ------------------------------------------------------------------
+    # Construction helpers
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def from_config(
+        cls,
+        *,
+        model: str = DEFAULT_MODEL,
+        db_path: Optional[Path] = None,
+        client: Optional[Any] = None,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        backoff_base: float = DEFAULT_BACKOFF_BASE,
+        timeout: float = DEFAULT_TIMEOUT,
+        max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
+        input_price_per_1k: float = GEMINI_INPUT_USD_PER_1K,
+        output_price_per_1k: float = GEMINI_OUTPUT_USD_PER_1K,
+    ) -> "GeminiClient":
+        """Build a :class:`GeminiClient` using the API key from :mod:`config`.
+
+        Mirrors :meth:`biotech_sniper.llm.ensemble.EnsembleScorer.from_config`
+        so callers (and the f-misc-05 canary test
+        ``tests/test_gemini_client_construction.py``) have a single
+        well-known constructor that does not depend on the caller
+        knowing the exact key-resolution path.
+
+        Raises :class:`GeminiAuthError` when ``GEMINI_API_KEY`` is
+        not configured. Other AttributeError / ImportError raised by
+        SDK drift will propagate — this is intentional, the canary
+        test asserts the call does not raise on the installed
+        google-genai version (so an SDK upgrade that re-breaks
+        construction will fail loudly here instead of silently
+        degrading the ensemble at run time, as observed in f-m2-22).
+        """
+        return cls(
+            api_key=None,
+            model=model,
+            db_path=db_path,
+            client=client,
+            max_retries=max_retries,
+            backoff_base=backoff_base,
+            timeout=timeout,
+            max_output_tokens=max_output_tokens,
+            input_price_per_1k=input_price_per_1k,
+            output_price_per_1k=output_price_per_1k,
+        )
 
     # ------------------------------------------------------------------
     # Public API

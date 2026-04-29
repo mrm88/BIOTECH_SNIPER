@@ -1699,8 +1699,44 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     scorer = _build_scorer(dry_run=args.dry_run)
 
+    # f-misc-05: be honest about deep-tier providers whose client
+    # construction failed. ``_maybe_build_*_client`` (in
+    # :mod:`biotech_sniper.llm.ensemble`) swallows construction
+    # exceptions and returns ``None`` so the pipeline can continue
+    # with whatever is available, but the env-key check above will
+    # still have appended the provider to ``providers_used`` even
+    # when the underlying SDK could not be wired up (the symptom
+    # observed in f-m2-22: every CLI invocation logged
+    # ``module 'google.genai.types' has no attribute 'HttpOptions'``
+    # and yet the summary still claimed ``gemini``). Drop providers
+    # whose scorer client is ``None`` so the JSON summary reflects
+    # what actually has a chance of running.
+    if not args.dry_run:
+        if "anthropic" in providers_used and getattr(scorer, "_claude", None) is None:
+            logger.warning(
+                "dropping deep provider anthropic from providers_used: "
+                "ClaudeClient construction failed (see prior WARNING)"
+            )
+            providers_used = [p for p in providers_used if p != "anthropic"]
+        if "gemini" in providers_used and getattr(scorer, "_gemini", None) is None:
+            logger.warning(
+                "dropping deep provider gemini from providers_used: "
+                "GeminiClient construction failed (see prior WARNING)"
+            )
+            providers_used = [p for p in providers_used if p != "gemini"]
+
     rows_upserted = 0
     tickers_scored: list[str] = []
+    # f-misc-05: track per-provider success across all tickers so we
+    # can drop a deep provider that was constructed but whose every
+    # call failed at runtime (auth error past construction, malformed
+    # JSON exhausted retries, sustained 5xx, etc.).
+    deep_provider_attempts: dict[str, int] = {}
+    deep_provider_successes: dict[str, int] = {}
+    for provider, attr in (("anthropic", "_claude"), ("gemini", "_gemini")):
+        if provider in providers_used and getattr(scorer, attr, None) is not None:
+            deep_provider_attempts[provider] = 0
+            deep_provider_successes[provider] = 0
     providers_label = ",".join(providers_used)
     for ticker in tickers:
         try:
@@ -1730,6 +1766,18 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         tickers_scored.append(ticker)
         rows_upserted += 1
+        # Track per-provider success: ``EnsembleScorer.score`` swallows
+        # individual deep-tier failures, leaving the corresponding
+        # ``*_grade`` field as ``None`` in the result. We treat any
+        # non-None grade as a successful call for that provider.
+        if "anthropic" in deep_provider_attempts:
+            deep_provider_attempts["anthropic"] += 1
+            if result.get("claude_grade") is not None:
+                deep_provider_successes["anthropic"] += 1
+        if "gemini" in deep_provider_attempts:
+            deep_provider_attempts["gemini"] += 1
+            if result.get("gemini_grade") is not None:
+                deep_provider_successes["gemini"] += 1
         ensemble_score = result.get("ensemble_score")
         grade = result.get("science_grade") or "N/A"
         if ensemble_score is None:
@@ -1742,6 +1790,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"[score] {ticker} ensemble={float(ensemble_score):.2f} "
                 f"grade={grade} providers={providers_label}"
             )
+
+    # f-misc-05: drop deep providers that were attempted at least
+    # once and never succeeded. We only act when there was at least
+    # one attempt — when no tickers were scored we have no evidence
+    # either way, so we leave ``providers_used`` alone.
+    for provider, attempts in deep_provider_attempts.items():
+        if attempts > 0 and deep_provider_successes.get(provider, 0) == 0:
+            logger.warning(
+                "dropping deep provider %s from providers_used: "
+                "%d attempt(s), 0 successful score(s) (every call "
+                "failed post-construction)",
+                provider,
+                attempts,
+            )
+            providers_used = [p for p in providers_used if p != provider]
 
     play_cards_written = 0
     if args.emit_play_cards and not args.dry_run:
