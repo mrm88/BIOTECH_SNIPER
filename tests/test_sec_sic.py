@@ -12,8 +12,8 @@ recorded JSON cassettes (no live network). Coverage:
 * User-Agent: every request carries the project UA, never the
   default ``python-requests`` UA.
 * Cache: second invocation hits the SQLite cache (zero new HTTP
-  requests). Schema is correct (ticker PK, sic INTEGER nullable
-  for tombstones, indexes on cik / sic / fetched_at).
+  requests). Schema is correct (cik PK, UNIQUE index on ticker,
+  sic INTEGER nullable for tombstones, indexes on sic / fetched_at).
 * 404 (delisted): returns :data:`None` and writes a tombstone
   row with ``sic IS NULL``.
 * 429 / 5xx: retried with capped exponential backoff (max 3
@@ -212,12 +212,17 @@ def test_ensure_cik_sic_cache_table_creates_expected_schema(db_path: Path):
                 "PRAGMA table_info(cik_sic_cache)"
             ).fetchall()
         }
-        # ticker is the primary key (per feature description) and
-        # NOT NULL; cik is NOT NULL with a UNIQUE index.
+        # Per VAL-M1-012: cik is the PRIMARY KEY (10-digit
+        # zero-padded TEXT); ticker is NOT NULL with a UNIQUE
+        # index. sic INTEGER is nullable to permit 404 tombstones
+        # (per VAL-M1-014).
+        assert "cik" in cols
+        assert cols["cik"][3] == 1  # NOT NULL
+        assert cols["cik"][5] == 1  # PK rank == 1
+        assert cols["cik"][2].upper() == "TEXT"
         assert "ticker" in cols
         assert cols["ticker"][3] == 1  # NOT NULL
-        assert cols["ticker"][5] == 1  # PK rank == 1
-        assert cols["cik"][3] == 1  # NOT NULL
+        assert cols["ticker"][5] == 0  # NOT a PK column
         # sic must be nullable to support tombstones (404 path).
         assert cols["sic"][3] == 0
         assert cols["sic"][2].upper() == "INTEGER"
@@ -231,16 +236,29 @@ def test_ensure_cik_sic_cache_table_creates_expected_schema(db_path: Path):
                 "WHERE type='index' AND tbl_name='cik_sic_cache'"
             ).fetchall()
         }
-        assert "idx_cik_sic_cache_cik" in index_names
+        assert "idx_cik_sic_cache_ticker" in index_names
         # And it's UNIQUE — confirm via PRAGMA.
-        unique_cik = next(
+        unique_ticker = next(
             row
             for row in conn.execute(
                 "PRAGMA index_list(cik_sic_cache)"
             ).fetchall()
-            if row[1] == "idx_cik_sic_cache_cik"
+            if row[1] == "idx_cik_sic_cache_ticker"
         )
-        assert unique_cik[2] == 1  # 'unique' flag
+        assert unique_ticker[2] == 1  # 'unique' flag
+    finally:
+        conn.close()
+
+
+def test_ensure_cik_sic_cache_table_pragma_pk_is_cik(db_path: Path):
+    """PRAGMA table_info reports exactly one PK column == 'cik'."""
+    conn = sqlite3.connect(db_path)
+    try:
+        ensure_cik_sic_cache_table(conn)
+        rows = conn.execute("PRAGMA table_info(cik_sic_cache)").fetchall()
+        pk_rows = [r for r in rows if r[5] >= 1]
+        assert len(pk_rows) == 1
+        assert pk_rows[0][1] == "cik"
     finally:
         conn.close()
 
@@ -250,20 +268,145 @@ def test_ensure_cik_sic_cache_table_is_idempotent(db_path: Path):
     try:
         ensure_cik_sic_cache_table(conn)
         ensure_cik_sic_cache_table(conn)
-        # Insert + duplicate insert: PK protects on ticker.
+        # Insert + duplicate insert: cik PRIMARY KEY rejects the
+        # second insertion of the same CIK (per VAL-M1-012).
         conn.execute(
             "INSERT INTO cik_sic_cache "
-            "(ticker, cik, sic, sic_description, fetched_at) "
+            "(cik, ticker, sic, sic_description, fetched_at) "
             "VALUES (?, ?, ?, ?, ?)",
-            ("VRTX", "0000875320", 2834, "PHARMACEUTICAL", "2026-04-29T00:00:00Z"),
+            ("0000875320", "VRTX", 2834, "PHARMACEUTICAL", "2026-04-29T00:00:00Z"),
         )
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
                 "INSERT INTO cik_sic_cache "
-                "(ticker, cik, sic, sic_description, fetched_at) "
+                "(cik, ticker, sic, sic_description, fetched_at) "
                 "VALUES (?, ?, ?, ?, ?)",
-                ("VRTX", "0000875320", 2834, "PHARMACEUTICAL", "2026-04-29T00:00:01Z"),
+                ("0000875320", "VRTX", 2834, "PHARMACEUTICAL", "2026-04-29T00:00:01Z"),
             )
+    finally:
+        conn.close()
+
+
+def test_ensure_cik_sic_cache_table_unique_ticker_rejects_duplicates(
+    db_path: Path,
+):
+    """The UNIQUE index on ``ticker`` blocks the same ticker mapping
+    to two different CIKs."""
+    conn = sqlite3.connect(db_path)
+    try:
+        ensure_cik_sic_cache_table(conn)
+        conn.execute(
+            "INSERT INTO cik_sic_cache "
+            "(cik, ticker, sic, sic_description, fetched_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("0000875320", "VRTX", 2834, "PHARMACEUTICAL", "2026-04-29T00:00:00Z"),
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO cik_sic_cache "
+                "(cik, ticker, sic, sic_description, fetched_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                # Different cik but SAME ticker — UNIQUE index fires.
+                ("0000999999", "VRTX", 2836, "BIO", "2026-04-29T00:00:01Z"),
+            )
+    finally:
+        conn.close()
+
+
+def test_ensure_cik_sic_cache_table_migrates_legacy_ticker_pk_shape(
+    db_path: Path,
+):
+    """Pre-existing legacy ticker-PK rows are preserved into the new shape."""
+    legacy_ddl = (
+        "CREATE TABLE cik_sic_cache ("
+        "ticker TEXT NOT NULL PRIMARY KEY, "
+        "cik TEXT NOT NULL, "
+        "sic INTEGER, "
+        "sic_description TEXT, "
+        "fetched_at TEXT NOT NULL"
+        ")"
+    )
+    legacy_unique_cik_idx = (
+        "CREATE UNIQUE INDEX idx_cik_sic_cache_cik "
+        "ON cik_sic_cache(cik)"
+    )
+    conn = sqlite3.connect(db_path)
+    try:
+        # Bootstrap a legacy-shape table and populate two rows
+        # (one resolved, one tombstone).
+        conn.execute(legacy_ddl)
+        conn.execute(legacy_unique_cik_idx)
+        conn.executemany(
+            "INSERT INTO cik_sic_cache "
+            "(ticker, cik, sic, sic_description, fetched_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [
+                ("VRTX", "0000875320", 2834, "PHARMACEUTICAL", "2026-04-29T00:00:00Z"),
+                ("DEAD", "0000000001", None, None, "2026-04-29T00:00:01Z"),
+            ],
+        )
+        conn.commit()
+
+        # Run the bootstrap — it must detect the legacy shape and
+        # forward-migrate the rows into the new shape.
+        ensure_cik_sic_cache_table(conn)
+
+        # The rows are preserved.
+        rows = conn.execute(
+            "SELECT cik, ticker, sic, sic_description, fetched_at "
+            "FROM cik_sic_cache ORDER BY cik"
+        ).fetchall()
+        assert rows == [
+            ("0000000001", "DEAD", None, None, "2026-04-29T00:00:01Z"),
+            ("0000875320", "VRTX", 2834, "PHARMACEUTICAL", "2026-04-29T00:00:00Z"),
+        ]
+
+        # The schema is now the corrected shape: cik PK, UNIQUE
+        # index on ticker.
+        rows = conn.execute("PRAGMA table_info(cik_sic_cache)").fetchall()
+        pk_rows = [r for r in rows if r[5] >= 1]
+        assert len(pk_rows) == 1
+        assert pk_rows[0][1] == "cik"
+
+        index_list = conn.execute(
+            "PRAGMA index_list(cik_sic_cache)"
+        ).fetchall()
+        ticker_idx = next(
+            r for r in index_list if r[1] == "idx_cik_sic_cache_ticker"
+        )
+        assert ticker_idx[2] == 1  # UNIQUE flag
+
+        # Legacy table is gone.
+        legacy = conn.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name='cik_sic_cache_legacy'"
+        ).fetchone()
+        assert legacy is None
+    finally:
+        conn.close()
+
+
+def test_ensure_cik_sic_cache_table_no_op_when_already_new_shape(
+    db_path: Path,
+):
+    """Idempotent: a second call against the corrected shape doesn't migrate."""
+    conn = sqlite3.connect(db_path)
+    try:
+        ensure_cik_sic_cache_table(conn)
+        conn.execute(
+            "INSERT INTO cik_sic_cache "
+            "(cik, ticker, sic, sic_description, fetched_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("0000875320", "VRTX", 2834, "PHARMACEUTICAL", "2026-04-29T00:00:00Z"),
+        )
+        conn.commit()
+
+        # Second call: must be a no-op against the new shape.
+        ensure_cik_sic_cache_table(conn)
+        rows = conn.execute(
+            "SELECT cik, ticker, sic FROM cik_sic_cache"
+        ).fetchall()
+        assert rows == [("0000875320", "VRTX", 2834)]
     finally:
         conn.close()
 

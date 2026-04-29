@@ -187,8 +187,8 @@ class SECSchemaError(SECClassifierError):
 
 _CIK_SIC_CACHE_DDL: Final[str] = """
 CREATE TABLE IF NOT EXISTS cik_sic_cache (
-    ticker            TEXT    NOT NULL PRIMARY KEY,
-    cik               TEXT    NOT NULL,
+    cik               TEXT    NOT NULL PRIMARY KEY,
+    ticker            TEXT    NOT NULL,
     sic               INTEGER,
     sic_description   TEXT,
     fetched_at        TEXT    NOT NULL
@@ -196,9 +196,13 @@ CREATE TABLE IF NOT EXISTS cik_sic_cache (
 """
 
 
+# UNIQUE index on ticker enforces 1:1 ticker→cik mapping (matches
+# SEC's CIK→ticker map shape) while leaving cik as the canonical
+# row identity. ``sic`` and ``fetched_at`` indexes are non-unique
+# helpers for the russell_biotech writer + ops-side queries.
 _CIK_SIC_CACHE_INDEXES: Final[tuple[str, ...]] = (
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_cik_sic_cache_cik "
-    "ON cik_sic_cache(cik)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_cik_sic_cache_ticker "
+    "ON cik_sic_cache(ticker)",
     "CREATE INDEX IF NOT EXISTS idx_cik_sic_cache_sic "
     "ON cik_sic_cache(sic)",
     "CREATE INDEX IF NOT EXISTS idx_cik_sic_cache_fetched_at "
@@ -206,14 +210,88 @@ _CIK_SIC_CACHE_INDEXES: Final[tuple[str, ...]] = (
 )
 
 
+def _detect_legacy_cik_sic_cache(conn: sqlite3.Connection) -> bool:
+    """Return ``True`` when ``cik_sic_cache`` is in the legacy ticker-PK shape.
+
+    The legacy shape (pre-feature-f-m1-02b) had ``ticker`` as
+    PRIMARY KEY and ``cik`` as a UNIQUE-indexed non-PK column.
+    The corrected shape (per VAL-M1-012) has ``cik`` as PRIMARY
+    KEY and ``ticker`` as a UNIQUE-indexed non-PK column.
+    """
+    table = conn.execute(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='table' AND name='cik_sic_cache'"
+    ).fetchone()
+    if table is None:
+        return False
+    cols = conn.execute("PRAGMA table_info(cik_sic_cache)").fetchall()
+    # PRAGMA table_info column[5] is ``pk`` (0 = not part of PK,
+    # otherwise 1-indexed PK column rank).
+    ticker_is_pk = any(c[1] == "ticker" and c[5] >= 1 for c in cols)
+    cik_is_pk = any(c[1] == "cik" and c[5] >= 1 for c in cols)
+    return ticker_is_pk and not cik_is_pk
+
+
+def _migrate_legacy_cik_sic_cache(conn: sqlite3.Connection) -> None:
+    """Forward-only migration: legacy ticker-PK shape → cik-PK shape.
+
+    The migration runs inside a single transaction and is a
+    no-op when the table is already in the new shape. Rows are
+    copied verbatim — every legacy row has both a ``cik`` and a
+    ``ticker`` value, so the column-renaming is a pure key swap
+    (no data transformation). The legacy table is dropped on
+    success; on failure, the transaction rolls back and the
+    legacy table is preserved.
+    """
+    nested = conn.in_transaction
+    if not nested:
+        conn.execute("BEGIN")
+    try:
+        # Sidestep the temporary-table renaming dance with a
+        # fresh-named scratch table: copy rows in, then atomic
+        # drop+rename.
+        conn.execute("ALTER TABLE cik_sic_cache RENAME TO cik_sic_cache_legacy")
+        conn.execute(_CIK_SIC_CACHE_DDL)
+        conn.execute(
+            "INSERT INTO cik_sic_cache "
+            "(cik, ticker, sic, sic_description, fetched_at) "
+            "SELECT cik, ticker, sic, sic_description, fetched_at "
+            "FROM cik_sic_cache_legacy"
+        )
+        conn.execute("DROP TABLE cik_sic_cache_legacy")
+        for stmt in _CIK_SIC_CACHE_INDEXES:
+            conn.execute(stmt)
+        if not nested:
+            conn.execute("COMMIT")
+    except Exception:
+        if not nested:
+            try:
+                conn.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
+        raise
+
+
 def ensure_cik_sic_cache_table(conn: sqlite3.Connection) -> None:
     """Idempotently create the ``cik_sic_cache`` table.
 
     Safe to call against either a v9 (pre-migration) or v10
     (post-migration) database — both flavours converge on the
-    same DDL. Mirrors the pattern used by
+    corrected shape (cik PRIMARY KEY, UNIQUE index on ticker,
+    sic INTEGER nullable for 404 tombstones).
+
+    If the table is detected in the legacy ticker-PK shape (a
+    pre-existing artefact of the f-m1-02 implementation), this
+    function migrates it forward inside a single transaction —
+    rows are preserved, the legacy table is dropped, and the
+    new shape with its UNIQUE-ticker index is created in place.
+
+    Mirrors the pattern used by
     :func:`biotech_sniper.universe.iwm_importer.ensure_iwm_snapshot_table`.
     """
+    if _detect_legacy_cik_sic_cache(conn):
+        _migrate_legacy_cik_sic_cache(conn)
+        return
     conn.execute(_CIK_SIC_CACHE_DDL)
     for stmt in _CIK_SIC_CACHE_INDEXES:
         conn.execute(stmt)
@@ -733,16 +811,20 @@ class SECSICClassifier:
         try:
             conn.execute("BEGIN")
             try:
+                # ``cik`` is the PRIMARY KEY (per VAL-M1-012);
+                # the ON CONFLICT target is ``cik`` so re-fetching
+                # the same CIK refreshes the cached SIC fields
+                # (and the ticker, if SEC ever re-maps a CIK).
                 conn.execute(
                     "INSERT INTO cik_sic_cache "
-                    "(ticker, cik, sic, sic_description, fetched_at) "
+                    "(cik, ticker, sic, sic_description, fetched_at) "
                     "VALUES (?, ?, ?, ?, ?) "
-                    "ON CONFLICT(ticker) DO UPDATE SET "
-                    "cik=excluded.cik, "
+                    "ON CONFLICT(cik) DO UPDATE SET "
+                    "ticker=excluded.ticker, "
                     "sic=excluded.sic, "
                     "sic_description=excluded.sic_description, "
                     "fetched_at=excluded.fetched_at",
-                    (ticker, cik, sic, sic_description, fetched_at),
+                    (cik, ticker, sic, sic_description, fetched_at),
                 )
                 conn.execute("COMMIT")
             except Exception:
