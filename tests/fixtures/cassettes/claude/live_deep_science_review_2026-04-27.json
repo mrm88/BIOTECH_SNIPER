@@ -1,0 +1,24 @@
+{
+  "interactions": [
+    {
+      "request": {
+        "max_tokens": 4096,
+        "model": "claude-opus-4-1-20250805",
+        "system_preview": "You are a senior biotech clinical-development analyst evaluating a single catalyst-driven trade thesis. Return STRICT JSON only \u2014 no markdown fences, no commentary outside the object. JSON keys: scien",
+        "user_preview": "Evaluate the following biotech catalyst thesis and return JSON only:\n\n{\n  \"full_context\": {\n    \"catalyst_date\": \"2026-05-20\",\n    \"nct_id\": \"NCT05123456\",\n    \"phase\": 3,\n    \"ticker\": \"IDYA\"\n  },\n  "
+      },
+      "result": {
+        "content_text": "```json\n{\n  \"science_profile\": {\n    \"moa\": \"Selective MAT2A inhibition exploits MTAP-deletion synthetic lethality\",\n    \"comparator\": \"Investigator's choice chemo (docetaxel)\",\n    \"prior_phase_data\": \"P2 ORR 32% (n=58), median DoR 7.2mo; PD biomarker confirmed in 84%\",\n    \"base_rate\": 0.45,\n    \"indication\": \"MTAP-deleted NSCLC, 2L+\",\n    \"design_risks\": \"Open-label P3 vs SoC; PFS primary; HR 0.65 powering\"\n  },\n  \"letter_grade\": \"B+\",\n  \"probability\": 0.52,\n  \"rationale\": \"The synthetic lethality approach targeting MAT2A in MTAP-deleted tumors represents validated biology with strong mechanistic rationale. Phase 2 data showing 32% ORR with 7.2-month durability in a biomarker-selected population compares favorably to docetaxel's typical 10-15% ORR in unselected 2L+ NSCLC. The 84% pharmacodynamic biomarker confirmation suggests target engagement, though the open-label design introduces potential bias and the HR 0.65 powering may be ambitious given docetaxel's established PFS of ~3-4 months.\",\n  \"citations\": [\n    {\n      \"source\": \"Nature Reviews Drug Discovery 2022\",\n      \"quote_or_url\": \"MTAP deletion occurs in ~15% of NSCLC and creates targetable vulnerability through MAT2A dependency\"\n    },\n    {\n      \"source\": \"Journal of Thoracic Oncology 2021\",\n      \"quote_or_url\": \"Docetaxel monotherapy in 2L NSCLC demonstrates median PFS 2.9-4.2 months, ORR 9-13%\"\n    },\n    {\n      \"source\": \"Clinical Cancer Research 2023\",\n      \"quote_or_url\": \"Biomarker-driven trials in NSCLC show 15-20% higher success rates than unselected populations\"\n    }\n  ]\n}\n```",
+        "id": "msg_01HQxXsVjKTf2BxFBddFnc1k",
+        "model": "claude-opus-4-1-20250805",
+        "role": "assistant",
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 394,
+          "output_tokens": 545
+        }
+      },
+      "type": "create"
+    }
+  ]
+}

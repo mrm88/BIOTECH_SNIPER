@@ -1,0 +1,117 @@
+{
+  "comment": "Live recording from Alpaca paper sandbox 2026-04-27. Account id and account_number redacted. SPY equity order @ $1 limit submitted then cancelled (never filled).",
+  "interactions": [
+    {
+      "result": {
+        "account_number": "REDACTED",
+        "buying_power": 503965.22,
+        "cash": 169582.86,
+        "currency": "USD",
+        "equity": 334382.36,
+        "id": "REDACTED",
+        "options_buying_power": 251982.61,
+        "portfolio_value": 334382.36,
+        "status": "ACTIVE"
+      },
+      "type": "get_account"
+    },
+    {
+      "result": [
+        {
+          "ask": 13.03,
+          "bid": 12.89,
+          "delta": null,
+          "expiry": "2026-04-29",
+          "iv": null,
+          "mid": 12.96,
+          "oi": 448,
+          "strike": 699.0,
+          "symbol": "SPY260429C00699000",
+          "type": "call"
+        },
+        {
+          "ask": 70.52,
+          "bid": 66.98,
+          "delta": null,
+          "expiry": "2026-04-29",
+          "iv": null,
+          "mid": 68.75,
+          "oi": 6,
+          "strike": 643.0,
+          "symbol": "SPY260429C00643000",
+          "type": "call"
+        },
+        {
+          "ask": 15.93,
+          "bid": 15.79,
+          "delta": null,
+          "expiry": "2026-04-29",
+          "iv": null,
+          "mid": 15.86,
+          "oi": 101,
+          "strike": 696.0,
+          "symbol": "SPY260429C00696000",
+          "type": "call"
+        },
+        {
+          "ask": 7.5,
+          "bid": 7.44,
+          "delta": null,
+          "expiry": "2026-04-29",
+          "iv": null,
+          "mid": 7.470000000000001,
+          "oi": 1774,
+          "strike": 705.0,
+          "symbol": "SPY260429C00705000",
+          "type": "call"
+        },
+        {
+          "ask": 63.52,
+          "bid": 59.99,
+          "delta": null,
+          "expiry": "2026-04-29",
+          "iv": null,
+          "mid": 61.755,
+          "oi": 8,
+          "strike": 650.0,
+          "symbol": "SPY260429C00650000",
+          "type": "call"
+        }
+      ],
+      "row_count_total": 100,
+      "ticker": "SPY",
+      "type": "get_options_chain"
+    },
+    {
+      "result": {
+        "asset_class": "us_equity",
+        "canceled_at": null,
+        "client_order_id": "live-cassette-6fb0395f9684",
+        "created_at": "2026-04-29T08:27:44.377167+00:00",
+        "filled_at": null,
+        "filled_avg_price": null,
+        "filled_qty": 0.0,
+        "id": "14f0cc43-6ec1-471f-a81f-e989b7f5d187",
+        "limit_price": 1.0,
+        "order_class": "simple",
+        "order_type": "limit",
+        "qty": 1.0,
+        "side": "buy",
+        "status": "pending_new",
+        "stop_price": null,
+        "submitted_at": "2026-04-29T08:27:44.377167+00:00",
+        "symbol": "SPY",
+        "time_in_force": "day",
+        "updated_at": "2026-04-29T08:27:44.378399+00:00"
+      },
+      "type": "submit_order"
+    },
+    {
+      "request": {
+        "order_id": "14f0cc43-6ec1-471f-a81f-e989b7f5d187"
+      },
+      "result": null,
+      "type": "cancel_order"
+    }
+  ]
+}
