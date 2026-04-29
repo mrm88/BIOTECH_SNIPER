@@ -572,7 +572,27 @@ def write_audit_latest(
                 merged_sources[k] = _normalize_legacy_source_entry(v)
     m4["sources"] = merged_sources
 
+    # f-misc-06: ``last_daily_run`` is the canonical "most-recent
+    # completed daily run" marker that the watchdog reads to decide
+    # whether the daily systemd unit fired. The legacy
+    # ``build_m4_audit_payload`` derives it from
+    # ``MAX(scoring_cache.created_at)``, which can be stale (e.g.
+    # when a run completes but no new scoring rows are written, or
+    # when the scoring step short-circuits). Set it to the current
+    # UTC instant on every write so the scalar tracks the audit
+    # write, and align ``last_daily_run_summary.completed_at`` with
+    # it (within 1s, in fact exact equality) so the two sources of
+    # truth never disagree.
+    now_iso = _iso_utc_now()
+    m4["last_daily_run"] = now_iso
+
     payload.update(m4)
+
+    summary = payload.get("last_daily_run_summary")
+    if isinstance(summary, dict):
+        summary["completed_at"] = now_iso
+        payload["last_daily_run_summary"] = summary
+
     _atomic_write_json(audit_path, payload)
     return payload
 
@@ -709,8 +729,16 @@ if __name__ == '__main__':
     except Exception as e:
         failures.append(f'USASpending: {e}'); log.error(f'  FAIL: {e}')
 
-    # ── 5. Defense.gov RSS ──────────────────────────────────────
-    log.info('\n[5] Defense.gov contract RSS')
+    # ── 5. Defense.gov RSS (optional; tolerated failure) ────────
+    # f-misc-06: the canonical Defense.gov contracts RSS frequently
+    # returns HTTP 403 to datacenter IPs (the production VPS hits
+    # this every audit run). The contract-discovery pipeline uses a
+    # multi-URL fallback inside ``master_discovery`` /
+    # ``sam_sniper.fetch_defense_gov_contracts`` so the audit-time
+    # health probe is purely informational. Mark non-200 / transport
+    # errors as ``warnings.append`` (tolerated failure) so the audit
+    # summary line does not flap on a known-flaky public RSS.
+    log.info('\n[5] Defense.gov contract RSS (optional)')
     try:
         r = requests.get('https://www.defense.gov/News/Contracts/rss/',
                          headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
@@ -722,11 +750,11 @@ if __name__ == '__main__':
                 log.info(f'  Sample: {feed.entries[0].get("title","")[:80]}')
                 log.info('  OK')
             else:
-                warnings.append('Defense.gov: 0 entries parsed from RSS'); log.warning('  WARNING: 0 entries')
+                warnings.append('Defense.gov: 0 entries parsed from RSS (tolerated)'); log.warning('  WARNING: 0 entries')
         else:
-            failures.append(f'Defense.gov: HTTP {r.status_code}'); log.error(f'  FAIL: {r.status_code}')
+            warnings.append(f'Defense.gov: HTTP {r.status_code} (tolerated — datacenter IPs commonly 403)'); log.warning(f'  WARNING (tolerated): HTTP {r.status_code}')
     except Exception as e:
-        failures.append(f'Defense.gov: {e}'); log.error(f'  FAIL: {e}')
+        warnings.append(f'Defense.gov: {e} (tolerated — discovery has multi-URL fallback)'); log.warning(f'  WARNING (tolerated): {e}')
 
     # ── 6. FDA news RSS (press releases) ────────────────────────
     # The legacy advisory-committee-meetings-coming-soon.rss endpoint now 404s;
@@ -870,8 +898,15 @@ if __name__ == '__main__':
         warnings.append(f'defense_contracts: legacy probe raised {type(e).__name__}: {e}')
         log.warning(f'  WARNING (legacy probe): {e}')
 
-    # ── 14. company_ticker_map aliases ──────────────────────────
-    log.info('\n[14] company_ticker_map aliases check')
+    # ── 14. company_ticker_map aliases (legacy probe; tolerated) ─
+    # f-misc-06: ``sectors/contracts/company_ticker_map.json`` is a
+    # legacy seed file for the contracts-sector discovery pipeline
+    # and is not on the daily M2+ scoring path (universe + scoring
+    # cache live in ``data/alpha_sniper.db``). On some clones the
+    # file is absent (FileNotFoundError) and the audit summary
+    # used to surface that as a hard FAIL. Downgrade to a warning
+    # so a missing legacy seed never blocks the daily audit gate.
+    log.info('\n[14] company_ticker_map aliases check (legacy probe)')
     try:
         import json
         # f-m2-07: prefer the package-relative path (``biotech_sniper/sectors/...``);
@@ -881,19 +916,24 @@ if __name__ == '__main__':
             BASE_DIR / 'biotech_sniper/sectors/contracts/company_ticker_map.json',
             BASE_DIR / 'sectors/contracts/company_ticker_map.json',
         ]
-        _cmap_path = next((p for p in _cmap_candidates if p.is_file()), _cmap_candidates[0])
-        cmap = json.load(open(_cmap_path))
-        companies = cmap.get('companies', {})
-        has_aliases = sum(1 for v in companies.values() if v.get('aliases'))
-        has_options = sum(1 for v in companies.values() if 'options' in v)
-        has_cik     = sum(1 for v in companies.values() if v.get('sec_cik'))
-        log.info(f'  Companies: {len(companies)} | With aliases: {has_aliases} | With options flag: {has_options} | With CIK: {has_cik}')
-        if has_aliases < 10:
-            failures.append(f'company_ticker_map: only {has_aliases} companies have aliases (need full expansion)')
+        _cmap_path = next((p for p in _cmap_candidates if p.is_file()), None)
+        if _cmap_path is None:
+            warnings.append('company_ticker_map: legacy seed not found (tolerated — daily pipeline does not depend on it)')
+            log.warning('  WARNING (legacy probe, tolerated): company_ticker_map.json not found')
         else:
-            log.info('  OK')
+            cmap = json.load(open(_cmap_path))
+            companies = cmap.get('companies', {})
+            has_aliases = sum(1 for v in companies.values() if v.get('aliases'))
+            has_options = sum(1 for v in companies.values() if 'options' in v)
+            has_cik     = sum(1 for v in companies.values() if v.get('sec_cik'))
+            log.info(f'  Companies: {len(companies)} | With aliases: {has_aliases} | With options flag: {has_options} | With CIK: {has_cik}')
+            if has_aliases < 10:
+                warnings.append(f'company_ticker_map: only {has_aliases} companies have aliases (tolerated — legacy seed)')
+                log.warning(f'  WARNING (legacy probe, tolerated): only {has_aliases} aliases')
+            else:
+                log.info('  OK')
     except Exception as e:
-        failures.append(f'ticker_map: {e}'); log.error(f'  FAIL: {e}')
+        warnings.append(f'ticker_map: {e} (tolerated — legacy probe)'); log.warning(f'  WARNING (legacy probe, tolerated): {e}')
 
     # ── 15. active_plays seed check ─────────────────────────────
     # f-m1-03 moved the runtime state JSONs to migrations/seed/. The runtime

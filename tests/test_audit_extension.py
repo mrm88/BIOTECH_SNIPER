@@ -582,6 +582,75 @@ def test_write_audit_latest_preserves_legacy_keys(audit_module, tmp_path, monkey
         assert src in payload["sources"]
 
 
+def test_write_audit_latest_sets_last_daily_run_to_current_utc(
+    audit_module, tmp_path, monkeypatch
+):
+    """f-misc-06: ``write_audit_latest`` overrides ``last_daily_run`` with current UTC.
+
+    The legacy ``build_m4_audit_payload`` derives ``last_daily_run``
+    from ``MAX(scoring_cache.created_at)`` which can be stale. The
+    new contract: ``write_audit_latest`` stamps ``last_daily_run``
+    with the current UTC instant on every write so the watchdog
+    reads a fresh "most-recent-completed" marker.
+    """
+    import datetime as _dt
+
+    _patch_all_probes_ok(monkeypatch)
+    db_path = tmp_path / "alpha_sniper.db"
+    _seed_db(db_path)  # seeds scoring_cache.created_at = "2026-04-27T13:00:00.000Z"
+
+    audit_path = tmp_path / "state" / "audit_latest.json"
+    before = _dt.datetime.now(_dt.timezone.utc)
+    payload = audit_module.write_audit_latest(audit_path, db_path=db_path)
+    after = _dt.datetime.now(_dt.timezone.utc)
+
+    last_daily_run = payload["last_daily_run"]
+    assert isinstance(last_daily_run, str)
+    # Must NOT echo the stale db value.
+    assert last_daily_run != "2026-04-27T13:00:00.000Z"
+    # Must end with ``Z`` (canonical UTC ISO-8601).
+    assert last_daily_run.endswith("Z"), last_daily_run
+    parsed = _dt.datetime.fromisoformat(last_daily_run.replace("Z", "+00:00"))
+    assert before <= parsed <= after, (
+        f"last_daily_run {last_daily_run} not within "
+        f"[{before.isoformat()}, {after.isoformat()}]"
+    )
+
+
+def test_write_audit_latest_stamps_completed_at_on_summary(
+    audit_module, tmp_path, monkeypatch
+):
+    """f-misc-06: when ``last_daily_run_summary`` is in the payload,
+    ``write_audit_latest`` stamps ``completed_at`` on it so the
+    scalar ``last_daily_run`` and the summary block agree exactly
+    (well under the 1-second parity tolerance).
+    """
+    _patch_all_probes_ok(monkeypatch)
+    audit_path = tmp_path / "state" / "audit_latest.json"
+    payload = audit_module.write_audit_latest(
+        audit_path,
+        extra={
+            "last_daily_run_summary": {
+                "date": "2026-04-29",
+                "duration_sec": 12.5,
+                "orders_submitted": 0,
+                "cards_generated": 3,
+                "llm_cost_usd": 0.42,
+                "success": True,
+            }
+        },
+        db_path=tmp_path / "missing.db",
+    )
+
+    summary = payload.get("last_daily_run_summary")
+    assert isinstance(summary, dict)
+    assert "completed_at" in summary, summary
+    assert summary["completed_at"] == payload["last_daily_run"], (
+        f"completed_at ({summary['completed_at']}) must equal "
+        f"last_daily_run ({payload['last_daily_run']})"
+    )
+
+
 def test_write_audit_latest_handles_corrupt_existing_json(
     audit_module, tmp_path, monkeypatch
 ):
@@ -701,6 +770,55 @@ def test_write_audit_latest_import_is_fast_and_makes_no_network_calls():
     # for slow CI hosts but a regression that re-introduces the network
     # probes will easily blow this budget (each probe times out at 10 s).
     assert elapsed_ms < 100.0, f"import too slow: {elapsed_ms:.1f}ms"
+
+
+def test_import_biotech_sniper_audit_does_not_call_requests():
+    """f-misc-06: ``import biotech_sniper.audit`` must not invoke ``requests.get``/``post``.
+
+    Focused regression test for the hermetic-import contract:
+    the legacy module-level probe block (steps 1-19, including the
+    Defense.gov probe and the company_ticker_map probe) is gated
+    behind ``if __name__ == '__main__':``. Plain
+    ``import biotech_sniper.audit`` must therefore reach zero
+    HTTP-transport call sites — neither ``requests.get`` nor
+    ``requests.post``. This complements the timing-budget test above
+    by isolating the network-side-effect invariant.
+    """
+    import importlib
+
+    import requests
+
+    get_calls: list = []
+    post_calls: list = []
+
+    real_get = requests.get
+    real_post = requests.post
+
+    def _record_get(*args, **kwargs):  # pragma: no cover — failure path
+        get_calls.append((args, kwargs))
+        raise RuntimeError("requests.get called during import")
+
+    def _record_post(*args, **kwargs):  # pragma: no cover — failure path
+        post_calls.append((args, kwargs))
+        raise RuntimeError("requests.post called during import")
+
+    requests.get = _record_get  # type: ignore[assignment]
+    requests.post = _record_post  # type: ignore[assignment]
+    try:
+        sys.modules.pop("biotech_sniper.audit", None)
+        importlib.import_module("biotech_sniper.audit")
+    finally:
+        requests.get = real_get  # type: ignore[assignment]
+        requests.post = real_post  # type: ignore[assignment]
+
+    assert get_calls == [], (
+        f"import biotech_sniper.audit must not call requests.get; "
+        f"saw: {get_calls}"
+    )
+    assert post_calls == [], (
+        f"import biotech_sniper.audit must not call requests.post; "
+        f"saw: {post_calls}"
+    )
 
 
 # ---------------------------------------------------------------------------
