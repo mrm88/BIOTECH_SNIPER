@@ -14,7 +14,12 @@
 All other exported paths are derived from ``BASE_DIR`` and are returned as
 ``pathlib.Path`` objects. Importing this module never creates directories
 on disk; consumers are responsible for ``mkdir(parents=True, exist_ok=True)``
-when they need to write inside one of the derived locations.
+when they need to write inside one of the derived locations. The
+single-source-of-truth helper for the ``DATA_DIR`` case is
+:func:`ensure_data_dir` — it is idempotent and returns ``DATA_DIR`` as a
+``Path``. Callers MUST NOT mkdir anything at module-import time of this
+file (the no-side-effect contract is locked in by
+``tests/test_data_dir_bootstrap.py``).
 
 Importers should always go through this module instead of constructing
 absolute paths inline. The legacy hardcoded sandbox base directory used
@@ -33,6 +38,7 @@ __all__ = [
     "DATA_DIR",
     "LOGS_DIR",
     "DEFAULT_VPS_LOG_DIR",
+    "ensure_data_dir",
 ]
 
 
@@ -72,3 +78,38 @@ LOGS_DIR: Path = BASE_DIR / "logs"
 #: anchors. Overridable via the ``ALPHA_SNIPER_LOG_DIR`` environment
 #: variable (see ``logging_setup._resolve_log_path``).
 DEFAULT_VPS_LOG_DIR: Path = Path("/var/log/alpha_sniper")
+
+
+def ensure_data_dir() -> Path:
+    """Ensure :data:`DATA_DIR` exists on disk and return it.
+
+    Single source-of-truth helper that callers should invoke at the
+    first-write call site (or at module import, when the module
+    *only* runs as a writer entrypoint) BEFORE opening any file
+    under :data:`DATA_DIR`. The helper is idempotent — repeated
+    calls are cheap because :py:meth:`pathlib.Path.mkdir` with
+    ``exist_ok=True`` is a no-op when the directory is already
+    present.
+
+    Notes
+    -----
+    * **Never call this at import time of :mod:`biotech_sniper.paths`.**
+      Importing the paths module must remain side-effect-free
+      (creating directories on disk as a side-effect of any import
+      would surprise tests that probe a tmp ``BIOTECH_SNIPER_HOME``
+      and assert that nothing is created until a writer runs). The
+      no-import-side-effect contract is exercised by
+      ``tests/test_data_dir_bootstrap.py``.
+    * The function returns :data:`DATA_DIR` so callers can use it
+      directly in a path expression — e.g.
+      ``db_path = ensure_data_dir() / "alpha_sniper.db"`` — without
+      a separate import.
+
+    Returns
+    -------
+    pathlib.Path
+        The (now-guaranteed-to-exist) :data:`DATA_DIR`.
+    """
+
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    return DATA_DIR

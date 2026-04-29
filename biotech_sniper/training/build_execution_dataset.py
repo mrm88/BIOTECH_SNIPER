@@ -87,7 +87,7 @@ from typing import Any, Final, Optional
 import pandas as pd
 
 from biotech_sniper import db
-from biotech_sniper.paths import DATA_DIR
+from biotech_sniper.paths import DATA_DIR, ensure_data_dir
 
 
 __all__ = [
@@ -337,6 +337,11 @@ def build(
     rows = [_row_for_fill(fr, probe_index) for fr in fill_rows]
     df = _coerce_dataframe(rows)
 
+    # Centralised DATA_DIR bootstrap — ``ensure_data_dir()`` creates
+    # the top-level data directory if absent. The subsequent
+    # ``parent.mkdir`` still creates any deeper subdirectory the
+    # caller asked for via ``--out`` (e.g. ``data/training/``).
+    ensure_data_dir()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(out_path, engine="pyarrow", index=False)
 

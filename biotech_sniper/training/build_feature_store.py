@@ -111,7 +111,7 @@ from typing import Any, Final, Iterable, Mapping
 import pandas as pd
 
 from biotech_sniper import db
-from biotech_sniper.paths import BASE_DIR, DATA_DIR, STATE_DIR
+from biotech_sniper.paths import BASE_DIR, DATA_DIR, STATE_DIR, ensure_data_dir
 
 __all__ = [
     "REQUIRED_FEATURE_COLS",
@@ -820,6 +820,11 @@ def build(
         df = df.drop_duplicates(subset=["ticker", "catalyst_date"], keep="last")
         df = df.reset_index(drop=True)
 
+    # Centralised DATA_DIR bootstrap — ``ensure_data_dir()`` creates
+    # the top-level data directory if absent. The subsequent
+    # ``parent.mkdir`` still creates any deeper subdirectory the
+    # caller asked for via ``--out`` (e.g. ``data/training/``).
+    ensure_data_dir()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     # Always overwrite — combined with the pure-function build above
     # this gives us VAL-M5-006 idempotency.
