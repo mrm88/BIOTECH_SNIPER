@@ -1,0 +1,65 @@
+{
+  "_comment": [
+    "Manually curated EMA / CHMP seed entries used as the last-good fallback by",
+    "biotech_sniper.calendar.ema when the live www.ema.europa.eu source is",
+    "unreachable (e.g. operator runs the CLI in a sandbox without outbound",
+    "network access, or the EMA site returns a transient 5xx). Each entry MUST",
+    "carry ticker_or_sponsor (uppercase ticker when known, otherwise sponsor",
+    "name), product, and at least one of meeting_date / opinion_date in",
+    "ISO-8601 (YYYY-MM-DD) form. source_url MUST be on host www.ema.europa.eu",
+    "(per VAL-M1-028).",
+    "",
+    "These dates target a rolling 90-day window centered on the bundling",
+    "date and are refreshed by future operator runs. They are not guaranteed",
+    "to reflect the live EMA pipeline; the live scrape supersedes them",
+    "whenever it succeeds (UPSERT on the composite UNIQUE key:",
+    "(ticker_or_sponsor, product, COALESCE(meeting_date,''),",
+    "COALESCE(opinion_date,''))."
+  ],
+  "source_url": "https://www.ema.europa.eu/en/committees/chmp/chmp-meeting-highlights",
+  "as_of_date": "2026-04-15",
+  "entries": [
+    {
+      "ticker_or_sponsor": "VRTX",
+      "product": "Suzetrigine (Journavx)",
+      "meeting_date": "2026-05-19",
+      "opinion_date": "2026-05-22",
+      "sponsor": "Vertex Pharmaceuticals"
+    },
+    {
+      "ticker_or_sponsor": "BMRN",
+      "product": "Roctavian (valoctocogene roxaparvovec)",
+      "meeting_date": "2026-06-23",
+      "opinion_date": "2026-06-26",
+      "sponsor": "BioMarin Pharmaceutical"
+    },
+    {
+      "ticker_or_sponsor": "AZN",
+      "product": "Datroway (datopotamab deruxtecan)",
+      "meeting_date": "2026-07-21",
+      "opinion_date": "2026-07-24",
+      "sponsor": "AstraZeneca"
+    },
+    {
+      "ticker_or_sponsor": "REGN",
+      "product": "Lynozyfic (linvoseltamab)",
+      "meeting_date": "2026-05-19",
+      "opinion_date": null,
+      "sponsor": "Regeneron Pharmaceuticals"
+    },
+    {
+      "ticker_or_sponsor": "MRK",
+      "product": "Winrevair (sotatercept) — pediatric extension",
+      "meeting_date": null,
+      "opinion_date": "2026-06-26",
+      "sponsor": "Merck"
+    },
+    {
+      "ticker_or_sponsor": "SRPT",
+      "product": "Elevidys (delandistrogene moxeparvovec)",
+      "meeting_date": "2026-07-21",
+      "opinion_date": "2026-07-24",
+      "sponsor": "Sarepta Therapeutics"
+    }
+  ]
+}

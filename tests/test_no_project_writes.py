@@ -63,11 +63,19 @@ PACKAGE_ROOT = REPO_ROOT / "biotech_sniper"
 #                            when the live BiopharmCatalyst HTML is
 #                            blocked by Cloudflare). The seed file is
 #                            never written to from production code.
+# * ``calendar/ema.py``    — locates the bundled, read-only
+#                            ``seed/ema_seed.json`` next to the module
+#                            (used as the last-good fallback dataset
+#                            when the live www.ema.europa.eu source is
+#                            unreachable). Same pattern as pdufa.py;
+#                            the seed file is never written to from
+#                            production code.
 ALLOWED_PATH_FILE_USES = {
     PACKAGE_ROOT / "paths.py",
     PACKAGE_ROOT / "db" / "__init__.py",
     PACKAGE_ROOT / "audit.py",
     PACKAGE_ROOT / "calendar" / "pdufa.py",
+    PACKAGE_ROOT / "calendar" / "ema.py",
 }
 
 

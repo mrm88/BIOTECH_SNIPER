@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>CHMP meeting highlights | EMA (test fixture)</title>
+</head>
+<body>
+  <header>
+    <h1>CHMP meeting highlights</h1>
+    <p>Test cassette mirroring the EMA / CHMP meeting-highlights HTML
+       structure used by biotech_sniper.calendar.ema.</p>
+  </header>
+
+  <main>
+    <table id="chmp-meetings">
+      <thead>
+        <tr>
+          <th>Product</th>
+          <th>Ticker</th>
+          <th>Company</th>
+          <th>Meeting Date</th>
+          <th>Opinion Date</th>
+          <th>Indication</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Suzetrigine (Journavx)</td>
+          <td>VRTX</td>
+          <td>Vertex Pharmaceuticals</td>
+          <td>19-22 May 2026</td>
+          <td>22 May 2026</td>
+          <td>Acute pain</td>
+        </tr>
+        <tr>
+          <td>Roctavian (valoctocogene roxaparvovec)</td>
+          <td>BMRN</td>
+          <td>BioMarin Pharmaceutical</td>
+          <td>23-26 June 2026</td>
+          <td>26 June 2026</td>
+          <td>Hemophilia A</td>
+        </tr>
+        <tr>
+          <td>Datroway (datopotamab deruxtecan)</td>
+          <td>AZN</td>
+          <td>AstraZeneca</td>
+          <td>21-24 July 2026</td>
+          <td>24 July 2026</td>
+          <td>Breast cancer</td>
+        </tr>
+        <tr>
+          <td>Lynozyfic (linvoseltamab) — meeting only</td>
+          <td>REGN</td>
+          <td>Regeneron Pharmaceuticals</td>
+          <td>19-22 May 2026</td>
+          <td></td>
+          <td>Multiple myeloma</td>
+        </tr>
+        <tr>
+          <td>Winrevair (sotatercept) — opinion only</td>
+          <td>MRK</td>
+          <td>Merck</td>
+          <td></td>
+          <td>26 June 2026</td>
+          <td>Pulmonary arterial hypertension</td>
+        </tr>
+        <tr>
+          <!-- multiple products for the same ticker; distinct rows -->
+          <td>Sotagliflozin HFpEF expansion</td>
+          <td>VRTX</td>
+          <td>Vertex Pharmaceuticals</td>
+          <td>21-24 July 2026</td>
+          <td>24 July 2026</td>
+          <td>HFpEF</td>
+        </tr>
+        <tr>
+          <!-- malformed dates: should be silently dropped -->
+          <td>Junk parser test row</td>
+          <td>FAKE</td>
+          <td>Imaginary Therapeutics</td>
+          <td>TBD soon</td>
+          <td>—</td>
+          <td>—</td>
+        </tr>
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>
