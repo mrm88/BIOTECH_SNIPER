@@ -1,0 +1,36 @@
+{
+  "_doc": "Cassette-equivalent canned response for biotech_sniper.intelligence.universal_news_watcher.run_hourly_news_scan(). Replaces a live RSS scan during pytest. Mirrors the dict shape returned by run_hourly_news_scan; only the keys consumed by universal_news_watcher_adapter are populated. Tickers MUST be members of the russell2k_biotech ∩ universe.tier seed set used by tests/test_news_daemon_production_wiring.py.",
+  "new_8ks": [
+    {
+      "ticker": "VRTX",
+      "company": "Vertex Pharmaceuticals",
+      "filed_date": "2026-04-29",
+      "form_url": "https://www.sec.gov/Archives/edgar/data/875320/000110465926012345/vrtx-8k.htm",
+      "is_high_signal": true,
+      "signal_tier": "TIER_1",
+      "signal_type": "PDUFA",
+      "matched_keyword": "pdufa",
+      "summary": "Vertex announces positive PDUFA action date for vanzacaftor.",
+      "accession": "0001104659-26-012345",
+      "source": "SEC_RSS"
+    }
+  ],
+  "news_hits": [
+    {
+      "ticker": "BIIB",
+      "headline": "Biogen reports Phase 3 topline results in Alzheimers program",
+      "url": "https://endpts.com/biogen-phase-3-alz-2026/",
+      "published": "2026-04-29T13:45:00Z",
+      "source": "Endpoints News",
+      "signal_type": "phase 3 results",
+      "signal_tier": "TIER_1",
+      "is_high_signal": true,
+      "summary": "Biogen reported topline Phase 3 efficacy data..."
+    }
+  ],
+  "new_catalyst_dates": [],
+  "high_signal_alerts": [],
+  "run_ts": "2026-04-29T18:00:00+00:00",
+  "tickers_scanned": 3,
+  "summary": "Scan complete: 1 8-K, 1 news hit."
+}

@@ -1,0 +1,21 @@
+{
+  "_doc": "Cassette-equivalent canned response for biotech_sniper.intelligence.sec_8k_monitor.run_8k_monitor(mode='intraday'). Replaces the live SEC EDGAR Atom RSS fetch + classify pipeline during pytest. Mirrors the dict shape returned by run_8k_monitor; only the keys consumed by sec_8k_monitor_adapter (signals[]) are populated.",
+  "run_date": "2026-04-29",
+  "mode": "intraday",
+  "signals": [
+    {
+      "ticker": "REGN",
+      "type": "8K_FILED_TOPLINE_DATA",
+      "sentiment": "BREAKING_DATA",
+      "severity": "CRITICAL",
+      "icon": "U+1F534",
+      "detail": "Regeneron 8-K: Phase 3 topline efficacy data — primary endpoint met",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/872589/000087258926000123/regn-8k.htm",
+      "implication": "Topline data dropping",
+      "detected_date": "2026-04-29",
+      "published": "2026-04-29T12:30:00Z"
+    }
+  ],
+  "breaking": [],
+  "total": 1
+}

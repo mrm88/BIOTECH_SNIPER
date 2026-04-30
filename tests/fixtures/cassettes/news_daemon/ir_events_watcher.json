@@ -1,0 +1,26 @@
+{
+  "_doc": "Cassette-equivalent canned response for biotech_sniper.intelligence.ir_events_watcher.run_ir_events_check(). Replaces the live IR-page HTML scrape + SEC EDGAR fan-out during pytest. Mirrors the dict shape returned by run_ir_events_check; only the keys consumed by ir_events_watcher_adapter (signals[]) are populated.",
+  "run_date": "2026-04-29",
+  "signals": [
+    {
+      "ticker": "VRTX",
+      "type": "WEBCAST_PREREGISTRATION_FOUND",
+      "severity": "CRITICAL",
+      "icon": "U+1F534",
+      "detail": "Topline webcast pre-registration link found on Vertex IR page",
+      "registration_links": [
+        {
+          "text": "register now",
+          "url": "https://investors.vrtx.com/events/event-details/q1-2026-results-webcast"
+        }
+      ],
+      "implication": "Pre-reg open = announcement date now CERTAIN",
+      "detected_date": "2026-04-29",
+      "ir_url": "https://investors.vrtx.com/events"
+    }
+  ],
+  "critical": [],
+  "high": [],
+  "tickers_checked": ["VRTX", "BIIB", "REGN"],
+  "total_signals": 1
+}

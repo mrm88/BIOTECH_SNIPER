@@ -52,6 +52,7 @@ from typing import Callable, Iterable, Optional, Sequence
 # safe to call from ``--help`` on a host without a configured DB.
 
 __all__ = [
+    "build_default_rss_fetchers",
     "build_parser",
     "main",
     "resolve_poll_seconds",
@@ -62,6 +63,20 @@ __all__ = [
     "MAX_POLL_SECONDS",
     "GATE_DECISION_LOG_INTERVAL_SECONDS",
 ]
+
+
+# Re-exported from :mod:`biotech_sniper.news_daemon.adapters` so the
+# verification step
+# ``python -c 'from biotech_sniper.news_daemon.poll_loop import
+#  build_default_rss_fetchers; fs = build_default_rss_fetchers();
+#  assert len(fs) >= 4'``
+# can resolve the symbol without importing the adapter module
+# directly.  The import is at module top-level (rather than lazily
+# inside :func:`main`) because the adapter module itself performs
+# only lightweight imports — the heavy ``intelligence`` watcher
+# imports are deferred inside each adapter function so the cost
+# of building the list is negligible.
+from biotech_sniper.news_daemon.adapters import build_default_rss_fetchers
 
 #: Default poll cadence in seconds.  Used when ``NEWS_POLL_SECONDS``
 #: is unset, blank, non-integer, or non-positive (the latter two
@@ -510,11 +525,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
         db_path = str(DATA_DIR / "alpha_sniper.db")
 
+    # f-m2-10 production wiring: the four canonical RSS sources
+    # (universal_news_watcher / sec_8k_monitor / ir_events_watcher /
+    # intraday_scanner.scan_news_rss) are passed in as the default
+    # fetcher list.  Each adapter is sync-only (no non-blocking I/O
+    # stacks anywhere in the package) and persists into
+    # ``news_events`` via the composite UNIQUE index
+    # ``idx_news_events_dedup`` so re-runs are idempotent.  Errors
+    # raised by an individual adapter are caught by
+    # :func:`run_main_loop._drive_rss_fetchers`, which increments
+    # :attr:`errors_session` and continues to the next source — a
+    # single failing feed never halts the daemon.
     return run_main_loop(
         db_path,
         poll_seconds=poll_seconds,
         max_cycles=max_cycles,
-        rss_fetchers=(),  # production wiring lands in M4 / follow-up
+        rss_fetchers=build_default_rss_fetchers(db_path=db_path),
         install_handlers=True,
     )
 

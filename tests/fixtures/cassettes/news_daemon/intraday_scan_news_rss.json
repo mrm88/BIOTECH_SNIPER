@@ -1,0 +1,23 @@
+{
+  "_doc": "Cassette-equivalent canned response for biotech_sniper.intraday_scanner.scan_news_rss(seen_urls). Replaces the live Endpoints/STAT/GlobeNewswire/PRNewswire RSS fetch during pytest. Mirrors the list-of-alert-dicts shape returned by scan_news_rss; only the keys consumed by intraday_news_rss_adapter are populated.",
+  "alerts": [
+    {
+      "ticker": "BIIB",
+      "type": "BREAKING_NEWS",
+      "severity": "CRITICAL",
+      "title": "Biogen Phase 3 topline data — primary endpoint met",
+      "url": "https://www.globenewswire.com/news-release/2026/04/29/biib-phase3-topline.html",
+      "published_at": "2026-04-29T13:50:00Z",
+      "source": "GNW"
+    },
+    {
+      "ticker": "REGN",
+      "type": "NEWS_SIGNAL",
+      "severity": "MODERATE",
+      "title": "Regeneron Q1 update mentions PDUFA review",
+      "url": "https://endpts.com/regeneron-q1-pdufa-2026/",
+      "published_at": "2026-04-29T14:10:00Z",
+      "source": "Endpoints"
+    }
+  ]
+}
