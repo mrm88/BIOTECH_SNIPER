@@ -13,6 +13,13 @@ line at WARNING (or ERROR for missing / unreadable audit) level on
   intraday timestamp is healthy by definition.
 * ``audit_stale``      - the ``audit_latest.json`` file mtime itself
   is older than 26 hours (the audit cron has stopped writing).
+* ``news_service_inactive`` - Reading-B M4 augmentation: the
+  long-lived ``alpha-sniper-news.service`` unit is not ``active``
+  per ``systemctl is-active``.
+* ``news_daemon_heartbeat_stale`` - Reading-B M4 augmentation: the
+  ``state/news_daemon_heartbeat.json`` file mtime is older than
+  :data:`NEWS_HEARTBEAT_STALE_AFTER` (5 min), indicating the daemon
+  loop is wedged even if systemd reports the unit ``active``.
 
 Exit code is ``0`` when every check is healthy and ``1`` when ANY
 check is degraded — the latter triggers ``OnFailure=`` /
@@ -20,9 +27,9 @@ check is degraded — the latter triggers ``OnFailure=`` /
 ``systemctl status alpha-sniper-watchdog.service``.
 
 The watchdog is intentionally lightweight: it never imports the heavy
-discovery / scoring / Alpaca pipeline modules and never spawns
-subprocesses (per VAL-M4-043). The only side effect is appending one
-or more lines to the structured log destination.
+discovery / scoring / Alpaca pipeline modules. The only subprocess
+spawned is a single short-lived ``systemctl is-active``
+invocation for the news-service health check (Reading-B M4).
 
 Usage
 -----
@@ -47,9 +54,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional
 
 from biotech_sniper import logging_setup
 
@@ -57,7 +65,9 @@ __all__ = [
     "DAILY_STALE_AFTER",
     "INTRADAY_STALE_AFTER",
     "AUDIT_STALE_AFTER",
+    "NEWS_HEARTBEAT_STALE_AFTER",
     "check_health",
+    "check_news_daemon_health",
     "is_market_hours_utc",
     "main",
 ]
@@ -82,6 +92,19 @@ INTRADAY_STALE_AFTER: timedelta = timedelta(minutes=70)
 #: (audit.py is the single state writer). 26h covers the gap between
 #: the most recent daily run and the next-day fire window.
 AUDIT_STALE_AFTER: timedelta = timedelta(hours=26)
+
+#: Reading-B M4: the ``alpha-sniper-news.service`` daemon writes a
+#: heartbeat to ``state/news_daemon_heartbeat.json`` every poll cycle
+#: (cadence ≈ 30 s, env-clamped 15-90 s). The watchdog treats a
+#: heartbeat older than 5 minutes as evidence the daemon is wedged
+#: even when systemd reports the unit ``active`` (e.g. main loop
+#: blocked on a network call). Threshold mirrors VAL-M4-021.
+NEWS_HEARTBEAT_STALE_AFTER: timedelta = timedelta(minutes=5)
+
+#: Reading-B M4: canonical systemd unit name for the long-lived
+#: news-watcher daemon. Centralised so the watchdog augmentation
+#: references it from a single place (matched verbatim by VAL-M4-023).
+NEWS_SERVICE_UNIT: str = "alpha-sniper-news.service"
 
 # US equities core market hours expressed in UTC. NYSE trades 09:30 -
 # 16:00 America/New_York which is 13:30-20:00 UTC during EDT and
@@ -319,6 +342,75 @@ def check_health(
 
 
 # ---------------------------------------------------------------------------
+# Reading-B M4 augmentation: news daemon health (VAL-M4-021..024)
+# ---------------------------------------------------------------------------
+
+
+def _systemctl_is_active(unit: str = NEWS_SERVICE_UNIT) -> bool:
+    """Return True iff ``systemctl is-active <unit>`` reports ``active``."""
+    try:
+        proc = subprocess.run(
+            ["systemctl", "is-active", unit],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 0 and proc.stdout.strip() == "active"
+
+
+def check_news_daemon_health(
+    heartbeat_path: Path,
+    *,
+    now: Optional[datetime] = None,
+    is_active_fn: Optional[Callable[[], bool]] = None,
+) -> list[dict[str, Any]]:
+    """Inspect alpha-sniper-news.service + heartbeat. Healthy returns []."""
+    if now is None:
+        now = datetime.now(tz=timezone.utc)
+    if is_active_fn is None:
+        is_active_fn = _systemctl_is_active
+    threshold = int(NEWS_HEARTBEAT_STALE_AFTER.total_seconds())
+    findings: list[dict[str, Any]] = []
+    if not is_active_fn():
+        findings.append({
+            "event": "news_service_inactive",
+            "legacy_event": "news_daemon_inactive",
+            "level": "ERROR", "service": NEWS_SERVICE_UNIT,
+        })
+    if not heartbeat_path.is_file():
+        findings.append({
+            "event": "news_daemon_heartbeat_stale", "level": "WARNING",
+            "reason": "heartbeat_missing", "path": str(heartbeat_path),
+            "threshold_seconds": threshold,
+        })
+        return findings
+    try:
+        mtime = datetime.fromtimestamp(
+            heartbeat_path.stat().st_mtime, tz=timezone.utc
+        )
+    except OSError as exc:
+        findings.append({
+            "event": "news_daemon_heartbeat_stale", "level": "ERROR",
+            "reason": f"stat_failed: {exc!r}", "path": str(heartbeat_path),
+        })
+        return findings
+    age = now - mtime
+    if age > NEWS_HEARTBEAT_STALE_AFTER:
+        findings.append({
+            "event": "news_daemon_heartbeat_stale", "level": "WARNING",
+            "heartbeat_mtime": mtime.isoformat(),
+            "age_seconds": round(age.total_seconds(), 3),
+            "threshold_seconds": threshold, "path": str(heartbeat_path),
+        })
+    return findings
+
+
+def _default_heartbeat_path() -> Path:
+    from biotech_sniper.paths import STATE_DIR
+    return STATE_DIR / "news_daemon_heartbeat.json"
+
+
+# ---------------------------------------------------------------------------
 # CLI / main
 # ---------------------------------------------------------------------------
 
@@ -379,7 +471,9 @@ def main(
     argv: Optional[list[str]] = None,
     *,
     audit_path: Optional[Path] = None,
+    heartbeat_path: Optional[Path] = None,
     now: Optional[datetime] = None,
+    is_active_fn: Optional[Callable[[], bool]] = None,
 ) -> int:
     """Run the watchdog once and return the process exit code.
 
@@ -404,11 +498,18 @@ def main(
 
     if audit_path is None:
         audit_path = args.audit_path or _default_audit_path()
+    if heartbeat_path is None:
+        heartbeat_path = _default_heartbeat_path()
 
     logging_setup.configure(log_name="watchdog")
     log = logging_setup.get_logger(__name__)
 
     findings = check_health(audit_path, now=now)
+    findings.extend(
+        check_news_daemon_health(
+            heartbeat_path, now=now, is_active_fn=is_active_fn
+        )
+    )
 
     if not findings:
         log.info(
@@ -416,6 +517,7 @@ def main(
             extra={
                 "event": "watchdog_ok",
                 "audit_path": str(audit_path),
+                "heartbeat_path": str(heartbeat_path),
             },
         )
         return 0
@@ -426,6 +528,7 @@ def main(
         extra={
             "event": "watchdog_degraded",
             "audit_path": str(audit_path),
+            "heartbeat_path": str(heartbeat_path),
             "finding_count": len(findings),
             "findings": [f["event"] for f in findings],
         },

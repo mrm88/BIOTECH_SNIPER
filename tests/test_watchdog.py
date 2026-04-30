@@ -372,7 +372,14 @@ def test_main_returns_zero_on_healthy_state(tmp_path, fresh_logging):
         last_intraday_run=_iso(NOW_MARKET - timedelta(minutes=10)),
         mtime=NOW_MARKET - timedelta(minutes=1),
     )
-    rc = watchdog.main(argv=[], audit_path=audit, now=NOW_MARKET)
+    hb = tmp_path / "news_daemon_heartbeat.json"
+    hb.write_text("{}", encoding="utf-8")
+    fresh = (NOW_MARKET - timedelta(seconds=30)).timestamp()
+    os.utime(hb, (fresh, fresh))
+    rc = watchdog.main(
+        argv=[], audit_path=audit, heartbeat_path=hb,
+        now=NOW_MARKET, is_active_fn=lambda: True,
+    )
     assert rc == 0
 
     for handler in logging.getLogger().handlers:
@@ -484,7 +491,14 @@ def test_main_accepts_audit_path_cli_flag(tmp_path, fresh_logging):
         last_intraday_run=_iso(NOW_MARKET - timedelta(minutes=10)),
         mtime=NOW_MARKET - timedelta(minutes=1),
     )
-    rc = watchdog.main(argv=["--audit-path", str(audit)], now=NOW_MARKET)
+    hb = tmp_path / "news_daemon_heartbeat.json"
+    hb.write_text("{}", encoding="utf-8")
+    fresh = (NOW_MARKET - timedelta(seconds=30)).timestamp()
+    os.utime(hb, (fresh, fresh))
+    rc = watchdog.main(
+        argv=["--audit-path", str(audit)], heartbeat_path=hb,
+        now=NOW_MARKET, is_active_fn=lambda: True,
+    )
     assert rc == 0
 
 
@@ -505,3 +519,112 @@ def test_main_returns_one_when_multiple_conditions_degraded(
     entries = _read_log_lines(fresh_logging)
     events = {entry["event"] for entry in entries}
     assert {"daily_run_stale", "intraday_run_stale"} <= events
+
+
+# ---------------------------------------------------------------------------
+# Reading-B M4: news daemon health (VAL-M4-021..024)
+# ---------------------------------------------------------------------------
+
+
+def test_check_news_daemon_health_healthy_returns_empty(tmp_path):
+    hb = tmp_path / "news_daemon_heartbeat.json"
+    hb.write_text("{}", encoding="utf-8")
+    fresh = (NOW_MARKET - timedelta(seconds=30)).timestamp()
+    os.utime(hb, (fresh, fresh))
+    findings = watchdog.check_news_daemon_health(
+        hb, now=NOW_MARKET, is_active_fn=lambda: True,
+    )
+    assert findings == []
+
+
+def test_check_news_daemon_health_inactive_emits_news_service_inactive(
+    tmp_path,
+):
+    hb = tmp_path / "news_daemon_heartbeat.json"
+    hb.write_text("{}", encoding="utf-8")
+    fresh = (NOW_MARKET - timedelta(seconds=30)).timestamp()
+    os.utime(hb, (fresh, fresh))
+    findings = watchdog.check_news_daemon_health(
+        hb, now=NOW_MARKET, is_active_fn=lambda: False,
+    )
+    events = [f["event"] for f in findings]
+    assert "news_service_inactive" in events
+    inactive = next(f for f in findings if f["event"] == "news_service_inactive")
+    assert inactive["level"] == "ERROR"
+    # VAL-CROSS-040: 'news_daemon_inactive' substring must appear in the
+    # log line (validator greps the journalctl output).
+    assert inactive.get("legacy_event") == "news_daemon_inactive"
+
+
+def test_check_news_daemon_health_stale_heartbeat_emits_warning(tmp_path):
+    hb = tmp_path / "news_daemon_heartbeat.json"
+    hb.write_text("{}", encoding="utf-8")
+    old = (NOW_MARKET - timedelta(minutes=10)).timestamp()
+    os.utime(hb, (old, old))
+    findings = watchdog.check_news_daemon_health(
+        hb, now=NOW_MARKET, is_active_fn=lambda: True,
+    )
+    stale = next(f for f in findings if f["event"] == "news_daemon_heartbeat_stale")
+    assert stale["level"] in {"WARNING", "WARN", "ERROR"}
+    assert stale["age_seconds"] >= 300
+
+
+def test_check_news_daemon_health_missing_heartbeat_flags_stale(tmp_path):
+    findings = watchdog.check_news_daemon_health(
+        tmp_path / "no_such_hb.json",
+        now=NOW_MARKET,
+        is_active_fn=lambda: True,
+    )
+    assert any(
+        f["event"] == "news_daemon_heartbeat_stale"
+        and f.get("reason") == "heartbeat_missing"
+        for f in findings
+    )
+
+
+def test_main_emits_news_service_inactive_when_daemon_stopped(
+    tmp_path, fresh_logging
+):
+    audit = _write_audit(
+        tmp_path / "audit_latest.json",
+        last_daily_run=_iso(NOW_MARKET - timedelta(hours=2)),
+        last_intraday_run=_iso(NOW_MARKET - timedelta(minutes=10)),
+        mtime=NOW_MARKET - timedelta(minutes=1),
+    )
+    hb = tmp_path / "news_daemon_heartbeat.json"
+    hb.write_text("{}", encoding="utf-8")
+    fresh = (NOW_MARKET - timedelta(seconds=30)).timestamp()
+    os.utime(hb, (fresh, fresh))
+    rc = watchdog.main(
+        argv=[], audit_path=audit, heartbeat_path=hb,
+        now=NOW_MARKET, is_active_fn=lambda: False,
+    )
+    assert rc == 1
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+    entries = _read_log_lines(fresh_logging)
+    events = {e["event"] for e in entries}
+    assert "news_service_inactive" in events
+
+
+def test_main_emits_heartbeat_stale_when_old(tmp_path, fresh_logging):
+    audit = _write_audit(
+        tmp_path / "audit_latest.json",
+        last_daily_run=_iso(NOW_MARKET - timedelta(hours=2)),
+        last_intraday_run=_iso(NOW_MARKET - timedelta(minutes=10)),
+        mtime=NOW_MARKET - timedelta(minutes=1),
+    )
+    hb = tmp_path / "news_daemon_heartbeat.json"
+    hb.write_text("{}", encoding="utf-8")
+    old = (NOW_MARKET - timedelta(minutes=10)).timestamp()
+    os.utime(hb, (old, old))
+    rc = watchdog.main(
+        argv=[], audit_path=audit, heartbeat_path=hb,
+        now=NOW_MARKET, is_active_fn=lambda: True,
+    )
+    assert rc == 1
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+    entries = _read_log_lines(fresh_logging)
+    events = {e["event"] for e in entries}
+    assert "news_daemon_heartbeat_stale" in events
