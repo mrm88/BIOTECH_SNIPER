@@ -59,6 +59,7 @@ from biotech_sniper.universe.russell_biotech import (
     MissingIWMSnapshot,
     RefreshResult,
     ShrinkageRefusal,
+    _passes_shrinkage_floor,
     classify_candidates,
     ensure_russell2k_biotech_table,
     main,
@@ -774,6 +775,206 @@ def test_allow_shrinkage_bypasses_guard(tmp_path: Path) -> None:
         allow_shrinkage=True,
     )
     assert result.rows_written == 10
+
+
+# ---------------------------------------------------------------------------
+# Shrinkage floor predicate — truncation-free precision
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "prior, new, expected",
+    [
+        # ─── The bug-driver case: prior=101, ratio=0.75 ───
+        # Floor is 75.75 → 75 rows is a 25.74 % shrink → MUST be refused
+        # (the truncated-int predicate previously admitted it).
+        (101, 75, False),
+        (101, 76, True),  # 76/101 ≈ 75.25 % — at/above floor
+        (101, 77, True),
+        # ─── prior=103, ratio=0.75 ───
+        # Floor is 77.25 → 77 rows is a 25.24 % shrink → refused.
+        (103, 77, False),
+        (103, 78, True),  # 78/103 ≈ 75.73 % — admitted
+        # ─── prior=100, ratio=0.75 (clean divisor) ───
+        # Floor is exactly 75 → 75 admitted, 74 refused.
+        (100, 75, True),
+        (100, 74, False),
+        (100, 100, True),
+        (100, 99, True),
+        # ─── Tiny priors (the 7 / 4 boundary cases) ───
+        # prior=7, floor=5.25 → 5 refused (5/7 ≈ 71.4 %), 6 admitted.
+        (7, 5, False),
+        (7, 6, True),
+        (7, 7, True),
+        # prior=4, floor=3.0 → exactly 3 admitted, 2 refused.
+        (4, 3, True),
+        (4, 2, False),
+        (4, 4, True),
+        # ─── Growth (new > prior) is always admitted ───
+        (50, 100, True),
+        (1, 1_000_000, True),
+        # ─── prior_count == 0 ⇒ no baseline ⇒ never refused ───
+        (0, 0, True),
+        (0, 50, True),
+    ],
+)
+def test_passes_shrinkage_floor_edge_cases(
+    prior: int, new: int, expected: bool
+) -> None:
+    """Direct unit-test of the truncation-free shrinkage predicate.
+
+    Exercises the bug-driver case (prior=101 → 75 must refuse) plus the
+    prior=103, 7, 4 boundaries called out in
+    f-fix-m1-03-russell-shrinkage-precision.
+    """
+    assert (
+        _passes_shrinkage_floor(prior, new, 0.75) is expected
+    ), f"prior={prior} new={new} expected pass={expected}"
+
+
+def test_passes_shrinkage_floor_property_sweep() -> None:
+    """For prior in [50, 200], the predicate accepts exactly when
+    new/prior ≥ 0.75 (i.e. real-valued, not truncated)."""
+    floor = 0.75
+    for prior in range(50, 201):
+        for new in range(0, prior + 1):
+            actual = _passes_shrinkage_floor(prior, new, floor)
+            expected = (new / prior) >= floor
+            assert actual is expected, (
+                f"prior={prior} new={new}: expected={expected} "
+                f"actual={actual} (ratio={new / prior:.6f})"
+            )
+
+
+def test_passes_shrinkage_floor_uses_documented_default_ratio() -> None:
+    """Sanity: the helper agrees with DEFAULT_SHRINKAGE_FLOOR_RATIO."""
+    assert DEFAULT_SHRINKAGE_FLOOR_RATIO == 0.75
+    # 101 → 75 must be refused at the documented default ratio.
+    assert (
+        _passes_shrinkage_floor(101, 75, DEFAULT_SHRINKAGE_FLOOR_RATIO)
+        is False
+    )
+    # 101 → 76 admitted at the documented default ratio.
+    assert (
+        _passes_shrinkage_floor(101, 76, DEFAULT_SHRINKAGE_FLOOR_RATIO)
+        is True
+    )
+
+
+def test_atomic_replace_refuses_truncation_admitted_shrink(
+    tmp_path: Path,
+) -> None:
+    """Integration: prior=101, new=75 must roll back via _atomic_replace.
+
+    This is the end-to-end version of the predicate bug — exercises the
+    real ``_atomic_replace`` against a 101-row prior snapshot and a
+    75-candidate new snapshot. With the truncated-int predicate this
+    case was incorrectly committed; with the float-comparison predicate
+    it must raise :class:`ShrinkageRefusal` and preserve the prior 101
+    rows verbatim.
+    """
+    db_path = tmp_path / "alpha.db"
+
+    # Seed a 101-row prior snapshot (NOT 100 — the bug only manifests
+    # on non-divisible priors).
+    iwm_rows1, sic_map1 = _build_synthetic_universe(
+        biotech_count=101, non_biotech_count=0
+    )
+    _seed_iwm_snapshot(db_path, iwm_rows1, as_of_date="2026-04-28")
+    refresh_russell2k_biotech(
+        db_path=db_path,
+        classifier=_FakeClassifier(sic_map1),
+        max_age_hours=0,
+    )
+    conn = sqlite3.connect(db_path)
+    pre_count = conn.execute(
+        "SELECT COUNT(*) FROM russell2k_biotech"
+    ).fetchone()[0]
+    conn.close()
+    assert pre_count == 101
+
+    # Build a 75-candidate refresh — exactly at the truncated-int
+    # boundary that the buggy predicate admitted. 75 / 101 ≈ 0.7426 <
+    # 0.75 ⇒ must be refused.
+    iwm_rows2, sic_map2 = _build_synthetic_universe(
+        biotech_count=75, non_biotech_count=0
+    )
+    _seed_iwm_snapshot(db_path, iwm_rows2, as_of_date="2026-04-29")
+
+    with pytest.raises(ShrinkageRefusal):
+        refresh_russell2k_biotech(
+            db_path=db_path,
+            classifier=_FakeClassifier(sic_map2),
+            max_age_hours=0,
+        )
+
+    conn = sqlite3.connect(db_path)
+    post_count = conn.execute(
+        "SELECT COUNT(*) FROM russell2k_biotech"
+    ).fetchone()[0]
+    conn.close()
+    assert post_count == 101  # prior preserved
+
+
+def test_atomic_replace_admits_at_floor_boundary(tmp_path: Path) -> None:
+    """Integration: prior=100, new=75 commits cleanly (exactly at floor)."""
+    db_path = tmp_path / "alpha.db"
+    iwm_rows1, sic_map1 = _build_synthetic_universe(
+        biotech_count=100, non_biotech_count=0
+    )
+    _seed_iwm_snapshot(db_path, iwm_rows1, as_of_date="2026-04-28")
+    refresh_russell2k_biotech(
+        db_path=db_path,
+        classifier=_FakeClassifier(sic_map1),
+        max_age_hours=0,
+    )
+
+    iwm_rows2, sic_map2 = _build_synthetic_universe(
+        biotech_count=75, non_biotech_count=0
+    )
+    _seed_iwm_snapshot(db_path, iwm_rows2, as_of_date="2026-04-29")
+    result = refresh_russell2k_biotech(
+        db_path=db_path,
+        classifier=_FakeClassifier(sic_map2),
+        max_age_hours=0,
+    )
+    assert result.rows_written == 75
+    assert result.shrinkage_refused is False
+
+
+def test_atomic_replace_refuses_just_below_floor_boundary(
+    tmp_path: Path,
+) -> None:
+    """Integration: prior=100, new=74 refused (just below 75 % floor)."""
+    db_path = tmp_path / "alpha.db"
+    iwm_rows1, sic_map1 = _build_synthetic_universe(
+        biotech_count=100, non_biotech_count=0
+    )
+    _seed_iwm_snapshot(db_path, iwm_rows1, as_of_date="2026-04-28")
+    refresh_russell2k_biotech(
+        db_path=db_path,
+        classifier=_FakeClassifier(sic_map1),
+        max_age_hours=0,
+    )
+
+    iwm_rows2, sic_map2 = _build_synthetic_universe(
+        biotech_count=74, non_biotech_count=0
+    )
+    _seed_iwm_snapshot(db_path, iwm_rows2, as_of_date="2026-04-29")
+
+    with pytest.raises(ShrinkageRefusal):
+        refresh_russell2k_biotech(
+            db_path=db_path,
+            classifier=_FakeClassifier(sic_map2),
+            max_age_hours=0,
+        )
+
+    conn = sqlite3.connect(db_path)
+    post_count = conn.execute(
+        "SELECT COUNT(*) FROM russell2k_biotech"
+    ).fetchone()[0]
+    conn.close()
+    assert post_count == 100  # prior preserved
 
 
 # ---------------------------------------------------------------------------

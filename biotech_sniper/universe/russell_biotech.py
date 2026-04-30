@@ -125,6 +125,7 @@ __all__ = [
     "load_latest_iwm_snapshot",
     "classify_candidates",
     "refresh_russell2k_biotech",
+    "_passes_shrinkage_floor",
     "main",
 ]
 
@@ -470,6 +471,40 @@ def classify_candidates(
 
 
 # ---------------------------------------------------------------------------
+# Shrinkage predicate
+# ---------------------------------------------------------------------------
+
+
+def _passes_shrinkage_floor(
+    prior_count: int, new_count: int, floor_ratio: float
+) -> bool:
+    """Return ``True`` iff ``new_count`` is at or above the shrinkage floor.
+
+    The predicate is ``new_count / prior_count >= floor_ratio`` — i.e. the
+    new snapshot must retain at least ``floor_ratio`` × prior rows. The
+    comparison is performed in float space (``new_count * 1.0 >=
+    prior_count * floor_ratio``) so the boundary is the EXACT real-valued
+    cutoff rather than a truncated integer threshold. (The earlier
+    implementation used ``new_count < int(prior_count * floor_ratio)``,
+    which truncated the threshold and admitted forbidden shrinkage on
+    non-divisible priors — e.g. ``prior=101, ratio=0.75`` truncated to
+    ``75`` and admitted ``new=75`` (a 25.74 % shrink). See feature
+    ``f-fix-m1-03-russell-shrinkage-precision`` / VAL-M1-057.)
+
+    A ``prior_count`` of ``0`` is treated as "no prior baseline", which
+    cannot be shrunk — the predicate returns ``True`` unconditionally so
+    a fresh first-ever load is never refused.
+    """
+    if prior_count <= 0:
+        return True
+    # Float comparison — symmetric, no truncation. Equivalent (modulo
+    # float rounding for representable ratios) to:
+    #   new_count * 100 >= prior_count * int(floor_ratio * 100)
+    # for the documented ``floor_ratio = 0.75`` case.
+    return float(new_count) >= float(prior_count) * float(floor_ratio)
+
+
+# ---------------------------------------------------------------------------
 # Atomic write
 # ---------------------------------------------------------------------------
 
@@ -513,7 +548,7 @@ def _atomic_replace(
     if (
         prior_count > 0
         and not allow_shrinkage
-        and new_count < int(prior_count * floor_ratio)
+        and not _passes_shrinkage_floor(prior_count, new_count, floor_ratio)
     ):
         raise ShrinkageRefusal(
             f"new snapshot has {new_count} rows vs prior {prior_count} "
