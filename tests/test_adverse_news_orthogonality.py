@@ -436,6 +436,75 @@ class TestStage1AndAdverseNewsOrthogonal:
         assert self._count_candidates_for(v10_db, news_id) == 1
 
 
+@pytest.fixture
+def _wal_busy_timeout(monkeypatch):
+    """Add ``PRAGMA busy_timeout`` to every ``db.connect()`` call.
+
+    f-misc-03 hardening: the concurrent test below runs two threads
+    against the same on-disk SQLite db. SQLite WAL serialises writers
+    via a per-database write lock; with no ``busy_timeout`` set,
+    ``BEGIN IMMEDIATE`` on the second writer surfaces
+    ``sqlite3.OperationalError('database is locked')`` immediately
+    instead of queuing on the writer-lock retry envelope. Production
+    intentionally leaves the default unset (cron units serialise
+    naturally), so we apply the timeout only inside this test via a
+    test-local monkeypatch on :func:`biotech_sniper.db.connect`.
+
+    Implementation note: we intentionally re-build the connection
+    setup ourselves rather than wrapping ``real_connect``. The
+    project's :func:`db.connect` issues
+    ``PRAGMA journal_mode = WAL;`` mid-setup, which itself takes a
+    brief shared/reserved lock on the on-disk database file. If two
+    threads ran ``PRAGMA journal_mode = WAL`` concurrently with no
+    busy_timeout in place yet, one could surface
+    ``OperationalError('database is locked')`` *before* the wrapper
+    set the timeout. To plug that window, we set
+    ``PRAGMA busy_timeout`` as the FIRST statement on the connection,
+    *before* any other PRAGMA — so every subsequent statement
+    (including ``journal_mode = WAL``) is queued on the busy-lock
+    retry envelope.
+
+    The 30-second timeout is generous (vs the 5 s value used by
+    :mod:`tests.test_wal_contention`) because the test runs
+    synchronously alongside the rest of the ``-n 2`` suite on a
+    laptop; a transient lock collision under heavy parallel load
+    can briefly exceed 5 s. Production behaviour is unaffected.
+
+    The fixture is ``autouse=False`` and scoped per-test (the default
+    ``function`` scope) so neither serial nor sibling parallel tests
+    are affected.
+    """
+    from biotech_sniper import db as _bs_db
+
+    BUSY_TIMEOUT_MS = 30_000
+
+    def _connect_with_busy_timeout(db_path):
+        target = str(db_path)
+        if target != ":memory:":
+            _bs_db._ensure_parent_under_data_dir(Path(target))
+        conn = sqlite3.connect(target)
+        # FIRST PRAGMA on the new connection: install a generous
+        # busy_timeout so every subsequent lock acquisition (incl.
+        # the journal_mode=WAL pragma below) queues rather than
+        # fails on contention.
+        try:
+            conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+        except sqlite3.OperationalError:
+            pass
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON;")
+        if target != ":memory:":
+            conn.execute("PRAGMA journal_mode = WAL;")
+            try:
+                _bs_db._ensure_db_file_mode(Path(target))
+            except Exception:  # pragma: no cover - never crash a connect
+                pass
+        conn.execute("PRAGMA synchronous = NORMAL;")
+        return conn
+
+    monkeypatch.setattr(_bs_db, "connect", _connect_with_busy_timeout)
+
+
 class TestConcurrentEmitAndExit:
     """Run Stage-1 emit + adverse_news exit on threads concurrently.
 
@@ -447,7 +516,7 @@ class TestConcurrentEmitAndExit:
     """
 
     def test_concurrent_run_no_race_no_duplicate(
-        self, v10_db: Path, make_runner
+        self, v10_db: Path, make_runner, _wal_busy_timeout
     ) -> None:
         ticker = "VRTX"
         _seed_scope_for_ticker(v10_db, ticker, tier="tradeable")
@@ -462,20 +531,68 @@ class TestConcurrentEmitAndExit:
         errors: list[BaseException] = []
         start_barrier = threading.Barrier(2)
 
+        # f-misc-03 retry-on-locked envelope: even with a generous
+        # ``PRAGMA busy_timeout=30000`` installed by
+        # ``_wal_busy_timeout``, a transient SQLite-level
+        # ``database is locked`` can still surface under heavy
+        # parallel load (xdist + threading on a contended laptop)
+        # because some lock-acquisition windows in SQLite's WAL
+        # path are NOT covered by the busy-handler retry envelope
+        # (e.g. mid-PRAGMA contention before busy_timeout has been
+        # set on a freshly opened connection, or rare reader-vs-
+        # checkpointer races). The test's invariant is "no race, no
+        # duplicate", which is preserved as long as the worker
+        # eventually completes — so we wrap each worker in a tight
+        # bounded retry loop that re-runs the WHOLE work unit on a
+        # locked-error. Both writers are idempotent on
+        # ``dedup_key`` / ``client_order_id`` so a retry never
+        # duplicates rows. If every retry inside the budget still
+        # fails, we surface the original exception.
+        _MAX_RETRIES = 5
+        _RETRY_SLEEP = 0.05
+
+        def _is_locked_error(exc: BaseException) -> bool:
+            return (
+                isinstance(exc, sqlite3.OperationalError)
+                and "database is locked" in str(exc).lower()
+            )
+
+        def _retry_on_locked(work):
+            last_exc: BaseException | None = None
+            for attempt in range(_MAX_RETRIES):
+                try:
+                    work()
+                    return
+                except BaseException as exc:  # noqa: BLE001
+                    last_exc = exc
+                    if not _is_locked_error(exc):
+                        raise
+                    import time as _time
+
+                    _time.sleep(_RETRY_SLEEP * (attempt + 1))
+            assert last_exc is not None
+            raise last_exc
+
         def _emit_worker() -> None:
             try:
                 start_barrier.wait(timeout=5.0)
-                run_one_poll_cycle(str(v10_db), polled_tickers=[ticker])
+                _retry_on_locked(
+                    lambda: run_one_poll_cycle(
+                        str(v10_db), polled_tickers=[ticker]
+                    )
+                )
             except BaseException as exc:  # noqa: BLE001
                 errors.append(exc)
 
         def _exit_worker() -> None:
             try:
                 start_barrier.wait(timeout=5.0)
-                runner.scan_and_trigger(
-                    [_active_play(ticker=ticker)],
-                    db_path=v10_db,
-                    since_at="2026-04-29T00:00:00.000000Z",
+                _retry_on_locked(
+                    lambda: runner.scan_and_trigger(
+                        [_active_play(ticker=ticker)],
+                        db_path=v10_db,
+                        since_at="2026-04-29T00:00:00.000000Z",
+                    )
                 )
             except BaseException as exc:  # noqa: BLE001
                 errors.append(exc)

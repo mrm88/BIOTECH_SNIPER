@@ -21,6 +21,7 @@ from tests.test_adverse_news_orthogonality import (  # noqa: F401
     TestAdverseNewsModuleUnchanged,
     TestConcurrentEmitAndExit,
     TestStage1AndAdverseNewsOrthogonal,
+    _wal_busy_timeout,
     make_runner,
     v10_db,
 )
