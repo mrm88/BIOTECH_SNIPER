@@ -45,6 +45,15 @@ NEWS_HEADERS = {
 }
 
 # ── Signal keywords ───────────────────────────────────────────────────────────
+#
+# Reading-B M2 (f-m2-05) extends these lists with partnership /
+# collaboration / license keywords (no $-threshold), M&A rumour
+# vocab (take-private / strategic-alternatives / "agreed to be
+# acquired" / "to acquire" / "acquires"), and IND/NDA/BLA/sNDA
+# regulatory submission keywords.  These additions are consumed
+# both by the existing TIER-1/TIER-2 scoring path here AND by the
+# Stage-1 ``news_daemon.matcher`` which imports the same lists
+# (single source of truth — never redefined locally).
 TIER_1_SIGNALS = [
     "topline", "top-line", "primary endpoint", "phase 3 results",
     "phase iii results", "pivotal trial", "nda submission", "bla submission",
@@ -54,6 +63,9 @@ TIER_1_SIGNALS = [
     "did not meet", "statistically significant", "statistically superior",
     "overall survival", "progression-free survival", "objective response rate",
     "fda action date", "fda decision", "approvable",
+    # f-m2-05 regulatory submission additions
+    "snda", "investigational new drug", "biologics license application",
+    "new drug application", "ind filing",
 ]
 
 TIER_2_SIGNALS = [
@@ -63,6 +75,12 @@ TIER_2_SIGNALS = [
     "safety data", "phase 1 results", "phase i results",
     "accelerated approval", "orphan drug", "rare pediatric",
     "acquisition", "merger", "buyout", "tender offer",
+    # f-m2-05 partnership / collaboration / license additions
+    "licensing agreement", "license deal", "co-development",
+    "option agreement", "collaboration agreement",
+    # f-m2-05 M&A rumour additions
+    "acquires", "to acquire", "agreed to be acquired",
+    "take-private", "take private", "strategic alternatives",
 ]
 
 # Medical conferences — presence near a date = catalyst signal
