@@ -518,7 +518,30 @@ def test_full_roundtrip_with_telemetry(
     )
     assert cooldown_rows[0]["last_event_id"] == candidate_event_id_real
 
-    # 7) VAL-M3-062 — clean cancel.
+    # ----------------------------------------------------------------
+    # 7) VAL-M3-062 — clean cancel exercised via the PRODUCTION
+    # subscriber path (NOT the manual writer).
+    #
+    # The cancel-telemetry assertion MUST be driven by
+    # :class:`biotech_sniper.execution_subscriber.ExecutionSubscriber`
+    # because that is the same entrypoint the production
+    # ``alpha-sniper-news`` daemon (and the
+    # ``execution_subscriber --poll-once`` cron CLI) invokes against
+    # the live broker. Calling :func:`record_execution_event`
+    # directly here would bypass the subscriber's broker-status →
+    # ``event_type`` mapping AND its open-orders walk, which means a
+    # regression in either of those production code paths would
+    # leave VAL-M3-062 GREEN despite the subscriber-driven cancel
+    # path being broken (the round-1 scrutiny finding that this
+    # f-fix-m3-11 feature corrects).
+    #
+    # Likewise, ``paper_orders.status`` is mirrored via the
+    # production helper :meth:`PaperExecutor.wait_for_fill` (which
+    # internally calls ``_update_order_status``) — the same helper
+    # exercised by ``tests/test_paper_executor.py``. The contract at
+    # validation-contract.md line 1169 explicitly requires
+    # "paper_orders.status becomes canceled".
+    # ----------------------------------------------------------------
     isolated_alpaca_paper.cancel_order(alpaca_order_id)
 
     # Poll briefly for the broker to reflect the cancel — the
@@ -543,19 +566,32 @@ def test_full_roundtrip_with_telemetry(
         f"status after cancel_order"
     )
 
-    # The execution_events poll loop in production runs in
-    # ``execution_subscriber``; in this synchronous test we record
-    # the cancel transition manually via the same writer the
-    # subscriber uses so the SQLite assertion is deterministic.
-    from biotech_sniper.execution_subscriber import (
-        record_execution_event as _rec,
+    # Drive the cancel-telemetry write through the production
+    # subscriber. ``poll_once`` walks every non-terminal
+    # ``paper_orders`` row, fetches the broker-side state via
+    # :meth:`AlpacaClient.get_order`, maps the status through
+    # ``_BROKER_STATUS_TO_EVENT_TYPE`` and inserts the
+    # corresponding ``execution_events`` row via
+    # :func:`record_execution_event` — the SAME entrypoint the
+    # daemon calls in production. We invoke it twice: once to
+    # capture any intermediate ``accepted`` lifecycle event the
+    # broker emitted after submission (so the canonical
+    # state-transition graph stays satisfied), and once after the
+    # cancel reaches the broker so the final ``canceled`` row
+    # lands.
+    from biotech_sniper.execution_subscriber import ExecutionSubscriber
+
+    subscriber = ExecutionSubscriber(
+        client=isolated_alpaca_paper, db_path=db_path
     )
-    _rec(
-        db_path,
-        paper_order_id=internal_id,
-        event_type="canceled",
-        raw_payload={"reason": "test_clean_cancel", "alpaca_order_id": alpaca_order_id},
-    )
+    # First poll: catches the broker's pre-cancel ``accepted``
+    # transition (Alpaca paper typically accepts within ms of
+    # submission) so the subsequent ``canceled`` write satisfies
+    # the LEGAL_TRANSITIONS graph (``accepted`` → ``canceled``).
+    subscriber.poll_once()
+    # Second poll: records the broker-confirmed cancel via the
+    # production code path.
+    subscriber.poll_once()
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -568,7 +604,40 @@ def test_full_roundtrip_with_telemetry(
         ).fetchone()
     finally:
         conn.close()
-    assert last is not None and last["event_type"] == "canceled"
+    assert last is not None and last["event_type"] == "canceled", (
+        f"VAL-M3-062: subscriber-driven cancel must yield "
+        f"execution_events.event_type='canceled'; got "
+        f"{dict(last) if last else None}"
+    )
+
+    # Mirror ``paper_orders.status`` via the production executor
+    # helper. ``wait_for_fill`` calls ``_update_order_status``
+    # exactly as production does, ensuring the local row reflects
+    # the broker's terminal status. ``timeout_seconds=5`` keeps the
+    # poll bounded; ``poll_interval_seconds=0`` makes the loop
+    # tight since the broker is already at the terminal
+    # ``canceled`` state. The duplicate ``canceled`` event row is
+    # de-duped inside ``_record_event_for_status`` (no double
+    # write), and the LEGAL_TRANSITIONS validator is satisfied.
+    executor.wait_for_fill(
+        alpaca_order_id,
+        timeout_seconds=5.0,
+        poll_interval_seconds=0.0,
+    )
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        status_row = conn.execute(
+            "SELECT status FROM paper_orders WHERE id=?",
+            (internal_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    assert status_row is not None and status_row["status"] == "canceled", (
+        f"VAL-M3-062: paper_orders.status must mirror the broker "
+        f"cancel; got {dict(status_row) if status_row else None}"
+    )
 
 
 # ---------------------------------------------------------------------------
