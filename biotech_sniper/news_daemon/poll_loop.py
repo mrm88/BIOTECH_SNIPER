@@ -493,19 +493,29 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             max_cycles=max_cycles,
         )
 
-    # Non-dry-run, enabled path: subsequent M2 features wire in
-    #   load_polled_universe()  (f-m2-04 — uses scope.filter_universe)
-    #   match_news_row()        (f-m2-05 — uses matcher.match_keywords)
-    #   emit_candidate()        (f-m2-06 — uses emit.write_candidate)
-    #   write_heartbeat()       (f-m2-08 — uses heartbeat.write)
-    #
-    # f-m2-03 stops here so the unfinished body cannot be silently
-    # exercised before f-m2-04..f-m2-09 fill it in.
-    raise NotImplementedError(
-        "news_daemon poll loop wiring lands in f-m2-04..f-m2-09. "
-        "Use --dry-run to verify the package skeleton resolves, "
-        "or set NEWS_DAEMON_ENABLED=0 to run the disabled-idle "
-        "kill-switch path."
+    # Non-dry-run, enabled path: hand off to the f-m2-09 resilience
+    # loop.  The loop wires:
+    #   resolve_polled_tickers()  (f-m2-04 scope filter)
+    #   run_one_poll_cycle()      (f-m2-05 matcher + f-m2-06 emit)
+    #   write_heartbeat()         (f-m2-08 heartbeat) every cycle
+    # and survives every failure mode pinned by VAL-M2-037..VAL-M2-052
+    # (single-source 500, all-sources 500, news spike, SIGTERM,
+    # clock skew).
+    from biotech_sniper.news_daemon.resilience import run_main_loop
+
+    if args.db is not None:
+        db_path = args.db
+    else:
+        from biotech_sniper.paths import DATA_DIR
+
+        db_path = str(DATA_DIR / "alpha_sniper.db")
+
+    return run_main_loop(
+        db_path,
+        poll_seconds=poll_seconds,
+        max_cycles=max_cycles,
+        rss_fetchers=(),  # production wiring lands in M4 / follow-up
+        install_handlers=True,
     )
 
 

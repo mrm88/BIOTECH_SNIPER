@@ -425,14 +425,32 @@ def test_main_disabled_returns_zero_without_notimplemented(
     assert rc == 0
 
 
-def test_main_enabled_still_raises_until_loop_lands(
+def test_main_enabled_runs_resilience_loop_with_finite_cycles(
+    tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """f-m2-01 contract preserved: enabled+non-dry-run → NotImplementedError."""
+    """f-m2-09 contract: enabled+non-dry-run main runs the real loop.
+
+    Until f-m2-09 landed, ``main([])`` raised ``NotImplementedError``
+    by design (the package skeleton refused to silently no-op before
+    the loop wiring was complete).  Now that the resilience loop
+    exists, an ``--max-cycles=1`` run exits cleanly with rc=0 and
+    flushes a heartbeat.
+    """
 
     monkeypatch.delenv("NEWS_DAEMON_ENABLED", raising=False)
-    with pytest.raises(NotImplementedError):
-        main([])
+    monkeypatch.setenv("BIOTECH_SNIPER_HOME", str(tmp_path))
+    monkeypatch.setattr(poll_loop.time, "sleep", lambda _s: None)
+    db_path = tmp_path / "alpha.db"
+    rc = main([
+        "--max-cycles",
+        "1",
+        "--poll-seconds",
+        "15",
+        "--db",
+        str(db_path),
+    ])
+    assert rc == 0
 
 
 def test_main_dry_run_with_clamp_logs_warning(

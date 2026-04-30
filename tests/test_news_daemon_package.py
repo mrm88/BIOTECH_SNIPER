@@ -268,19 +268,37 @@ def test_main_dry_run_returns_zero() -> None:
     assert rc == 0
 
 
-def test_main_non_dry_run_refuses_until_loop_lands() -> None:
-    """Skeleton refuses real loop until f-m2-03..f-m2-09 land.
+def test_main_non_dry_run_runs_loop_with_finite_cycles(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Once f-m2-09 has landed, ``main([])`` runs the resilience loop.
 
-    Documents the f-m2-01 contract that the package skeleton stops
-    short of running a real loop; subsequent M2 features fill in
-    poll-cadence resolution, scope filter, matcher, emit, heartbeat,
-    and resilience handling.  The ``NotImplementedError`` ensures
-    callers cannot accidentally exercise the unfinished body
-    (which would silently no-op before the wiring lands).
+    The original f-m2-01 contract pinned a ``NotImplementedError`` so
+    callers could not accidentally exercise the unfinished body.
+    f-m2-09 fills in the real loop via
+    :mod:`biotech_sniper.news_daemon.resilience`, so this test now
+    pins the new contract: a ``--max-cycles=1`` run exits 0 without
+    raising.
+
+    A tmp-path DB is wired in so the loop's heartbeat write does
+    not collide with the project's ``state/`` directory.
     """
 
-    with pytest.raises(NotImplementedError):
-        poll_loop.main([])
+    db_path = tmp_path / "alpha.db"
+    monkeypatch.setenv("BIOTECH_SNIPER_HOME", str(tmp_path))
+    monkeypatch.delenv("NEWS_DAEMON_ENABLED", raising=False)
+    monkeypatch.setattr(poll_loop.time, "sleep", lambda _s: None)
+
+    rc = poll_loop.main([
+        "--max-cycles",
+        "1",
+        "--poll-seconds",
+        "15",
+        "--db",
+        str(db_path),
+    ])
+    assert rc == 0
 
 
 # ---------------------------------------------------------------------------
