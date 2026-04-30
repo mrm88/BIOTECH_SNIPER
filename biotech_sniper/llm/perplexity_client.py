@@ -742,7 +742,31 @@ class PerplexityClient:
         last_kind: str = "transport"  # 'transport' | 'timeout' | 'rate_limit'
         retry_after_seconds: Optional[float] = None
 
+        # f-fix-m3-12: pre-loop breaker check. Mirrors the
+        # ``score_candidate_event`` ensemble path's
+        # ``breaker_open: perplexity, mode=score_only`` short-circuit
+        # (ensemble.py:1163). When the breaker is OPEN at entry no
+        # POST is sent — HALF_OPEN still proceeds because
+        # ``is_open()`` returns ``False`` in that probe state per
+        # ``breaker.py``.
+        if breaker_module.is_open():
+            raise PerplexityTransportError(
+                "Perplexity breaker is OPEN; aborting before sending request"
+            )
+
         while attempts_so_far < max_total:
+            # f-fix-m3-12: top-of-loop breaker check. The breaker may
+            # have transitioned to OPEN between attempts (each 5xx /
+            # timeout calls ``record_5xx_failure`` /
+            # ``record_timeout`` below). Without this guard, OPEN
+            # status was ignored and the next ``self._session.post``
+            # would still fire — violating VAL-M3-074 / breaker OPEN
+            # short-circuit semantics.
+            if breaker_module.is_open():
+                raise PerplexityTransportError(
+                    f"Perplexity breaker is OPEN; aborting after "
+                    f"{attempts_so_far} attempt(s)"
+                )
             try:
                 resp = self._session.post(
                     self.endpoint_url,

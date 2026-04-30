@@ -34,6 +34,7 @@ from typing import Any, Mapping
 import pytest
 import requests
 
+from biotech_sniper.exec import breaker as breaker_module
 from biotech_sniper.llm import perplexity_client
 from biotech_sniper.llm.perplexity_client import (
     BIOTECH_CATALYST_VERDICT_SCHEMA,
@@ -145,6 +146,18 @@ def _load_cassette(name: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Common fixtures
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _reset_perplexity_breaker_each_test():
+    """Reset the Perplexity breaker singleton before AND after every
+    test in this module so accumulated 5xx/timeout events from one
+    test cannot trip the breaker mid-run inside another test (the
+    ``_chat_completion`` retry loop short-circuits on
+    ``breaker_module.is_open()`` per f-fix-m3-12)."""
+    breaker_module.reset_breaker_for_test()
+    yield
+    breaker_module.reset_breaker_for_test()
 
 
 @pytest.fixture
@@ -950,3 +963,185 @@ def test_request_includes_messages_with_system_and_user_roles(
     roles = [m["role"] for m in payload["messages"]]
     assert "system" in roles
     assert "user" in roles
+
+
+# ---------------------------------------------------------------------------
+# f-fix-m3-12 — Breaker re-entry check inside the retry loop
+# ---------------------------------------------------------------------------
+
+
+def _all_503_cassette(n_interactions: int) -> dict[str, Any]:
+    """Build an in-memory cassette of ``n`` consecutive 503 responses."""
+    return {
+        "interactions": [
+            {
+                "request": {
+                    "method": "POST",
+                    "url": "https://api.perplexity.ai/chat/completions",
+                },
+                "response": {
+                    "status_code": 503,
+                    "json": {"error": {"message": "upstream unavailable"}},
+                },
+            }
+            for _ in range(n_interactions)
+        ]
+    }
+
+
+def test_chat_completion_short_circuits_when_breaker_pre_open(sample_candidate):
+    """Breaker pre-OPEN at entry: ``_chat_completion`` raises
+    :class:`PerplexityTransportError` immediately and sends ZERO POSTs.
+
+    Mirrors the ensemble path's ``breaker_open: perplexity,
+    mode=score_only`` short-circuit (ensemble.py:1163).
+    """
+    breaker_module.get_breaker().force_open()
+    assert breaker_module.is_open() is True
+
+    fake = _FakeSession(_all_503_cassette(8))
+    client = PerplexityClient(
+        api_key=SENTINEL_API_KEY,
+        session=fake,
+        max_retries=3,
+        backoff_base=0.0,
+    )
+
+    with pytest.raises(PerplexityTransportError, match="OPEN"):
+        client.score_candidate(sample_candidate)
+    assert fake.calls == 0
+
+
+def test_chat_completion_short_circuits_after_breaker_opens_mid_retry(
+    sample_candidate,
+):
+    """Two consecutive ``score_candidate()`` calls × max_retries=3 against
+    all-503 produce EXACTLY 5 POSTs total — the 5th 503 trips the
+    breaker (rate=1.0 > 0.20 threshold, total≥5 min sample), so the
+    6th/7th/8th attempts short-circuit without a POST.
+
+    Without the f-fix-m3-12 reentry check this would be 8 POSTs
+    (4 per call × 2 calls).
+    """
+    breaker_module.reset_breaker_for_test()
+
+    fake = _FakeSession(_all_503_cassette(8))
+    client = PerplexityClient(
+        api_key=SENTINEL_API_KEY,
+        session=fake,
+        max_retries=3,
+        backoff_base=0.0,
+    )
+
+    # First call: 4 attempts (max_retries=3 ⇒ initial + 3 retries) all
+    # 503; breaker accumulates 4 failures (still < min_requests_for_trip=5).
+    with pytest.raises(PerplexityTransportError):
+        client.score_candidate(sample_candidate)
+    assert fake.calls == 4
+    assert breaker_module.is_open() is False  # 4/4 still under min sample
+
+    # Second call: the very first POST is the 5th overall failure; that
+    # transitions the breaker to OPEN. The next loop iteration's top
+    # check sees ``is_open()=True`` and short-circuits the remaining
+    # attempts. Total POSTs across both calls = 5.
+    with pytest.raises(PerplexityTransportError):
+        client.score_candidate(sample_candidate)
+    assert fake.calls == 5, (
+        f"Expected exactly 5 POSTs across both calls (the failures "
+        f"that opened the breaker), got {fake.calls}"
+    )
+    assert breaker_module.is_open() is True
+
+
+def test_chat_completion_proceeds_when_breaker_closed_regression(
+    make_client, sample_candidate
+):
+    """Regression: when the breaker stays CLOSED throughout, the
+    existing retry semantics (max_retries+1 attempts, exponential
+    backoff, eventual success) are unchanged."""
+    breaker_module.reset_breaker_for_test()
+    assert breaker_module.is_open() is False
+
+    client, fake = make_client(
+        "retry_429_503_timeout_then_200.json", max_retries=3
+    )
+    result = client.score_candidate(sample_candidate)
+    # Initial + 3 retries = 4 attempts, last one delivers the 200.
+    assert fake.calls == 4
+    assert result["label"] == "material"
+    # Breaker observed 1 success after a 503/timeout; it should remain
+    # CLOSED (the success record terminates the failure window).
+    assert breaker_module.is_open() is False
+
+
+def test_chat_completion_short_circuits_uses_stub_breaker_is_open(
+    monkeypatch, sample_candidate
+):
+    """Stubbed ``breaker_module.is_open`` flipping mid-run: the
+    in-loop reentry check honors the live breaker state on every
+    iteration. Demonstrates the loop-top check fires independently
+    of the rolling-window thresholds (so the test does not depend
+    on the real breaker's MIN_REQUESTS_FOR_TRIP timing)."""
+    breaker_module.reset_breaker_for_test()
+
+    # ``is_open`` is queried once pre-loop AND once at the top of
+    # every loop iteration. The first 3 queries (pre-loop + iter-1
+    # top + iter-2 top) return False so 2 POSTs fire; the 4th query
+    # (iter-3 top) returns True and short-circuits before the 3rd
+    # POST.
+    state = {"calls": 0}
+
+    def _stub_is_open() -> bool:
+        state["calls"] += 1
+        return state["calls"] >= 4
+
+    monkeypatch.setattr(
+        "biotech_sniper.llm.perplexity_client.breaker_module.is_open",
+        _stub_is_open,
+    )
+
+    fake = _FakeSession(_all_503_cassette(8))
+    client = PerplexityClient(
+        api_key=SENTINEL_API_KEY,
+        session=fake,
+        max_retries=5,
+        backoff_base=0.0,
+    )
+
+    with pytest.raises(PerplexityTransportError, match="OPEN"):
+        client.score_candidate(sample_candidate)
+    # Two POSTs went out (is_open returned False for them); the third
+    # iteration's top check returned True and short-circuited.
+    assert fake.calls == 2
+
+
+def test_chat_completion_half_open_proceeds_with_probe(
+    monkeypatch, sample_candidate
+):
+    """HALF_OPEN state still allows the probe POST: ``is_open()``
+    returns ``False`` in HALF_OPEN per breaker.py — the retry loop
+    must therefore proceed and the probe is sent."""
+    breaker_module.reset_breaker_for_test()
+    breaker = breaker_module.get_breaker()
+    breaker.force_open()
+    # Manually transition to HALF_OPEN by setting the OPEN-window
+    # elapsed (simulate the 5-minute timeout). The state property
+    # auto-transitions on read.
+    breaker._opened_at = breaker._clock() - (
+        breaker_module.OPEN_DURATION_SECONDS + 1.0
+    )
+    assert breaker.state is breaker_module.BreakerState.HALF_OPEN
+    assert breaker_module.is_open() is False
+
+    fake = _FakeSession(_load_cassette("score_candidate_bullish.json"))
+    client = PerplexityClient(
+        api_key=SENTINEL_API_KEY,
+        session=fake,
+        max_retries=3,
+        backoff_base=0.0,
+    )
+    out = client.score_candidate(sample_candidate)
+    # Probe was sent (HALF_OPEN allows one); success closes the breaker.
+    assert fake.calls == 1
+    assert out["label"] == "material"
+    assert breaker.state is breaker_module.BreakerState.CLOSED
