@@ -53,6 +53,23 @@ QUIET_PERIOD_KEYWORDS = [
 REGISTRATION_KEYWORDS = ["register", "webcast", "listen live", "webinar", "join"]
 
 
+def _cli_print(*args, **kwargs):
+    """Print only when this module is run as the CLI ``__main__`` entry point.
+
+    f-fix-m4-03a: the news_daemon adapter imports this module at runtime
+    to drive Stage-1 RSS polling.  Under systemd's
+    ``StandardOutput=append:/var/log/alpha_sniper/news.log`` directive,
+    bare prints would land in ``news.log`` as non-JSON lines and break
+    VAL-M4-017 ("every line is structured JSON with required keys
+    ts/level/event/module").  Gating prints behind
+    ``__name__ == '__main__'`` keeps CLI-direct usage (banners visible
+    when run as a script) while suppressing them under any import path
+    (the news_daemon adapter, smoke imports, walk_packages discovery).
+    """
+    if __name__ == "__main__":
+        print(*args, **kwargs)
+
+
 def load_registry():
     """Return the watchlist registry, or an empty stub if the file is absent.
 
@@ -279,10 +296,10 @@ def run_ir_events_check():
     new_state  = {}
     today      = datetime.date.today().isoformat()
 
-    print(f"\n{'='*70}")
-    print(f"IR EVENTS WATCHER — {today}")
-    print(f"Companies: {len(registry['watchlist'])}")
-    print(f"{'='*70}")
+    _cli_print(f"\n{'='*70}")
+    _cli_print(f"IR EVENTS WATCHER — {today}")
+    _cli_print(f"Companies: {len(registry['watchlist'])}")
+    _cli_print(f"{'='*70}")
 
     # Step 0: Auto-fix any broken IR URLs before checking
     try:
@@ -300,20 +317,20 @@ def run_ir_events_check():
         # Reload registry after fixes
         registry = load_registry()
     except Exception as e:
-        print(f"  Auto-resolver: {e}")
+        _cli_print(f"  Auto-resolver: {e}")
 
     for ticker, info in registry["watchlist"].items():
         # Skip monitor plays that are far out (>180 days)
         est = info.get("estimated_announcement", "")
         if "2027" in est or "2028" in est:
-            print(f"  ⏭  {ticker}: far-dated ({est}) — skipping IR check")
+            _cli_print(f"  ⏭  {ticker}: far-dated ({est}) — skipping IR check")
             continue
 
         ir_url = info.get("ir_events_url", "")  # CORRECT KEY
         cik    = info.get("sec_cik", "")
         company = info.get("company", ticker)
 
-        print(f"\n  {ticker} ({company})")
+        _cli_print(f"\n  {ticker} ({company})")
         signals = []
 
         # ── SOURCE 1: IR EVENTS PAGE ────────────────────────────────────
@@ -343,13 +360,13 @@ def run_ir_events_check():
                     "page_length": page.get("raw_length", 0)
                 }
                 status = "CHANGED" if changed else "unchanged"
-                print(f"    IR page: {page.get('raw_length',0):,} chars | {status}")
+                _cli_print(f"    IR page: {page.get('raw_length',0):,} chars | {status}")
             else:
-                print(f"    IR page: ERROR — {page['error'][:60]}")
+                _cli_print(f"    IR page: ERROR — {page['error'][:60]}")
                 # Mark for URL refresh
                 registry["watchlist"][ticker]["needs_ir_url_refresh"] = True
         else:
-            print(f"    IR page: no URL — will use SEC CIK only")
+            _cli_print(f"    IR page: no URL — will use SEC CIK only")
 
         # ── SOURCE 2: SEC EDGAR CIK (always run) ───────────────────────
         if cik:
@@ -357,26 +374,26 @@ def run_ir_events_check():
             if "error" not in sec_data:
                 n = len(sec_data.get("filings", []))
                 if n > 0:
-                    print(f"    SEC EDGAR: {n} new 8-K(s) in last 48h")
+                    _cli_print(f"    SEC EDGAR: {n} new 8-K(s) in last 48h")
                     sec_signals = analyze_sec_filings(sec_data, ticker)
                     # Don't double-count with SEC RSS monitor
                     for s in sec_signals:
                         if s["severity"] == "CRITICAL":
                             signals.append(s)
                 else:
-                    print(f"    SEC EDGAR: ✓ no new filings")
+                    _cli_print(f"    SEC EDGAR: ✓ no new filings")
             else:
-                print(f"    SEC EDGAR: {sec_data['error'][:50]}")
+                _cli_print(f"    SEC EDGAR: {sec_data['error'][:50]}")
         else:
-            print(f"    SEC CIK: not set — run company_resolver to fix")
+            _cli_print(f"    SEC CIK: not set — run company_resolver to fix")
 
         # Report
         if signals:
             for s in signals:
-                print(f"    {s['icon']} [{s['severity']}] {s['type']}: {s['detail'][:80]}")
+                _cli_print(f"    {s['icon']} [{s['severity']}] {s['type']}: {s['detail'][:80]}")
             all_signals.extend(signals)
         else:
-            print(f"    ✓ No new signals")
+            _cli_print(f"    ✓ No new signals")
 
     # Save state
     save_ir_state(new_state)
@@ -397,19 +414,19 @@ def run_ir_events_check():
     try:
         _persist_ir_signals_to_news_events(all_signals)
     except Exception as e:  # pragma: no cover - defensive
-        print(f"  [ir_events] news_events persistence failed: {e}")
+        _cli_print(f"  [ir_events] news_events persistence failed: {e}")
 
-    print(f"\n{'='*70}")
-    print(f"IR EVENTS SUMMARY: {len(all_signals)} signals")
+    _cli_print(f"\n{'='*70}")
+    _cli_print(f"IR EVENTS SUMMARY: {len(all_signals)} signals")
     if report["critical"]:
-        print(f"  🔴 CRITICAL: {len(report['critical'])} — ACTION REQUIRED")
+        _cli_print(f"  🔴 CRITICAL: {len(report['critical'])} — ACTION REQUIRED")
         for s in report["critical"]:
-            print(f"     {s['ticker']}: {s['detail']}")
+            _cli_print(f"     {s['ticker']}: {s['detail']}")
     if report["high"]:
-        print(f"  🟠 HIGH: {len(report['high'])}")
+        _cli_print(f"  🟠 HIGH: {len(report['high'])}")
     if not all_signals:
-        print(f"  ✓ All clear")
-    print(f"{'='*70}\n")
+        _cli_print(f"  ✓ All clear")
+    _cli_print(f"{'='*70}\n")
 
     return report
 

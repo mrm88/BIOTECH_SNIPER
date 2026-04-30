@@ -46,6 +46,23 @@ ROUTINE_8K_ITEMS = [
     "item 2.02",  # Results of operations (earnings)
 ]
 
+
+def _cli_print(*args, **kwargs):
+    """Print only when this module is run as the CLI ``__main__`` entry point.
+
+    f-fix-m4-03a: the news_daemon adapter imports this module at runtime
+    to drive Stage-1 RSS polling.  Under systemd's
+    ``StandardOutput=append:/var/log/alpha_sniper/news.log`` directive,
+    bare prints would land in ``news.log`` as non-JSON lines and break
+    VAL-M4-017 ("every line is structured JSON with required keys
+    ts/level/event/module").  Gating prints behind
+    ``__name__ == '__main__'`` keeps CLI-direct usage (banners visible
+    when run as a script) while suppressing them under any import path
+    (the news_daemon adapter, smoke imports, walk_packages discovery).
+    """
+    if __name__ == "__main__":
+        print(*args, **kwargs)
+
 def load_registry():
     """Return the watchlist registry, or an empty stub if the file is absent.
 
@@ -167,9 +184,9 @@ def run_8k_monitor(mode="daily"):
     seen = set(state.get("seen_filings", []))
     all_signals = []
     
-    print(f"\n{'='*70}")
-    print(f"SEC 8-K MONITOR [{mode.upper()}] — {datetime.datetime.now().strftime('%Y-%m-%d %H:%M ET')}")
-    print(f"{'='*70}")
+    _cli_print(f"\n{'='*70}")
+    _cli_print(f"SEC 8-K MONITOR [{mode.upper()}] — {datetime.datetime.now().strftime('%Y-%m-%d %H:%M ET')}")
+    _cli_print(f"{'='*70}")
     
     # Build lookup: company name variations → ticker
     company_to_ticker = {}
@@ -184,13 +201,13 @@ def run_8k_monitor(mode="daily"):
     today = datetime.date.today().isoformat()
     
     # ── MODE 1: INTRADAY — Quick RSS scan ────────────────────────────────
-    print("\nChecking SEC EDGAR RSS feed for recent 8-K filings...")
+    _cli_print("\nChecking SEC EDGAR RSS feed for recent 8-K filings...")
     rss_filings = fetch_sec_rss_recent(40)
     
     new_filings = []
     for filing in rss_filings:
         if "error" in filing:
-            print(f"  RSS ERROR: {filing['error']}")
+            _cli_print(f"  RSS ERROR: {filing['error']}")
             continue
         
         title = filing.get("title", "").lower()
@@ -232,14 +249,14 @@ def run_8k_monitor(mode="daily"):
         }
         
         all_signals.append(signal)
-        print(f"  {icon} [{ticker}] {filing_type}: {filing.get('title','')[:80]}")
+        _cli_print(f"  {icon} [{ticker}] {filing_type}: {filing.get('title','')[:80]}")
     
     if not new_filings:
-        print(f"  ✓ No new 8-K filings from watchlist companies since last check")
+        _cli_print(f"  ✓ No new 8-K filings from watchlist companies since last check")
     
     # ── MODE 2: DAILY — Per-company CIK check ───────────────────────────
     if mode == "daily":
-        print("\nRunning per-company CIK check (last 2 days)...")
+        _cli_print("\nRunning per-company CIK check (last 2 days)...")
         for ticker, info in registry["watchlist"].items():
             cik = info.get("sec_cik", "").lstrip("0")
             if not cik:
@@ -252,7 +269,7 @@ def run_8k_monitor(mode="daily"):
                 acc = f.get("accession", "")
                 if acc and acc not in seen:
                     seen.add(acc)
-                    print(f"  📄 {ticker}: New 8-K on {f['date']} — {f.get('primary_doc','')}")
+                    _cli_print(f"  📄 {ticker}: New 8-K on {f['date']} — {f.get('primary_doc','')}")
                     all_signals.append({
                         "ticker": ticker,
                         "type": "8K_FROM_CIK_CHECK",
@@ -286,18 +303,18 @@ def run_8k_monitor(mode="daily"):
     try:
         _persist_sec_8k_signals_to_news_events(all_signals)
     except Exception as e:  # pragma: no cover - defensive
-        print(f"  [sec_8k] news_events persistence failed: {e}")
+        _cli_print(f"  [sec_8k] news_events persistence failed: {e}")
 
-    print(f"\n{'='*70}")
+    _cli_print(f"\n{'='*70}")
     breaking = report["breaking"]
     if breaking:
-        print(f"  🔴 BREAKING: {len(breaking)} potential topline data filings!")
+        _cli_print(f"  🔴 BREAKING: {len(breaking)} potential topline data filings!")
         for s in breaking:
-            print(f"     {s['ticker']}: {s['detail']}")
-            print(f"     URL: {s['filing_url']}")
+            _cli_print(f"     {s['ticker']}: {s['detail']}")
+            _cli_print(f"     URL: {s['filing_url']}")
     else:
-        print(f"  ✓ No breaking topline data 8-Ks detected")
-    print(f"{'='*70}\n")
+        _cli_print(f"  ✓ No breaking topline data 8-Ks detected")
+    _cli_print(f"{'='*70}\n")
     
     return report
 

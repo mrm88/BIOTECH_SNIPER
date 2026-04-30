@@ -505,17 +505,43 @@ def test_main_enabled_runs_resilience_loop_with_finite_cycles(
 
 
 def test_main_dry_run_with_clamp_logs_warning(
-    caplog: pytest.LogCaptureFixture,
+    tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``--dry-run`` exits 0 AND emits the clamp WARNING (verification step)."""
+    """``--dry-run`` exits 0 AND emits the clamp WARNING (verification step).
+
+    f-fix-m4-03a: ``main()`` now calls ``configure_news_logging`` at
+    startup, which sets ``propagate = False`` on the news-daemon
+    logger and routes all records to the structured-JSON FileHandler
+    bound to ``ALPHA_SNIPER_NEWS_LOG_PATH`` / the canonical
+    ``/var/log/alpha_sniper/news.log`` sink.  ``caplog`` no longer
+    sees the record (its handler is on the root logger).  We assert
+    against the actual sink — which is the production observable
+    that VAL-M4-017 also checks.
+    """
 
     monkeypatch.setenv("NEWS_POLL_SECONDS", "5")
-    with caplog.at_level(logging.WARNING, logger=_LOGGER_NAME):
-        rc = main(["--dry-run", "--max-cycles", "1"])
+    log_path = tmp_path / "news.log"
+    monkeypatch.setenv("ALPHA_SNIPER_NEWS_LOG_PATH", str(log_path))
+
+    rc = main(["--dry-run", "--max-cycles", "1"])
     assert rc == 0
-    msgs = "\n".join(r.getMessage() for r in caplog.records)
-    assert "clamped" in msgs.lower()
+
+    # Flush all attached handlers so the file write lands.
+    news_logger = logging.getLogger(_LOGGER_NAME)
+    for handler in news_logger.handlers:
+        try:
+            handler.flush()
+        except Exception:
+            pass
+
+    assert log_path.exists(), (
+        f"configure_news_logging must create the log sink at {log_path}"
+    )
+    contents = log_path.read_text(encoding="utf-8").lower()
+    assert "clamped" in contents, (
+        f"expected 'clamped' WARNING line in {log_path}, got:\n{contents}"
+    )
 
 
 def test_main_poll_seconds_flag_overrides_env(

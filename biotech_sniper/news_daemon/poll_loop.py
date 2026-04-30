@@ -78,6 +78,12 @@ __all__ = [
 # of building the list is negligible.
 from biotech_sniper.news_daemon.adapters import build_default_rss_fetchers
 
+# Re-exported so :func:`main` can install the FileHandler +
+# TruncatingJSONFormatter on the news-daemon logger BEFORE any
+# ``log.info`` / ``log.warning`` emit.  Patched in the f-fix-m4-03a
+# wiring tests via ``mock.patch.object(poll_loop, "configure_news_logging")``.
+from biotech_sniper.news_daemon.log import configure_news_logging
+
 #: Default poll cadence in seconds.  Used when ``NEWS_POLL_SECONDS``
 #: is unset, blank, non-integer, or non-positive (the latter two
 #: trigger a WARNING log line via :func:`resolve_poll_seconds`).
@@ -494,6 +500,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     parser = build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
+
+    # f-fix-m4-03a: bind the FileHandler + TruncatingJSONFormatter on
+    # the news-daemon logger BEFORE any ``log.info`` / ``log.warning``
+    # emit so every line in ``/var/log/alpha_sniper/news.log`` is
+    # structured JSON with the four contract-required keys (ts /
+    # level / event / module — VAL-M4-017).  Without this call,
+    # records propagate to the root lastResort StreamHandler (plain
+    # text on stderr), which systemd captures via
+    # ``StandardError=append:`` as non-JSON lines.  Honours
+    # ``LOG_LEVEL`` from the environment (defaults to ``"INFO"``;
+    # VAL-M4-019 will be re-verified once LOG_LEVEL=INFO is
+    # provisioned in ``/root/alpha_sniper/.env`` by f-m4-05).
+    configure_news_logging(level=os.environ.get("LOG_LEVEL", "INFO"))
 
     log = logging.getLogger("biotech_sniper.news_daemon")
 

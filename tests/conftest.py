@@ -80,6 +80,52 @@ def _neutralize_dotenv(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _restore_news_daemon_logger_state():
+    """Snapshot/restore the ``biotech_sniper.news_daemon`` logger state.
+
+    f-fix-m4-03a: ``poll_loop.main()`` now calls ``configure_news_logging``
+    at startup (per VAL-M4-017), which (a) removes every existing handler
+    from the news-daemon logger and (b) sets ``propagate = False``.  Both
+    side-effects break ``caplog`` capture for any subsequent test in the
+    same xdist worker — caplog's handler is on the root logger, and with
+    ``propagate=False`` records emitted on the news-daemon logger never
+    reach it.  Tests that drive ``resolve_poll_seconds`` /
+    ``run_disabled_idle`` directly (in ``test_poll_cadence.py``) then
+    fail with "expected a WARNING log line" because ``caplog.records``
+    is empty.
+
+    This fixture saves the news-daemon logger's handlers / level /
+    propagate at the start of every test and restores them on
+    teardown so each test starts from a clean, propagating logger.
+
+    The fixture is a no-op for tests that never touch the news-daemon
+    logger; the snapshot/restore is cheap (a list copy + three integer
+    reads) and fully passive.
+    """
+    import logging as _logging
+
+    logger = _logging.getLogger("biotech_sniper.news_daemon")
+    saved_handlers = list(logger.handlers)
+    saved_level = logger.level
+    saved_propagate = logger.propagate
+    try:
+        yield
+    finally:
+        for handler in list(logger.handlers):
+            if handler not in saved_handlers:
+                try:
+                    handler.close()
+                except Exception:
+                    pass
+                logger.removeHandler(handler)
+        for handler in saved_handlers:
+            if handler not in logger.handlers:
+                logger.addHandler(handler)
+        logger.setLevel(saved_level)
+        logger.propagate = saved_propagate
+
+
+@pytest.fixture(autouse=True)
 def _reset_perplexity_breaker_between_tests():
     """Reset the Reading-B Stage-2 Perplexity circuit breaker singleton
     between tests so 5xx outcomes recorded by one test do not pollute
