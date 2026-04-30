@@ -61,10 +61,14 @@ Public surface
 from __future__ import annotations
 
 import logging
+import os
+import stat as _stat
 from dataclasses import dataclass
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Union
 
 from biotech_sniper import config
+from biotech_sniper import paths as _paths
 from biotech_sniper.llm.ensemble import (
     ALL_PROVIDERS,
     EnsembleEventResult,
@@ -84,6 +88,10 @@ __all__ = [
     # f-m3-05 — combined cheap-first post-fanout gate evaluation.
     "PostFanoutGatesResult",
     "evaluate_post_fanout_gates",
+    # f-m3-06 — .armed filesystem gate (cheap-first, pre-fanout).
+    "ArmedGateResult",
+    "armed_gate",
+    "GATE_REASON_ARMED_FILE_MISSING",
 ]
 
 
@@ -127,6 +135,14 @@ GATE_REASON_UNANIMITY_FAILED: str = "unanimity_failed"
 #: among material providers blocks entry — this prevents the system
 #: from buying a call when 2 providers said bearish.
 GATE_REASON_DIRECTION_SPLIT: str = "direction_split"
+
+#: Canonical reason string emitted by :func:`armed_gate` when the
+#: ``.armed`` filesystem marker is absent (or unreadable / wrong file
+#: type — those are treated as "absent" per the f-m3-06 contract).
+#: Consumed by VAL-M3-032 and VAL-M5-022. The Stage-2 dispatcher
+#: short-circuits with this reason BEFORE dispatching any LLM call —
+#: a rejected armed-file gate produces ZERO ``llm_cost_ledger`` rows.
+GATE_REASON_ARMED_FILE_MISSING: str = "armed_file_missing"
 
 
 # ---------------------------------------------------------------------------
@@ -684,4 +700,179 @@ def evaluate_post_fanout_gates(
         reason=uni_res.reason,
         probability_gate=prob_res,
         unanimity_gate=uni_res,
+    )
+
+
+# ---------------------------------------------------------------------------
+# f-m3-06 — .armed filesystem gate (cheap-first, pre-fanout)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ArmedGateResult:
+    """Outcome of :func:`armed_gate`.
+
+    Attributes
+    ----------
+    passed:
+        ``True`` only when the resolved ``.armed`` path is a regular
+        readable file (or a symlink to one). ``False`` in every other
+        case — including the catch-all "absent" semantics applied to
+        dangling symlinks, directories, and mode-000 files.
+    reason:
+        Canonical short-circuit reason. ``None`` when ``passed=True``;
+        :data:`GATE_REASON_ARMED_FILE_MISSING` (``"armed_file_missing"``)
+        when ``passed=False``.
+    armed_path:
+        The resolved ``.armed`` path as a string. Faithfully reports
+        whichever path was checked (caller-supplied or, when the kwarg
+        was omitted, :data:`biotech_sniper.paths.READING_B_ARMED_FILE`).
+        Used by audit-log payloads so operators can reproduce the
+        path the gate evaluated.
+    """
+
+    passed: bool
+    reason: Optional[str]
+    armed_path: str
+
+
+def armed_gate(
+    *,
+    armed_path: Optional[Union[str, Path]] = None,
+) -> ArmedGateResult:
+    """Evaluate the Stage-2 ``.armed`` filesystem-marker gate.
+
+    The Stage-2 entry pipeline arms (or disarms) Stage-2 paper-order
+    submission via the presence (or absence) of a single filesystem
+    marker file at :data:`biotech_sniper.paths.READING_B_ARMED_FILE`.
+    The file is created and removed by the operator manually — the
+    production code path MUST NEVER write or ``touch`` it (verified
+    by ``tests/test_armed_gate.py::test_no_production_writes_to_armed_file``
+    and the repo-wide grep evidence of VAL-M3-035).
+
+    Parameters
+    ----------
+    armed_path:
+        Optional explicit path to use INSTEAD of
+        :data:`biotech_sniper.paths.READING_B_ARMED_FILE`. Tests pass
+        a tmp_path-rooted location to toggle ``.armed`` existence
+        without polluting the canonical filesystem location.
+        Production callers should omit this kwarg so the canonical
+        path is used.
+
+    Returns
+    -------
+    ArmedGateResult
+        Always non-None. Never raises — the gate is a pure consumer
+        of the filesystem state. ``OSError`` / ``FileNotFoundError``
+        / ``PermissionError`` from the underlying ``stat()`` call are
+        all caught and translated to the canonical
+        ``armed_file_missing`` rejection.
+
+    Behaviour matrix
+    ----------------
+    +---------------------------------+--------+----------------------+
+    | Resolved target                 | passed | reason               |
+    +=================================+========+======================+
+    | Regular readable file           | True   | None                 |
+    +---------------------------------+--------+----------------------+
+    | Symlink → regular readable file | True   | None                 |
+    +---------------------------------+--------+----------------------+
+    | Path does not exist             | False  | armed_file_missing   |
+    +---------------------------------+--------+----------------------+
+    | Dangling symlink                | False  | armed_file_missing   |
+    +---------------------------------+--------+----------------------+
+    | Directory (or symlink → dir)    | False  | armed_file_missing   |
+    +---------------------------------+--------+----------------------+
+    | Regular file with mode 000      | False  | armed_file_missing   |
+    +---------------------------------+--------+----------------------+
+
+    Atomicity
+    ---------
+    The gate is a single synchronous function. The existence /
+    type / readability checks are performed within one call with
+    NO ``time.sleep``, ``await``, ``asyncio.sleep``, or
+    ``Lock.acquire(timeout=...)`` between them. Under the Python GIL
+    the sequence ``stat() → S_ISREG → access(R_OK) → return`` cannot
+    be interrupted by another thread observing an intermediate
+    decision, so a TOCTOU race between the gate and the downstream
+    submit is structurally impossible. (VAL-M3-036.)
+
+    Side effects
+    ------------
+    None. The gate writes nothing to SQLite, makes no network calls,
+    and writes nothing to the filesystem. It emits a single
+    structured INFO log line so operators can audit the decision.
+    """
+    # Resolve the path at call time (NOT at module import) so a test
+    # that monkeypatches ``biotech_sniper.paths.READING_B_ARMED_FILE``
+    # is honoured without re-importing the gate module.
+    if armed_path is None:
+        target = _paths.READING_B_ARMED_FILE
+    else:
+        target = armed_path
+    target_path = Path(target)
+
+    # Single ``os.stat()`` call (follows symlinks; raises on dangling /
+    # missing). All error modes collapse to the canonical
+    # ``armed_file_missing`` rejection — see the behaviour matrix in
+    # the docstring.
+    try:
+        st = os.stat(target_path)
+    except (FileNotFoundError, NotADirectoryError, PermissionError, OSError):
+        logger.info(
+            "stage2_armed_gate: gate_failed %s "
+            "armed_path=%s reason=stat_error",
+            GATE_REASON_ARMED_FILE_MISSING,
+            target_path,
+        )
+        return ArmedGateResult(
+            passed=False,
+            reason=GATE_REASON_ARMED_FILE_MISSING,
+            armed_path=str(target_path),
+        )
+
+    # Wrong file type — directory, fifo, socket, char/block device.
+    # Symlinks were dereferenced by ``os.stat`` already.
+    if not _stat.S_ISREG(st.st_mode):
+        logger.info(
+            "stage2_armed_gate: gate_failed %s "
+            "armed_path=%s reason=not_regular_file mode=%o",
+            GATE_REASON_ARMED_FILE_MISSING,
+            target_path,
+            st.st_mode,
+        )
+        return ArmedGateResult(
+            passed=False,
+            reason=GATE_REASON_ARMED_FILE_MISSING,
+            armed_path=str(target_path),
+        )
+
+    # Mode 000 (or any mode that strips the read bit for the running
+    # uid) — treated as absent per the f-m3-06 contract. ``os.access``
+    # honours the effective uid + ACLs, so root bypasses this branch
+    # (which is acceptable: on the VPS the daemon runs as root and
+    # the operator's intent is "any readable .armed file = armed").
+    if not os.access(target_path, os.R_OK):
+        logger.info(
+            "stage2_armed_gate: gate_failed %s "
+            "armed_path=%s reason=not_readable mode=%o",
+            GATE_REASON_ARMED_FILE_MISSING,
+            target_path,
+            st.st_mode,
+        )
+        return ArmedGateResult(
+            passed=False,
+            reason=GATE_REASON_ARMED_FILE_MISSING,
+            armed_path=str(target_path),
+        )
+
+    logger.info(
+        "stage2_armed_gate: passed armed_path=%s",
+        target_path,
+    )
+    return ArmedGateResult(
+        passed=True,
+        reason=None,
+        armed_path=str(target_path),
     )

@@ -38,6 +38,7 @@ __all__ = [
     "DATA_DIR",
     "LOGS_DIR",
     "DEFAULT_VPS_LOG_DIR",
+    "READING_B_ARMED_FILE",
     "ensure_data_dir",
 ]
 
@@ -78,6 +79,27 @@ LOGS_DIR: Path = BASE_DIR / "logs"
 #: anchors. Overridable via the ``ALPHA_SNIPER_LOG_DIR`` environment
 #: variable (see ``logging_setup._resolve_log_path``).
 DEFAULT_VPS_LOG_DIR: Path = Path("/var/log/alpha_sniper")
+
+#: Reading-B Stage-2 entry-arming marker file. Stage-2
+#: ``news_event_entry`` paper orders REQUIRE this file to exist
+#: (mirroring the live-mode confirmation filesystem-marker pattern
+#: defined in :mod:`biotech_sniper.alpaca_client`). The file lives at
+#: the parent of :data:`BASE_DIR` so a ``git pull`` / ``git clean`` on
+#: the repo cannot delete or recreate it — only the operator creates
+#: it manually. On the VPS, ``BASE_DIR`` is ``/root/alpha_sniper/repo``
+#: so the resolved path is ``/root/alpha_sniper/.armed``. Locally,
+#: with ``BIOTECH_SNIPER_HOME=/tmp/x``, the path is ``/tmp/.armed``.
+#:
+#: **PRODUCTION CODE MUST NEVER WRITE OR ``touch`` THIS FILE.** Tests
+#: may toggle the file under a tmp_path scope; the production source
+#: tree (``biotech_sniper/``) MUST contain zero ``open(..., 'w')``,
+#: ``Path.touch``, ``Path.write_text``, ``Path.write_bytes``, or
+#: ``subprocess.run(['touch', ...])`` calls targeting this path. The
+#: armed-file gate in :mod:`biotech_sniper.llm.stage2_gates` is
+#: read-only — it consumes :data:`READING_B_ARMED_FILE` via a single
+#: ``stat()`` and rejects entry when the resolved target is anything
+#: other than a regular readable file.
+READING_B_ARMED_FILE: Path = BASE_DIR.parent / ".armed"
 
 
 def ensure_data_dir() -> Path:

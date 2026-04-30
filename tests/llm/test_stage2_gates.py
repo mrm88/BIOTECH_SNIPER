@@ -15,3 +15,4 @@ per gate.
 
 from tests.test_stage2_probability_gate import *  # noqa: F401,F403
 from tests.test_stage2_unanimity_gate import *  # noqa: F401,F403
+from tests.test_armed_gate import *  # noqa: F401,F403
