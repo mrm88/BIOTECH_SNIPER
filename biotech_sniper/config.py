@@ -145,6 +145,87 @@ LIQUIDITY_PROBE_DAILY_USD_CAP: Final[int] = 20
 MAX_WORKERS: Final[int] = 4
 
 
+# ---------------------------------------------------------------------------
+# Stage-2 (Reading-B) probability threshold gate (M3 feature f-m3-04).
+# ---------------------------------------------------------------------------
+
+# ``DEFAULT_STAGE2_PROBABILITY_THRESHOLD`` is the canonical default for
+# the Reading-B Stage-2 mean-probability gate. The gate computes the
+# arithmetic mean of the four successful providers' ``probability``
+# fields and rejects entry when ``mean < threshold``. The default
+# (``0.75``) is sourced from ``mission.md`` and ``AGENTS.md``
+# § "Reading-B specific risk gates (M3)".
+#
+# Operators can override the threshold for a deployment by setting the
+# ``STAGE2_PROBABILITY_THRESHOLD`` environment variable (a float in
+# ``[0.0, 1.0]``); :func:`get_stage2_probability_threshold` reads the
+# environment at call time so the override is hot-reloadable. Invalid
+# / unparseable values fall back to the default with a WARNING log so
+# operators can tell the override was rejected without crashing the
+# Stage-2 dispatcher.
+#
+# The module-level constant :data:`STAGE2_PROBABILITY_THRESHOLD` is
+# resolved once at import time and exposed for the contract-evidence
+# command in VAL-M3-022 (``from biotech_sniper.config import
+# STAGE2_PROBABILITY_THRESHOLD; assert STAGE2_PROBABILITY_THRESHOLD ==
+# 0.75``). Callers that need hot-reload semantics MUST go through
+# :func:`get_stage2_probability_threshold`.
+DEFAULT_STAGE2_PROBABILITY_THRESHOLD: Final[float] = 0.75
+
+
+def _resolve_stage2_probability_threshold() -> float:
+    """Return the active threshold, honouring ``STAGE2_PROBABILITY_THRESHOLD``.
+
+    Returns :data:`DEFAULT_STAGE2_PROBABILITY_THRESHOLD` (``0.75``) when
+    the env var is unset or unparseable. Surrounding whitespace is
+    stripped. Any value outside ``[0.0, 1.0]`` is accepted as-is — the
+    gate clamps mean probabilities to ``[0.0, 1.0]`` defensively, so an
+    out-of-range threshold simply changes which side of the boundary
+    the gate falls on (``threshold > 1.0`` is "reject everything";
+    ``threshold < 0.0`` is "accept everything"). The gate does NOT
+    silently coerce these to canonical defaults — that is an explicit
+    operator decision.
+    """
+    import logging
+
+    raw = os.environ.get("STAGE2_PROBABILITY_THRESHOLD")
+    if raw is None:
+        return DEFAULT_STAGE2_PROBABILITY_THRESHOLD
+    raw = raw.strip()
+    if not raw:
+        return DEFAULT_STAGE2_PROBABILITY_THRESHOLD
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        logging.getLogger(__name__).warning(
+            "STAGE2_PROBABILITY_THRESHOLD=%r is not a valid float; "
+            "falling back to default=%.4f",
+            raw,
+            DEFAULT_STAGE2_PROBABILITY_THRESHOLD,
+        )
+        return DEFAULT_STAGE2_PROBABILITY_THRESHOLD
+
+
+def get_stage2_probability_threshold() -> float:
+    """Return the active Stage-2 probability threshold.
+
+    Reads ``STAGE2_PROBABILITY_THRESHOLD`` from the environment at call
+    time; falls back to :data:`DEFAULT_STAGE2_PROBABILITY_THRESHOLD`
+    when unset/unparseable. Callers (e.g.
+    :mod:`biotech_sniper.llm.stage2_gates`) MUST use this getter rather
+    than reading the env var directly so the single-source-of-truth
+    invariant is preserved.
+    """
+    return _resolve_stage2_probability_threshold()
+
+
+#: Module-load-time snapshot of the threshold. Exposed for the
+#: VAL-M3-022 contract-evidence command and for code paths that want a
+#: stable per-process value. Hot-reloadable callers should use
+#: :func:`get_stage2_probability_threshold` instead.
+STAGE2_PROBABILITY_THRESHOLD: Final[float] = _resolve_stage2_probability_threshold()
+
+
 # ``STOP_LOSS_PCT`` is the negative percentage drawdown at which the
 # f-m3-09 stop-loss trigger fires. Default is ``-0.50`` (a 50% drop
 # from the entry mid). When ``current_mid / entry_mid - 1`` is less
@@ -448,6 +529,9 @@ __all__ = [
     "LIQUIDITY_PROBE_DAILY_USD_CAP",
     "MAX_WORKERS",
     "STOP_LOSS_PCT",
+    "DEFAULT_STAGE2_PROBABILITY_THRESHOLD",
+    "STAGE2_PROBABILITY_THRESHOLD",
+    "get_stage2_probability_threshold",
     "ENSEMBLE_WEIGHTS",
     "MIN_ENSEMBLE_SCORE",
     "MIN_SCIENCE_GRADE",
