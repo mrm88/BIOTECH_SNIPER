@@ -226,6 +226,88 @@ def get_stage2_probability_threshold() -> float:
 STAGE2_PROBABILITY_THRESHOLD: Final[float] = _resolve_stage2_probability_threshold()
 
 
+# ---------------------------------------------------------------------------
+# Stage-2 (Reading-B) daily $ cap (M3 feature f-m3-07).
+# ---------------------------------------------------------------------------
+
+# ``DEFAULT_LLM_STAGE2_DAILY_USD_CAP`` is the canonical default for the
+# Reading-B Stage-2 ensemble PRE-spend $ cap. Mirrors the
+# ``LIQUIDITY_PROBE_DAILY_USD_CAP`` pattern: before any LLM fan-out
+# call, the dispatcher computes today's running total of
+# ``llm_cost_ledger.cost_usd`` rows tagged with
+# ``purpose='stage2_event_scoring'`` (UTC date boundary) and refuses
+# to dispatch when ``today_total + projected_cost > cap``.
+#
+# This cap is INTENTIONALLY SEPARATE from the existing $10 debate cap
+# (:data:`biotech_sniper.llm.llm_debate.LLM_DEBATE_DAILY_USD_CAP`).
+# Total LLM ceiling = $20 (Stage-2) + $10 (debate) = $30/day audit
+# invariant per ``mission.md`` and ``AGENTS.md`` § "Reading-B specific
+# risk gates (M3)".
+#
+# Operators can override the cap for a deployment by setting the
+# ``LLM_STAGE2_DAILY_USD_CAP`` environment variable (a float in USD);
+# :func:`get_llm_stage2_daily_usd_cap` reads the environment at call
+# time so the override is hot-reloadable. Invalid / unparseable
+# values fall back to the default with a WARNING log so operators can
+# tell the override was rejected without crashing the dispatcher.
+#
+# The module-level constant :data:`LLM_STAGE2_DAILY_USD_CAP` is
+# resolved once at import time and exposed for the contract-evidence
+# command in VAL-M3-037 (``from biotech_sniper.config import
+# LLM_STAGE2_DAILY_USD_CAP; assert LLM_STAGE2_DAILY_USD_CAP ==
+# 20.0``). Callers that need hot-reload semantics MUST go through
+# :func:`get_llm_stage2_daily_usd_cap`.
+DEFAULT_LLM_STAGE2_DAILY_USD_CAP: Final[float] = 20.0
+
+
+def _resolve_llm_stage2_daily_usd_cap() -> float:
+    """Return the active cap, honouring ``LLM_STAGE2_DAILY_USD_CAP``.
+
+    Returns :data:`DEFAULT_LLM_STAGE2_DAILY_USD_CAP` (``20.0``) when
+    the env var is unset or unparseable. Surrounding whitespace is
+    stripped. Negative values are accepted as-is — a negative cap
+    is "block everything" semantics, an explicit operator decision.
+    """
+    import logging
+
+    raw = os.environ.get("LLM_STAGE2_DAILY_USD_CAP")
+    if raw is None:
+        return DEFAULT_LLM_STAGE2_DAILY_USD_CAP
+    raw = raw.strip()
+    if not raw:
+        return DEFAULT_LLM_STAGE2_DAILY_USD_CAP
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        logging.getLogger(__name__).warning(
+            "LLM_STAGE2_DAILY_USD_CAP=%r is not a valid float; "
+            "falling back to default=%.4f",
+            raw,
+            DEFAULT_LLM_STAGE2_DAILY_USD_CAP,
+        )
+        return DEFAULT_LLM_STAGE2_DAILY_USD_CAP
+
+
+def get_llm_stage2_daily_usd_cap() -> float:
+    """Return the active Stage-2 daily $ cap.
+
+    Reads ``LLM_STAGE2_DAILY_USD_CAP`` from the environment at call
+    time; falls back to :data:`DEFAULT_LLM_STAGE2_DAILY_USD_CAP`
+    when unset/unparseable. Callers (e.g.
+    :mod:`biotech_sniper.llm.stage2_gates`) MUST use this getter
+    rather than reading the env var directly so the
+    single-source-of-truth invariant is preserved.
+    """
+    return _resolve_llm_stage2_daily_usd_cap()
+
+
+#: Module-load-time snapshot of the cap. Exposed for the
+#: VAL-M3-037 contract-evidence command and for code paths that want
+#: a stable per-process value. Hot-reloadable callers should use
+#: :func:`get_llm_stage2_daily_usd_cap` instead.
+LLM_STAGE2_DAILY_USD_CAP: Final[float] = _resolve_llm_stage2_daily_usd_cap()
+
+
 # ``STOP_LOSS_PCT`` is the negative percentage drawdown at which the
 # f-m3-09 stop-loss trigger fires. Default is ``-0.50`` (a 50% drop
 # from the entry mid). When ``current_mid / entry_mid - 1`` is less
@@ -532,6 +614,9 @@ __all__ = [
     "DEFAULT_STAGE2_PROBABILITY_THRESHOLD",
     "STAGE2_PROBABILITY_THRESHOLD",
     "get_stage2_probability_threshold",
+    "DEFAULT_LLM_STAGE2_DAILY_USD_CAP",
+    "LLM_STAGE2_DAILY_USD_CAP",
+    "get_llm_stage2_daily_usd_cap",
     "ENSEMBLE_WEIGHTS",
     "MIN_ENSEMBLE_SCORE",
     "MIN_SCIENCE_GRADE",

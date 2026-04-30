@@ -60,14 +60,18 @@ Public surface
 
 from __future__ import annotations
 
+import datetime as _dt
+import json as _json
 import logging
 import os
+import sqlite3 as _sqlite3
 import stat as _stat
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Union
 
 from biotech_sniper import config
+from biotech_sniper import db as _db
 from biotech_sniper import paths as _paths
 from biotech_sniper.llm.ensemble import (
     ALL_PROVIDERS,
@@ -92,6 +96,15 @@ __all__ = [
     "ArmedGateResult",
     "armed_gate",
     "GATE_REASON_ARMED_FILE_MISSING",
+    # f-m3-07 — daily $ cap gate (cheap-first, pre-fanout).
+    "DailyCapGateResult",
+    "DailyCapExceeded",
+    "daily_cap_gate",
+    "record_stage2_skip",
+    "GATE_REASON_DAILY_CAP_EXCEEDED",
+    "STAGE2_CALL_USD_PROJECTION",
+    "STAGE2_LEDGER_PURPOSE",
+    "DEFAULT_LLM_STAGE2_DAILY_USD_CAP",
 ]
 
 
@@ -143,6 +156,55 @@ GATE_REASON_DIRECTION_SPLIT: str = "direction_split"
 #: short-circuits with this reason BEFORE dispatching any LLM call —
 #: a rejected armed-file gate produces ZERO ``llm_cost_ledger`` rows.
 GATE_REASON_ARMED_FILE_MISSING: str = "armed_file_missing"
+
+#: Canonical reason string emitted by :func:`daily_cap_gate` when
+#: ``today_total + projected_cost > cap``. Consumed by VAL-M3-038 /
+#: VAL-M3-039 / VAL-M3-040 / VAL-M3-041 / VAL-M5-027. The Stage-2
+#: dispatcher short-circuits with this reason BEFORE dispatching any
+#: LLM call — a rejected cap gate produces ZERO ``llm_cost_ledger``
+#: rows. The audit trail records the cap-hit via
+#: :func:`record_stage2_skip`, which writes a ``news_match_log`` row
+#: AND merges a ``stage2_skipped[]`` block into ``audit_latest.json``.
+GATE_REASON_DAILY_CAP_EXCEEDED: str = "daily_cap_exceeded"
+
+#: Canonical ``llm_cost_ledger.purpose`` value the Stage-2 cap gate
+#: filters on. Mirrors ``perplexity_client.DEFAULT_PURPOSE`` so a
+#: change to one is caught by the test suite for both. The cap query
+#: is::
+#:
+#:     SELECT SUM(cost_usd) FROM llm_cost_ledger
+#:      WHERE purpose = 'stage2_event_scoring'
+#:        AND DATE(called_at) = today_utc
+#:
+#: This filter intentionally EXCLUDES debate rows
+#: (``purpose='debate'``), curated-daily-run rows
+#: (``purpose='deep_science'`` / ``purpose='daily_curated'``), and
+#: any other LLM spend categories so the Stage-2 cap is independent
+#: from those paths (VAL-M3-041).
+STAGE2_LEDGER_PURPOSE: str = "stage2_event_scoring"
+
+#: Worst-case projected per-call cost (USD) for a 4-provider Stage-2
+#: fan-out. The dispatcher uses this constant as the default
+#: ``projected_cost`` when the caller omits the explicit kwarg, so
+#: ``daily_cap_gate(db_path=...)`` is sufficient at the cheap-first
+#: short-circuit point. Tuned conservatively above the typical
+#: 4-provider call sum (Grok + Claude + Gemini + Perplexity at
+#: small-prompt / low-search-context settings) so projection-driven
+#: false-blocks are rare; tightened tracking happens via the
+#: post-fan-out actual ``cost_usd`` writes that reset the daily
+#: total on the next call.
+#:
+#: Re-export of :data:`biotech_sniper.config.DEFAULT_LLM_STAGE2_DAILY_USD_CAP`
+#: divided by a per-day call-budget heuristic — keeping the projection
+#: at $0.50 implies ≥ 40 fan-out calls fit within the $20 cap.
+STAGE2_CALL_USD_PROJECTION: float = 0.50
+
+#: Re-export of the canonical default from :mod:`biotech_sniper.config`
+#: so callers that already import the gate module can get the default
+#: without a second import of ``config``.
+DEFAULT_LLM_STAGE2_DAILY_USD_CAP: float = (
+    config.DEFAULT_LLM_STAGE2_DAILY_USD_CAP
+)
 
 
 # ---------------------------------------------------------------------------
@@ -876,3 +938,398 @@ def armed_gate(
         reason=None,
         armed_path=str(target_path),
     )
+
+
+# ---------------------------------------------------------------------------
+# f-m3-07 — Daily $ cap gate (cheap-first, pre-fanout)
+# ---------------------------------------------------------------------------
+
+
+class DailyCapExceeded(Exception):
+    """Raised by :func:`daily_cap_gate` when ``raise_on_block=True`` AND
+    ``today_total + projected_cost > cap``.
+
+    Mirrors :class:`biotech_sniper.liquidity_probe.DailyCapExceeded` —
+    callers may opt in to exception-driven control flow when the gate
+    is the first short-circuit step in a pipeline that expects an
+    exception on cap-hit. The default :func:`daily_cap_gate` mode
+    returns a :class:`DailyCapGateResult` (no raise) so the
+    Stage-2 dispatcher can compose the cap gate alongside other
+    gate dataclasses without a try/except.
+    """
+
+
+@dataclass
+class DailyCapGateResult:
+    """Outcome of :func:`daily_cap_gate`.
+
+    Attributes
+    ----------
+    passed:
+        ``True`` only when ``today_total_usd + projected_cost <= cap``.
+        ``False`` otherwise (with ``reason=GATE_REASON_DAILY_CAP_EXCEEDED``).
+    reason:
+        Canonical short-circuit reason. ``None`` when ``passed=True``;
+        :data:`GATE_REASON_DAILY_CAP_EXCEEDED` (``"daily_cap_exceeded"``)
+        when ``passed=False``.
+    today_total_usd:
+        Snapshotted ``SUM(cost_usd)`` from ``llm_cost_ledger`` rows
+        with ``purpose='stage2_event_scoring'`` AND
+        ``DATE(called_at)=today``. ``0.0`` when no rows match.
+    projected_cost:
+        Resolved per-call projected cost used in the boundary check.
+        Either the caller-supplied ``projected_cost`` kwarg or, when
+        omitted, :data:`STAGE2_CALL_USD_PROJECTION`.
+    cap:
+        The cap that was applied. Either the caller-supplied ``cap``
+        kwarg or, when omitted, :func:`config.get_llm_stage2_daily_usd_cap`.
+    db_path:
+        The ``db_path`` the cap query ran against. Faithfully reports
+        whichever path was used so audit-log payloads can reproduce
+        the query.
+    """
+
+    passed: bool
+    reason: Optional[str]
+    today_total_usd: float
+    projected_cost: float
+    cap: float
+    db_path: str = ""
+
+
+def _today_iso(today: Optional[_dt.date]) -> str:
+    """Return the UTC ISO date string for the cap query.
+
+    The cap query keys on ``DATE(called_at)`` in SQLite, which
+    interprets the stored string as UTC ISO-8601 per the project
+    convention (every cost-ledger writer in
+    :mod:`biotech_sniper.llm.*_client` stamps ``called_at`` via
+    ``strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`` — ``now`` in SQLite is
+    always UTC). The optional ``today`` override lets tests pin a
+    specific UTC date without freezing the system clock.
+    """
+    if today is None:
+        return _dt.datetime.now(_dt.timezone.utc).date().isoformat()
+    return today.isoformat()
+
+
+def _query_today_stage2_total(
+    db_path: Path,
+    today_iso: str,
+) -> float:
+    """Return today's running Stage-2 ``cost_usd`` from ``llm_cost_ledger``.
+
+    Filters on ``purpose='stage2_event_scoring'`` AND
+    ``DATE(called_at)=today`` so debate rows / curated-daily-run rows
+    do NOT bleed into the Stage-2 cap (VAL-M3-041).
+    """
+    conn = _db.connect(db_path)
+    try:
+        _db.run_migrations(conn)
+        row = conn.execute(
+            """
+            SELECT COALESCE(SUM(cost_usd), 0.0) AS total
+            FROM llm_cost_ledger
+            WHERE purpose = ?
+              AND DATE(called_at) = ?
+            """,
+            (STAGE2_LEDGER_PURPOSE, today_iso),
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        return 0.0
+    try:
+        total = row["total"] if isinstance(row, _sqlite3.Row) else row[0]
+    except (KeyError, IndexError):
+        total = 0.0
+    try:
+        return float(total or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def daily_cap_gate(
+    *,
+    db_path: Optional[Union[str, Path]] = None,
+    projected_cost: Optional[float] = None,
+    cap: Optional[float] = None,
+    today: Optional[_dt.date] = None,
+    raise_on_block: bool = False,
+) -> DailyCapGateResult:
+    """Evaluate the Stage-2 daily $ cap gate (PRE-spend projection).
+
+    Mirrors :func:`biotech_sniper.liquidity_probe.today_probe_spend_usd`
+    + cap-pre-check pattern: before any LLM fan-out, sum today's
+    Stage-2 ``cost_usd`` rows from ``llm_cost_ledger`` (filtered by
+    ``purpose='stage2_event_scoring'`` AND UTC date), add the
+    worst-case per-call projection, and refuse to proceed when the
+    sum would exceed the cap.
+
+    Parameters
+    ----------
+    db_path:
+        Optional override for the SQLite path. Defaults to
+        ``DATA_DIR / "alpha_sniper.db"``.
+    projected_cost:
+        Optional explicit per-call projection (USD). When ``None`` the
+        gate uses :data:`STAGE2_CALL_USD_PROJECTION`.
+    cap:
+        Optional explicit cap (USD). When ``None`` the gate reads
+        :func:`config.get_llm_stage2_daily_usd_cap` at call time so
+        an in-process env override (e.g.
+        ``LLM_STAGE2_DAILY_USD_CAP=5.0``) takes effect without a
+        process restart.
+    today:
+        Optional override for "today" used in the cap query. Tests
+        pass a fixed UTC ``date`` so the boundary test is
+        deterministic; production leaves it ``None``.
+    raise_on_block:
+        When ``True``, the gate raises :class:`DailyCapExceeded` on
+        cap-hit instead of returning a :class:`DailyCapGateResult`.
+        Provided for callers that prefer exception-driven control
+        flow (mirrors :mod:`liquidity_probe`'s pattern). The default
+        ``False`` returns a result object so the Stage-2 dispatcher
+        can compose gates uniformly.
+
+    Returns
+    -------
+    DailyCapGateResult
+        Always non-None when ``raise_on_block=False``. Pure SELECT —
+        no rows are written to ``llm_cost_ledger`` or any other
+        table. The audit-trail writes (``news_match_log`` row +
+        ``audit_latest.json`` merge) happen separately via
+        :func:`record_stage2_skip`.
+
+    Raises
+    ------
+    DailyCapExceeded
+        Only when ``raise_on_block=True`` AND the gate determined
+        ``today_total + projected_cost > cap``.
+
+    Side effects
+    ------------
+    None on the gate itself. The function opens a SQLite connection,
+    runs the SUM query, and closes the connection. No INSERTs, no
+    UPDATEs, no filesystem writes, no network calls.
+    """
+    if db_path is None:
+        from biotech_sniper.paths import DATA_DIR  # late import per project conv.
+
+        resolved_db = DATA_DIR / "alpha_sniper.db"
+    else:
+        resolved_db = Path(db_path)
+    resolved_projection = (
+        float(projected_cost)
+        if projected_cost is not None
+        else STAGE2_CALL_USD_PROJECTION
+    )
+    resolved_cap = (
+        float(cap)
+        if cap is not None
+        else config.get_llm_stage2_daily_usd_cap()
+    )
+    today_iso = _today_iso(today)
+
+    today_total = _query_today_stage2_total(resolved_db, today_iso)
+
+    # Strict ``>`` boundary — equality passes (i.e. spending exactly
+    # to the cap is allowed; the next call's projection would block).
+    over_cap = (today_total + resolved_projection) > resolved_cap
+
+    if not over_cap:
+        logger.info(
+            "stage2_daily_cap_gate: passed "
+            "today_total=%.4f projected_cost=%.4f cap=%.4f today=%s",
+            today_total,
+            resolved_projection,
+            resolved_cap,
+            today_iso,
+        )
+        return DailyCapGateResult(
+            passed=True,
+            reason=None,
+            today_total_usd=today_total,
+            projected_cost=resolved_projection,
+            cap=resolved_cap,
+            db_path=str(resolved_db),
+        )
+
+    logger.warning(
+        "stage2_skipped: %s "
+        "today_total=%.4f projected_cost=%.4f cap=%.4f today=%s",
+        GATE_REASON_DAILY_CAP_EXCEEDED,
+        today_total,
+        resolved_projection,
+        resolved_cap,
+        today_iso,
+    )
+
+    if raise_on_block:
+        raise DailyCapExceeded(
+            f"stage2_daily_cap_gate: today_total={today_total:.4f} + "
+            f"projected_cost={resolved_projection:.4f} > "
+            f"cap={resolved_cap:.4f}"
+        )
+
+    return DailyCapGateResult(
+        passed=False,
+        reason=GATE_REASON_DAILY_CAP_EXCEEDED,
+        today_total_usd=today_total,
+        projected_cost=resolved_projection,
+        cap=resolved_cap,
+        db_path=str(resolved_db),
+    )
+
+
+def record_stage2_skip(
+    *,
+    db_path: Union[str, Path],
+    audit_path: Union[str, Path],
+    ticker: str,
+    candidate_event_id: Optional[int] = None,
+    news_event_id: Optional[int] = None,
+    today_total_usd: float,
+    projected_cost: float,
+    cap: float,
+    reason: str = GATE_REASON_DAILY_CAP_EXCEEDED,
+) -> None:
+    """Record a Stage-2 cap-hit (or other gate-driven skip) in the
+    audit trail.
+
+    Two writes:
+
+    1. **``news_match_log`` row.** Persists a ``matched=0`` row with
+       the supplied ``ticker``, optional ``news_event_id`` (so the
+       row links back to the source headline when known), and
+       ``reason``. The row stamps ``logged_at`` via the table's
+       ``DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`` so audit
+       consumers see UTC ISO-8601 timestamps consistent with the
+       ledger's ``called_at``.
+    2. **``audit_latest.json`` merge.** Reads any existing JSON,
+       updates the ``stage2_skipped[]`` block (a list of
+       ``{reason, count, ...}`` dicts — one per distinct ``reason``),
+       increments the ``count`` for this reason, and writes back
+       atomically (``tmp.replace``). Mirrors the
+       ``llm_debate.run_debate`` audit-merge convention.
+
+    Parameters
+    ----------
+    db_path:
+        Path to the SQLite db (``alpha_sniper.db``).
+    audit_path:
+        Path to ``state/audit_latest.json``.
+    ticker:
+        Ticker symbol of the rejected candidate.
+    candidate_event_id:
+        Optional FK to ``candidate_events.id``. The ``news_match_log``
+        schema does NOT have a ``candidate_event_id`` column today,
+        so this kwarg is recorded only in the audit JSON payload.
+    news_event_id:
+        Optional FK to ``news_events.id`` (the source headline).
+        Persisted on the ``news_match_log`` row.
+    today_total_usd, projected_cost, cap:
+        Snapshot of the cap-gate decision values; persisted in the
+        audit JSON payload so operators can reproduce the gate state
+        post-hoc.
+    reason:
+        Skip reason. Defaults to
+        :data:`GATE_REASON_DAILY_CAP_EXCEEDED`. Other values
+        (``armed_file_missing``, ``ticker_in_cooldown``, ...) may be
+        passed by other gates that share this audit hook.
+
+    Side effects
+    ------------
+    * Inserts one row into ``news_match_log``.
+    * Reads + writes ``audit_path`` atomically (creates parent dir
+      if missing).
+
+    Errors are caught and logged at WARNING level — the recorder
+    must not raise into the dispatcher path because the dispatcher
+    has already short-circuited on the gate decision.
+    """
+    db_target = Path(db_path)
+    audit_target = Path(audit_path)
+    ts = _dt.datetime.now(_dt.timezone.utc).isoformat() + "Z"
+
+    # ---- news_match_log row -----------------------------------------
+    try:
+        conn = _db.connect(db_target)
+        try:
+            _db.run_migrations(conn)
+            with conn:
+                conn.execute(
+                    """
+                    INSERT INTO news_match_log (
+                        ticker, news_event_id, matched, reason
+                    ) VALUES (?, ?, 0, ?)
+                    """,
+                    (ticker, news_event_id, reason),
+                )
+        finally:
+            conn.close()
+    except _sqlite3.Error as exc:
+        logger.warning(
+            "record_stage2_skip: failed to write news_match_log row "
+            "ticker=%s reason=%s: %s",
+            ticker,
+            reason,
+            exc,
+        )
+
+    # ---- audit_latest.json merge ------------------------------------
+    try:
+        audit_target.parent.mkdir(parents=True, exist_ok=True)
+        existing: dict = {}
+        if audit_target.is_file():
+            try:
+                with audit_target.open("r", encoding="utf-8") as fp:
+                    loaded = _json.load(fp)
+                if isinstance(loaded, dict):
+                    existing = loaded
+            except (OSError, ValueError):
+                existing = {}
+
+        skipped = existing.get("stage2_skipped")
+        if not isinstance(skipped, list):
+            skipped = []
+
+        # Update or append the entry for this reason.
+        entry: Optional[dict] = None
+        for s in skipped:
+            if isinstance(s, dict) and s.get("reason") == reason:
+                entry = s
+                break
+        if entry is None:
+            entry = {"reason": reason, "count": 0}
+            skipped.append(entry)
+        try:
+            entry["count"] = int(entry.get("count") or 0) + 1
+        except (TypeError, ValueError):
+            entry["count"] = 1
+        entry["last_ticker"] = ticker
+        entry["last_candidate_event_id"] = (
+            int(candidate_event_id) if candidate_event_id is not None else None
+        )
+        entry["last_news_event_id"] = (
+            int(news_event_id) if news_event_id is not None else None
+        )
+        entry["last_total_usd"] = float(today_total_usd)
+        entry["last_projected_cost"] = float(projected_cost)
+        entry["last_cap"] = float(cap)
+        entry["last_logged_at"] = ts
+
+        existing["stage2_skipped"] = skipped
+
+        tmp = audit_target.with_suffix(audit_target.suffix + ".tmp")
+        with tmp.open("w", encoding="utf-8") as fp:
+            _json.dump(existing, fp, indent=2, sort_keys=True)
+        tmp.replace(audit_target)
+    except OSError as exc:
+        logger.warning(
+            "record_stage2_skip: failed to merge audit_latest.json "
+            "ticker=%s reason=%s: %s",
+            ticker,
+            reason,
+            exc,
+        )
