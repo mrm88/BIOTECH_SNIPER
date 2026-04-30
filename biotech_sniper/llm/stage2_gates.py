@@ -76,6 +76,14 @@ __all__ = [
     "DEFAULT_STAGE2_PROBABILITY_THRESHOLD",
     "GATE_REASON_PROBABILITY_BELOW_THRESHOLD",
     "GATE_REASON_INSUFFICIENT_PROVIDERS",
+    # f-m3-05 — unanimity (label + direction) gate.
+    "UnanimityGateResult",
+    "unanimity_gate",
+    "GATE_REASON_UNANIMITY_FAILED",
+    "GATE_REASON_DIRECTION_SPLIT",
+    # f-m3-05 — combined cheap-first post-fanout gate evaluation.
+    "PostFanoutGatesResult",
+    "evaluate_post_fanout_gates",
 ]
 
 
@@ -104,6 +112,21 @@ GATE_REASON_PROBABILITY_BELOW_THRESHOLD: str = "probability_below_threshold"
 #: the threshold gate's own short-circuit when the structural
 #: precondition is unmet.
 GATE_REASON_INSUFFICIENT_PROVIDERS: str = "insufficient_providers"
+
+#: Canonical reason string emitted by :func:`unanimity_gate` when the
+#: 4/4 ``label='material'`` precondition is not met. Consumed by
+#: VAL-M3-027 / VAL-M3-028 / VAL-M3-029. Any non-material label among
+#: the four successful providers triggers this reason — the gate is
+#: strict equality, NOT majority vote.
+GATE_REASON_UNANIMITY_FAILED: str = "unanimity_failed"
+
+#: Canonical reason string emitted by :func:`unanimity_gate` when all
+#: four providers labelled ``material`` BUT the per-provider
+#: ``direction`` field is not unanimously ``bullish`` / ``bearish``.
+#: Consumed by VAL-M3-030. An ambiguous / null / mixed direction
+#: among material providers blocks entry — this prevents the system
+#: from buying a call when 2 providers said bearish.
+GATE_REASON_DIRECTION_SPLIT: str = "direction_split"
 
 
 # ---------------------------------------------------------------------------
@@ -276,4 +299,389 @@ def probability_gate(
         mean_probability=mean_probability,
         threshold=resolved_threshold,
         n_successful_providers=n_success,
+    )
+
+
+# ---------------------------------------------------------------------------
+# f-m3-05 — Unanimity gate (label + direction)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class UnanimityGateResult:
+    """Outcome of :func:`unanimity_gate`.
+
+    Attributes
+    ----------
+    passed:
+        ``True`` only when exactly four providers succeeded AND every
+        successful provider labelled ``material`` AND every
+        successful provider's ``direction`` agrees on a single value
+        (all ``bullish`` or all ``bearish``). ``False`` in every other
+        case.
+    reason:
+        Canonical short-circuit reason. ``None`` when ``passed=True``.
+        One of:
+
+        * :data:`GATE_REASON_INSUFFICIENT_PROVIDERS` — fewer than
+          four providers succeeded; the 4/4 gate cannot be evaluated.
+        * :data:`GATE_REASON_UNANIMITY_FAILED` — at least one
+          successful provider labelled non-``material``.
+        * :data:`GATE_REASON_DIRECTION_SPLIT` — every successful
+          provider labelled ``material`` BUT the directions disagree
+          (or any direction is missing / ambiguous).
+    n_material:
+        Count of successful providers whose ``label`` is exactly
+        ``"material"``. Always ``<= n_successful_providers``.
+    n_successful_providers:
+        Count of successful providers in the ensemble result
+        (``error is None``). Always ``<= len(ALL_PROVIDERS)``.
+    label_histogram:
+        ``{label: count}`` mapping over the SUCCESSFUL providers
+        only. Faithful per-provider record of the rejected ensemble
+        for the audit-log payload (VAL-M3-029). Failed providers are
+        not represented here — those surface as
+        ``failed_providers`` in :class:`EnsembleEventResult`.
+    direction_histogram:
+        ``{direction: count}`` mapping over the SUCCESSFUL providers
+        only. ``None`` directions surface under the ``"unknown"``
+        bucket so audit consumers can see the ambiguity.
+    direction:
+        Consensus direction (``"bullish"`` / ``"bearish"``) when the
+        gate passed. ``None`` whenever the gate did NOT pass — never
+        set on a rejected gate (prevents downstream code from
+        mistakenly routing on a partial direction).
+    """
+
+    passed: bool
+    reason: Optional[str]
+    n_material: int
+    n_successful_providers: int
+    label_histogram: dict[str, int]
+    direction_histogram: dict[str, int]
+    direction: Optional[str]
+
+
+def unanimity_gate(
+    ensemble_result: EnsembleEventResult,
+) -> UnanimityGateResult:
+    """Evaluate the Stage-2 unanimity (label + direction) gate.
+
+    Parameters
+    ----------
+    ensemble_result:
+        The :class:`EnsembleEventResult` returned by
+        :func:`biotech_sniper.llm.ensemble.score_candidate_event`.
+
+    Returns
+    -------
+    UnanimityGateResult
+        Always non-None. Never raises — the gate is a pure consumer.
+
+    Behaviour matrix
+    ----------------
+    +----------------------+----------------------+-------+----------------------+
+    | n_successful         | labels / directions  | pass? | reason               |
+    +======================+======================+=======+======================+
+    | < 4                  | n/a                  | False | insufficient_providers |
+    +----------------------+----------------------+-------+----------------------+
+    | 4, any non-material  | n/a                  | False | unanimity_failed     |
+    +----------------------+----------------------+-------+----------------------+
+    | 4 material, mixed    | bull/bear split or   | False | direction_split      |
+    | directions           | any None / ambiguous |       |                      |
+    +----------------------+----------------------+-------+----------------------+
+    | 4 material, all bull | bullish ×4           | True  | None                 |
+    +----------------------+----------------------+-------+----------------------+
+    | 4 material, all bear | bearish ×4           | True  | None                 |
+    +----------------------+----------------------+-------+----------------------+
+
+    Side effects
+    ------------
+    None. The gate writes nothing to SQLite, makes no network calls,
+    and emits only structured INFO log lines so operators can audit
+    the decision path post-hoc.
+    """
+    successful = [
+        r for r in ensemble_result.per_provider_results if r.error is None
+    ]
+    n_success = len(successful)
+    expected = len(ALL_PROVIDERS)
+
+    # Per-provider label / direction histograms — faithful to each
+    # provider's actual decision (VAL-M3-029). Computed up-front so
+    # every return path can attach them to the audit log.
+    label_histogram: dict[str, int] = {}
+    direction_histogram: dict[str, int] = {}
+    for r in successful:
+        lkey = r.label or "unknown"
+        label_histogram[lkey] = label_histogram.get(lkey, 0) + 1
+        dkey = r.direction or "unknown"
+        direction_histogram[dkey] = direction_histogram.get(dkey, 0) + 1
+
+    n_material = label_histogram.get("material", 0)
+
+    if n_success < expected:
+        logger.info(
+            "stage2_unanimity_gate: skipped %s "
+            "(%d of %d providers successful, label_histogram=%r)",
+            GATE_REASON_INSUFFICIENT_PROVIDERS,
+            n_success,
+            expected,
+            label_histogram,
+        )
+        return UnanimityGateResult(
+            passed=False,
+            reason=GATE_REASON_INSUFFICIENT_PROVIDERS,
+            n_material=n_material,
+            n_successful_providers=n_success,
+            label_histogram=label_histogram,
+            direction_histogram=direction_histogram,
+            direction=None,
+        )
+
+    # All four providers succeeded — check label unanimity first.
+    # Strict 4/4 'material'; any other label rejects.
+    if n_material != expected:
+        logger.info(
+            "stage2_unanimity_gate: gate_failed %s "
+            "label_histogram=%r (n_material=%d of %d)",
+            GATE_REASON_UNANIMITY_FAILED,
+            label_histogram,
+            n_material,
+            expected,
+        )
+        return UnanimityGateResult(
+            passed=False,
+            reason=GATE_REASON_UNANIMITY_FAILED,
+            n_material=n_material,
+            n_successful_providers=n_success,
+            label_histogram=label_histogram,
+            direction_histogram=direction_histogram,
+            direction=None,
+        )
+
+    # 4/4 material — now check direction unanimity. A null /
+    # ambiguous direction from any material provider counts as a
+    # split (VAL-M3-030).
+    directions = [r.direction for r in successful]
+    if any(d is None for d in directions):
+        logger.info(
+            "stage2_unanimity_gate: gate_failed %s "
+            "direction_histogram=%r (one or more directions missing)",
+            GATE_REASON_DIRECTION_SPLIT,
+            direction_histogram,
+        )
+        return UnanimityGateResult(
+            passed=False,
+            reason=GATE_REASON_DIRECTION_SPLIT,
+            n_material=n_material,
+            n_successful_providers=n_success,
+            label_histogram=label_histogram,
+            direction_histogram=direction_histogram,
+            direction=None,
+        )
+
+    direction_set = set(directions)
+    if direction_set == {"bullish"}:
+        consensus = "bullish"
+    elif direction_set == {"bearish"}:
+        consensus = "bearish"
+    else:
+        logger.info(
+            "stage2_unanimity_gate: gate_failed %s "
+            "direction_histogram=%r",
+            GATE_REASON_DIRECTION_SPLIT,
+            direction_histogram,
+        )
+        return UnanimityGateResult(
+            passed=False,
+            reason=GATE_REASON_DIRECTION_SPLIT,
+            n_material=n_material,
+            n_successful_providers=n_success,
+            label_histogram=label_histogram,
+            direction_histogram=direction_histogram,
+            direction=None,
+        )
+
+    logger.info(
+        "stage2_unanimity_gate: passed "
+        "direction=%s n_material=%d label_histogram=%r",
+        consensus,
+        n_material,
+        label_histogram,
+    )
+    return UnanimityGateResult(
+        passed=True,
+        reason=None,
+        n_material=n_material,
+        n_successful_providers=n_success,
+        label_histogram=label_histogram,
+        direction_histogram=direction_histogram,
+        direction=consensus,
+    )
+
+
+# ---------------------------------------------------------------------------
+# f-m3-05 — Combined post-fanout gate evaluation (probability → unanimity)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class PostFanoutGatesResult:
+    """Outcome of :func:`evaluate_post_fanout_gates`.
+
+    Attributes
+    ----------
+    passed:
+        ``True`` iff BOTH the probability gate AND the unanimity gate
+        passed. ``False`` whenever either gate rejected.
+    reason:
+        Canonical (first) short-circuit reason in cheap-first order:
+        probability_threshold → unanimity. When BOTH gates fail
+        simultaneously (e.g. fixture [3M+1I, mean<threshold]) the
+        canonical reason is the THRESHOLD failure — VAL-M3-031.
+        ``None`` when ``passed=True``. ``insufficient_providers``
+        short-circuits before either named gate can be evaluated.
+    probability_gate:
+        The :class:`ProbabilityGateResult` produced by the
+        probability gate. ``None`` only when the structural
+        precondition (4 successful providers) was not met.
+    unanimity_gate:
+        The :class:`UnanimityGateResult` produced by the unanimity
+        gate. ``None`` only when the structural precondition (4
+        successful providers) was not met. Always populated when
+        4 providers succeeded — even when the threshold gate
+        already rejected — so the audit log can record both
+        failures together.
+    """
+
+    passed: bool
+    reason: Optional[str]
+    probability_gate: Optional[ProbabilityGateResult]
+    unanimity_gate: Optional[UnanimityGateResult]
+
+
+def evaluate_post_fanout_gates(
+    ensemble_result: EnsembleEventResult,
+    *,
+    threshold: Optional[float] = None,
+) -> PostFanoutGatesResult:
+    """Evaluate the post-fan-out gate sequence in the canonical
+    cheap-first order: ``probability_threshold → unanimity``.
+
+    The canonical (first) failure reason is
+    :data:`GATE_REASON_PROBABILITY_BELOW_THRESHOLD` when the
+    threshold gate fails — even if the unanimity gate ALSO would
+    have failed. This implements VAL-M3-031: "the implementation
+    MUST NOT swallow the threshold failure under a unanimity
+    message".
+
+    Both gate results are returned in :class:`PostFanoutGatesResult`
+    so the dispatcher can write a complete audit-log payload (the
+    threshold reason as primary, the unanimity reason as secondary
+    detail when applicable).
+
+    Parameters
+    ----------
+    ensemble_result:
+        The :class:`EnsembleEventResult` returned by
+        :func:`biotech_sniper.llm.ensemble.score_candidate_event`.
+    threshold:
+        Optional explicit probability threshold (forwarded to
+        :func:`probability_gate`). When ``None`` the gate reads
+        :func:`config.get_stage2_probability_threshold`.
+
+    Returns
+    -------
+    PostFanoutGatesResult
+        Never raises. Pure consumer of the ensemble result; no DB
+        writes, no network calls.
+    """
+    # Structural short-circuit: the unanimity gate's
+    # ``insufficient_providers`` reason is canonical when fewer than
+    # four providers succeeded. The threshold gate would also report
+    # the same reason, so we surface it once and return.
+    successful = [
+        r for r in ensemble_result.per_provider_results if r.error is None
+    ]
+    if len(successful) < len(ALL_PROVIDERS):
+        prob_res = probability_gate(ensemble_result, threshold=threshold)
+        uni_res = unanimity_gate(ensemble_result)
+        logger.info(
+            "stage2_post_fanout_gates: short_circuit %s "
+            "(n_successful=%d of %d)",
+            GATE_REASON_INSUFFICIENT_PROVIDERS,
+            len(successful),
+            len(ALL_PROVIDERS),
+        )
+        return PostFanoutGatesResult(
+            passed=False,
+            reason=GATE_REASON_INSUFFICIENT_PROVIDERS,
+            probability_gate=prob_res,
+            unanimity_gate=uni_res,
+        )
+
+    # Run probability first (canonical cheap-first order, VAL-M3-031).
+    prob_res = probability_gate(ensemble_result, threshold=threshold)
+    uni_res = unanimity_gate(ensemble_result)
+
+    # Both passed → entry allowed.
+    if prob_res.passed and uni_res.passed:
+        logger.info(
+            "stage2_post_fanout_gates: passed "
+            "probability_gate=passed unanimity_gate=passed "
+            "mean=%.4f direction=%s",
+            prob_res.mean_probability if prob_res.mean_probability is not None else -1.0,
+            uni_res.direction,
+        )
+        return PostFanoutGatesResult(
+            passed=True,
+            reason=None,
+            probability_gate=prob_res,
+            unanimity_gate=uni_res,
+        )
+
+    # If the threshold gate failed, that is the canonical reason —
+    # even if unanimity ALSO failed (VAL-M3-031). The audit log MUST
+    # record probability_below_threshold first so operators see the
+    # earliest failure in the cheap-first chain.
+    if not prob_res.passed:
+        # Compose a single audit line that names the canonical
+        # (threshold) reason FIRST and the secondary (unanimity)
+        # reason AFTER, so a downstream grep on substring ordering
+        # confirms the gate sequence.
+        secondary_marker = ""
+        if not uni_res.passed and uni_res.reason:
+            secondary_marker = (
+                f" secondary={uni_res.reason} "
+                f"label_histogram={uni_res.label_histogram!r}"
+            )
+        logger.info(
+            "stage2_post_fanout_gates: gate_failed %s "
+            "mean=%.4f threshold=%.4f%s",
+            prob_res.reason,
+            prob_res.mean_probability if prob_res.mean_probability is not None else -1.0,
+            prob_res.threshold,
+            secondary_marker,
+        )
+        return PostFanoutGatesResult(
+            passed=False,
+            reason=prob_res.reason,
+            probability_gate=prob_res,
+            unanimity_gate=uni_res,
+        )
+
+    # Threshold passed but unanimity failed.
+    logger.info(
+        "stage2_post_fanout_gates: gate_failed %s "
+        "label_histogram=%r direction_histogram=%r",
+        uni_res.reason,
+        uni_res.label_histogram,
+        uni_res.direction_histogram,
+    )
+    return PostFanoutGatesResult(
+        passed=False,
+        reason=uni_res.reason,
+        probability_gate=prob_res,
+        unanimity_gate=uni_res,
     )
