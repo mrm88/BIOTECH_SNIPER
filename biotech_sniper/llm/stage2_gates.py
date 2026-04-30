@@ -1093,6 +1093,10 @@ def daily_cap_gate(
     cap: Optional[float] = None,
     today: Optional[_dt.date] = None,
     raise_on_block: bool = False,
+    ticker: Optional[str] = None,
+    candidate_event_id: Optional[int] = None,
+    news_event_id: Optional[int] = None,
+    audit_path: Optional[Union[str, Path]] = None,
 ) -> DailyCapGateResult:
     """Evaluate the Stage-2 daily $ cap gate (PRE-spend projection).
 
@@ -1128,6 +1132,22 @@ def daily_cap_gate(
         flow (mirrors :mod:`liquidity_probe`'s pattern). The default
         ``False`` returns a result object so the Stage-2 dispatcher
         can compose gates uniformly.
+    ticker, candidate_event_id, news_event_id, audit_path:
+        Optional kwargs that, when ``ticker`` AND ``audit_path`` are
+        BOTH supplied on a cap-hit, drive the audit-trail
+        persistence side effect via :func:`record_stage2_skip` —
+        ONE row in ``news_match_log`` (``matched=0``,
+        ``reason='daily_cap_exceeded'``) AND a ``stage2_skipped[]``
+        merge into ``audit_latest.json``. When either is missing the
+        gate emits a single WARNING (``daily_cap_gate: persistence
+        skipped — caller did not supply ticker/audit_path``) and
+        returns the canonical decision unchanged. The persistence
+        write is attempted BEFORE the ``raise_on_block=True`` raise
+        path so the audit trail lands even when the caller opts in
+        to exception-driven flow control. Recorder errors
+        (``sqlite3.Error`` / ``OSError``) are swallowed at WARNING
+        level by :func:`record_stage2_skip`, preserving the gate's
+        contract-clean return shape on persistence failure.
 
     Returns
     -------
@@ -1201,6 +1221,33 @@ def daily_cap_gate(
         resolved_cap,
         today_iso,
     )
+
+    # ---- Audit-trail persistence (f-fix-m3-07) -------------------
+    # Run BEFORE the raise/return-result fork so the audit trail
+    # lands even when the caller opts in to ``raise_on_block=True``.
+    # Both ``ticker`` AND ``audit_path`` are required for the
+    # persistence path; either missing logs a single WARNING and
+    # skips ONLY the persistence — the gate decision is preserved.
+    if ticker is not None and audit_path is not None:
+        record_stage2_skip(
+            db_path=resolved_db,
+            audit_path=audit_path,
+            ticker=ticker,
+            candidate_event_id=candidate_event_id,
+            news_event_id=news_event_id,
+            today_total_usd=today_total,
+            projected_cost=resolved_projection,
+            cap=resolved_cap,
+            reason=GATE_REASON_DAILY_CAP_EXCEEDED,
+        )
+    else:
+        logger.warning(
+            "daily_cap_gate: persistence skipped — caller did not "
+            "supply ticker/audit_path "
+            "(ticker=%r audit_path=%r)",
+            ticker,
+            audit_path,
+        )
 
     if raise_on_block:
         raise DailyCapExceeded(

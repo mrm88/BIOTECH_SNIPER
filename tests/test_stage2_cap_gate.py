@@ -134,6 +134,24 @@ def _today_iso() -> str:
     return datetime.now(timezone.utc).date().isoformat()
 
 
+def _seed_news_event(db_path: Path, *, news_event_id: int, ticker: str) -> None:
+    """Insert a ``news_events`` row so a downstream ``news_match_log``
+    insert with ``news_event_id=<id>`` satisfies the FK constraint."""
+    conn = project_db.connect(db_path)
+    try:
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO news_events (
+                    id, ticker, source, title
+                ) VALUES (?, ?, 'unit-test', ?)
+                """,
+                (news_event_id, ticker, f"seed for {ticker}"),
+            )
+    finally:
+        conn.close()
+
+
 # ---------------------------------------------------------------------------
 # VAL-M3-037 — env override defaults to 20.0 / honored
 # ---------------------------------------------------------------------------
@@ -590,3 +608,302 @@ def test_raise_on_block_false_returns_result_object(temp_db: Path):
     )
     assert isinstance(res, DailyCapGateResult)
     assert res.passed is False
+
+
+# ---------------------------------------------------------------------------
+# f-fix-m3-07 — Cap-hit persistence wired into daily_cap_gate
+#
+# Scrutiny round 1 found that ``daily_cap_gate`` only WARNED on
+# cap-hit and never invoked ``record_stage2_skip`` in production —
+# the contract clause attached to VAL-M3-039 / VAL-M3-040 (cap-hit
+# audit) requires the gate path itself to persist a
+# ``news_match_log`` row AND merge the
+# ``stage2_skipped[]`` block in ``audit_latest.json``.
+#
+# These tests verify the surgical fix: extend the gate's signature
+# with optional ``ticker``, ``candidate_event_id``, ``news_event_id``,
+# and ``audit_path`` kwargs and, on cap-hit, invoke
+# ``record_stage2_skip`` BEFORE the raise/return-result fork (so the
+# persistence path runs even when ``raise_on_block=True``). When the
+# caller did not supply ``ticker``/``audit_path``, the gate must log
+# a single WARNING explaining the persistence skip and still return
+# the canonical decision (``passed=False``).
+# ---------------------------------------------------------------------------
+
+
+def test_cap_hit_with_ticker_persists_news_match_log_and_audit(
+    temp_db: Path, tmp_path: Path
+):
+    """On cap-hit with ``ticker`` + ``audit_path`` kwargs supplied, the
+    gate writes exactly one ``news_match_log`` row with
+    ``reason='daily_cap_exceeded'`` and increments the
+    ``stage2_skipped[]`` counter in ``audit_latest.json``."""
+    audit_path = tmp_path / "audit_latest.json"
+    _seed_ledger(temp_db, cost_usd=19.80)
+    _seed_news_event(temp_db, news_event_id=7, ticker="ABCX")
+
+    # Pre-conditions — no audit JSON, no news_match_log rows.
+    assert not audit_path.exists()
+    conn = project_db.connect(temp_db)
+    try:
+        pre_rows = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM news_match_log "
+                "WHERE reason='daily_cap_exceeded'"
+            ).fetchone()[0]
+        )
+    finally:
+        conn.close()
+    assert pre_rows == 0
+
+    res = daily_cap_gate(
+        db_path=temp_db,
+        projected_cost=0.60,
+        cap=20.0,
+        ticker="ABCX",
+        candidate_event_id=42,
+        news_event_id=7,
+        audit_path=audit_path,
+    )
+
+    assert res.passed is False
+    assert res.reason == GATE_REASON_DAILY_CAP_EXCEEDED
+
+    # Exactly one news_match_log row with reason='daily_cap_exceeded'.
+    conn = project_db.connect(temp_db)
+    try:
+        rows = conn.execute(
+            "SELECT ticker, matched, reason FROM news_match_log "
+            "WHERE reason='daily_cap_exceeded'"
+        ).fetchall()
+    finally:
+        conn.close()
+    assert len(rows) == 1
+    assert rows[0]["ticker"] == "ABCX"
+    assert int(rows[0]["matched"]) == 0
+    assert rows[0]["reason"] == "daily_cap_exceeded"
+
+    # Audit JSON has stage2_skipped[reason=daily_cap_exceeded].count >= 1.
+    payload = json.loads(audit_path.read_text(encoding="utf-8"))
+    skipped = payload.get("stage2_skipped")
+    assert isinstance(skipped, list) and skipped
+    cap_entry = next(
+        s for s in skipped if s.get("reason") == "daily_cap_exceeded"
+    )
+    assert int(cap_entry["count"]) == 1
+    assert cap_entry.get("last_ticker") == "ABCX"
+    assert int(cap_entry.get("last_candidate_event_id") or 0) == 42
+    assert int(cap_entry.get("last_news_event_id") or 0) == 7
+
+
+def test_cap_hit_without_ticker_skips_persistence_and_warns(
+    temp_db: Path, caplog
+):
+    """On cap-hit when caller did NOT supply ``ticker``, the gate logs
+    a single WARNING about skipped persistence, writes ZERO
+    ``news_match_log`` rows, and still returns the
+    ``passed=False`` decision."""
+    import logging
+
+    caplog.set_level(logging.WARNING, logger=stage2_gates.__name__)
+    _seed_ledger(temp_db, cost_usd=19.80)
+
+    # Pre-condition.
+    conn = project_db.connect(temp_db)
+    try:
+        pre_rows = int(
+            conn.execute("SELECT COUNT(*) FROM news_match_log").fetchone()[0]
+        )
+    finally:
+        conn.close()
+
+    res = daily_cap_gate(
+        db_path=temp_db,
+        projected_cost=0.60,
+        cap=20.0,
+    )
+
+    # Decision-only path is preserved.
+    assert isinstance(res, DailyCapGateResult)
+    assert res.passed is False
+    assert res.reason == GATE_REASON_DAILY_CAP_EXCEEDED
+
+    # Zero news_match_log rows added.
+    conn = project_db.connect(temp_db)
+    try:
+        post_rows = int(
+            conn.execute("SELECT COUNT(*) FROM news_match_log").fetchone()[0]
+        )
+    finally:
+        conn.close()
+    assert post_rows == pre_rows
+
+    # WARNING log line about skipped persistence.
+    persistence_warnings = [
+        rec
+        for rec in caplog.records
+        if rec.levelno >= logging.WARNING
+        and "persistence skipped" in rec.getMessage()
+    ]
+    assert len(persistence_warnings) == 1, (
+        f"expected exactly one 'persistence skipped' WARNING, got "
+        f"{[r.getMessage() for r in caplog.records]}"
+    )
+
+
+def test_cap_hit_without_audit_path_skips_persistence_and_warns(
+    temp_db: Path, caplog
+):
+    """``ticker`` supplied but ``audit_path`` omitted is also a
+    persistence-skipped condition (both kwargs are required for the
+    persistence path)."""
+    import logging
+
+    caplog.set_level(logging.WARNING, logger=stage2_gates.__name__)
+    _seed_ledger(temp_db, cost_usd=19.80)
+
+    res = daily_cap_gate(
+        db_path=temp_db,
+        projected_cost=0.60,
+        cap=20.0,
+        ticker="ABCX",
+    )
+
+    assert res.passed is False
+    assert res.reason == GATE_REASON_DAILY_CAP_EXCEEDED
+
+    # Zero news_match_log rows.
+    conn = project_db.connect(temp_db)
+    try:
+        n_rows = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM news_match_log "
+                "WHERE reason='daily_cap_exceeded'"
+            ).fetchone()[0]
+        )
+    finally:
+        conn.close()
+    assert n_rows == 0
+
+    persistence_warnings = [
+        rec
+        for rec in caplog.records
+        if rec.levelno >= logging.WARNING
+        and "persistence skipped" in rec.getMessage()
+    ]
+    assert len(persistence_warnings) == 1
+
+
+def test_cap_not_hit_does_not_invoke_recorder(
+    temp_db: Path, tmp_path: Path
+):
+    """Regression: when the cap is NOT hit (passed=True), the gate
+    must NOT touch ``news_match_log`` or ``audit_latest.json`` even
+    when ``ticker`` + ``audit_path`` kwargs are supplied. The recorder
+    is invoked ONLY on cap-hit."""
+    audit_path = tmp_path / "audit_latest.json"
+    _seed_ledger(temp_db, cost_usd=10.0)
+
+    res = daily_cap_gate(
+        db_path=temp_db,
+        projected_cost=0.50,
+        cap=20.0,
+        ticker="ABCX",
+        candidate_event_id=42,
+        news_event_id=7,
+        audit_path=audit_path,
+    )
+    assert res.passed is True
+    assert res.reason is None
+
+    conn = project_db.connect(temp_db)
+    try:
+        n_rows = int(
+            conn.execute("SELECT COUNT(*) FROM news_match_log").fetchone()[0]
+        )
+    finally:
+        conn.close()
+    assert n_rows == 0
+    assert not audit_path.exists()
+
+
+def test_raise_on_block_persists_then_raises(
+    temp_db: Path, tmp_path: Path
+):
+    """``raise_on_block=True`` on cap-hit attempts the persistence
+    write FIRST and THEN raises ``DailyCapExceeded`` — the
+    ``news_match_log`` row + audit JSON merge must land BEFORE the
+    exception propagates so the audit trail is preserved even on
+    exception-driven control-flow paths."""
+    audit_path = tmp_path / "audit_latest.json"
+    _seed_ledger(temp_db, cost_usd=20.5)
+    _seed_news_event(temp_db, news_event_id=11, ticker="ABCX")
+
+    with pytest.raises(DailyCapExceeded):
+        daily_cap_gate(
+            db_path=temp_db,
+            projected_cost=0.60,
+            cap=20.0,
+            ticker="ABCX",
+            candidate_event_id=99,
+            news_event_id=11,
+            audit_path=audit_path,
+            raise_on_block=True,
+        )
+
+    # news_match_log row was written before the exception.
+    conn = project_db.connect(temp_db)
+    try:
+        rows = conn.execute(
+            "SELECT ticker, matched, reason FROM news_match_log "
+            "WHERE reason='daily_cap_exceeded'"
+        ).fetchall()
+    finally:
+        conn.close()
+    assert len(rows) == 1
+    assert rows[0]["ticker"] == "ABCX"
+
+    # audit_latest.json was merged before the exception.
+    payload = json.loads(audit_path.read_text(encoding="utf-8"))
+    skipped = payload["stage2_skipped"]
+    cap_entry = next(
+        s for s in skipped if s.get("reason") == "daily_cap_exceeded"
+    )
+    assert int(cap_entry["count"]) == 1
+
+
+def test_raise_on_block_without_ticker_does_not_persist(
+    temp_db: Path, caplog
+):
+    """``raise_on_block=True`` with ticker omitted: persistence is
+    skipped (WARNING logged), then the gate raises
+    ``DailyCapExceeded`` — no ``news_match_log`` rows are written."""
+    import logging
+
+    caplog.set_level(logging.WARNING, logger=stage2_gates.__name__)
+    _seed_ledger(temp_db, cost_usd=20.5)
+
+    with pytest.raises(DailyCapExceeded):
+        daily_cap_gate(
+            db_path=temp_db,
+            projected_cost=0.60,
+            cap=20.0,
+            raise_on_block=True,
+        )
+
+    conn = project_db.connect(temp_db)
+    try:
+        n_rows = int(
+            conn.execute("SELECT COUNT(*) FROM news_match_log").fetchone()[0]
+        )
+    finally:
+        conn.close()
+    assert n_rows == 0
+
+    persistence_warnings = [
+        rec
+        for rec in caplog.records
+        if rec.levelno >= logging.WARNING
+        and "persistence skipped" in rec.getMessage()
+    ]
+    assert len(persistence_warnings) == 1
