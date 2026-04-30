@@ -1,0 +1,83 @@
+{
+  "interactions": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.perplexity.ai/chat/completions",
+        "headers": {
+          "Authorization": "***"
+        }
+      },
+      "response": {
+        "status_code": 429,
+        "json": {
+          "error": {
+            "message": "Rate limit exceeded",
+            "type": "rate_limit_error"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.perplexity.ai/chat/completions",
+        "headers": {
+          "Authorization": "***"
+        }
+      },
+      "response": {
+        "status_code": 503,
+        "json": {
+          "error": {
+            "message": "Upstream unavailable",
+            "type": "server_error"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.perplexity.ai/chat/completions",
+        "headers": {
+          "Authorization": "***"
+        }
+      },
+      "response": {
+        "raise_timeout": true
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.perplexity.ai/chat/completions",
+        "headers": {
+          "Authorization": "***"
+        }
+      },
+      "response": {
+        "status_code": 200,
+        "json": {
+          "id": "pplx-resp-after-retry-001",
+          "model": "sonar",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"probability\": 0.71, \"label\": \"material\", \"direction\": \"bearish\", \"rationale\": \"Recovered after 429+503+timeout; FDA CRL precedent for similar PI3K agents.\", \"citations\": [{\"url\": \"https://www.fda.gov/CRL\", \"title\": \"FDA CRL summary\"}]}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 200,
+            "completion_tokens": 60,
+            "total_tokens": 260
+          }
+        }
+      }
+    }
+  ]
+}

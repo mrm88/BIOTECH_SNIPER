@@ -330,6 +330,18 @@ def get_gemini_api_key() -> str | None:
     return _env_str("GEMINI_API_KEY")
 
 
+def get_perplexity_api_key() -> str | None:
+    """Return the Perplexity API key (Reading-B M3 Stage-2 scorer).
+
+    Reading-B introduces a fourth LLM provider in the Stage-2 ensemble
+    fan-out (``biotech_sniper.llm.perplexity_client``). The key is read
+    via this getter only — direct ``os.environ`` lookups for
+    ``PERPLEXITY_API_KEY`` outside :mod:`biotech_sniper.config` are a
+    mission-policy violation (see ``AGENTS.md``).
+    """
+    return _env_str("PERPLEXITY_API_KEY")
+
+
 def get_alpaca_key_id() -> str | None:
     """Return the Alpaca paper account key id (M3 paper executor)."""
     return _env_str("ALPACA_KEY_ID")
@@ -445,6 +457,7 @@ __all__ = [
     "get_xai_api_key",
     "get_anthropic_api_key",
     "get_gemini_api_key",
+    "get_perplexity_api_key",
     "get_alpaca_key_id",
     "get_alpaca_secret_key",
     "get_alpaca_base_url",

@@ -1,0 +1,35 @@
+{
+  "interactions": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.perplexity.ai/chat/completions",
+        "headers": {
+          "Authorization": "***"
+        }
+      },
+      "response": {
+        "status_code": 200,
+        "json": {
+          "id": "pplx-resp-malformed-001",
+          "model": "sonar",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "this is not json at all { fragmentary"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 50,
+            "completion_tokens": 10,
+            "total_tokens": 60
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "interactions": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.perplexity.ai/chat/completions",
+        "headers": {
+          "Authorization": "***"
+        }
+      },
+      "response": {
+        "status_code": 200,
+        "json": {
+          "id": "pplx-resp-bullish-001",
+          "object": "chat.completion",
+          "created": 1714099200,
+          "model": "sonar",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"probability\": 0.84, \"label\": \"material\", \"direction\": \"bullish\", \"rationale\": \"Phase 3 readout for IDYA-3001 reported statistically significant ORR improvement; FDA briefing scheduled.\", \"citations\": [{\"url\": \"https://www.fiercebiotech.com/idya-readout\", \"title\": \"Idaya P3 readout positive\"}, {\"url\": \"https://www.statnews.com/idya-2026\", \"title\": \"Idaya FDA briefing scheduled\"}]}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 220,
+            "completion_tokens": 90,
+            "total_tokens": 310
+          }
+        }
+      }
+    }
+  ]
+}

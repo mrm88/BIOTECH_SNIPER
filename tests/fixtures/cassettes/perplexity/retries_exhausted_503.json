@@ -1,0 +1,20 @@
+{
+  "interactions": [
+    {
+      "request": {"method": "POST", "url": "https://api.perplexity.ai/chat/completions"},
+      "response": {"status_code": 503, "json": {"error": {"message": "upstream unavailable"}}}
+    },
+    {
+      "request": {"method": "POST", "url": "https://api.perplexity.ai/chat/completions"},
+      "response": {"status_code": 503, "json": {"error": {"message": "upstream unavailable"}}}
+    },
+    {
+      "request": {"method": "POST", "url": "https://api.perplexity.ai/chat/completions"},
+      "response": {"status_code": 503, "json": {"error": {"message": "upstream unavailable"}}}
+    },
+    {
+      "request": {"method": "POST", "url": "https://api.perplexity.ai/chat/completions"},
+      "response": {"status_code": 503, "json": {"error": {"message": "upstream unavailable"}}}
+    }
+  ]
+}

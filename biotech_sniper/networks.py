@@ -79,10 +79,19 @@ M1_NEW_HOSTS: Final[frozenset[str]] = frozenset(
 #   * ``api.perplexity.ai``      — Stage-2 LLM provider.
 #   * ``status.perplexity.ai``   — health monitoring / breaker poll.
 #
-# Kept empty so M1 verification cannot pre-fail M3 reachability
-# checks. The f-m3-XX worker will move these hosts into the active
-# allow-list when the Perplexity client lands.
-M3_RESERVED_HOSTS: Final[frozenset[str]] = frozenset()
+# Activated by f-m3-01-perplexity-client (the Perplexity HTTP client
+# wrapper). Tests for the client run hermetically against committed
+# cassettes under ``tests/fixtures/cassettes/perplexity/`` (no live
+# egress); the host is reserved here so the production code path
+# (``biotech_sniper.llm.perplexity_client``) — which dials
+# ``https://api.perplexity.ai/chat/completions`` — is not flagged as
+# off-list by the network whitelist regression tests.
+M3_RESERVED_HOSTS: Final[frozenset[str]] = frozenset(
+    {
+        "api.perplexity.ai",
+        "status.perplexity.ai",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
