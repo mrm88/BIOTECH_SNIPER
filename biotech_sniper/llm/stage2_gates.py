@@ -105,6 +105,12 @@ __all__ = [
     "STAGE2_CALL_USD_PROJECTION",
     "STAGE2_LEDGER_PURPOSE",
     "DEFAULT_LLM_STAGE2_DAILY_USD_CAP",
+    # f-m3-08 — per-ticker 24h cooldown gate (cheap-first, pre-fanout).
+    "CooldownGateResult",
+    "cooldown_gate",
+    "record_cooldown_on_success",
+    "GATE_REASON_COOLDOWN_ACTIVE",
+    "DEFAULT_PER_TICKER_COOLDOWN_HOURS",
 ]
 
 
@@ -204,6 +210,21 @@ STAGE2_CALL_USD_PROJECTION: float = 0.50
 #: without a second import of ``config``.
 DEFAULT_LLM_STAGE2_DAILY_USD_CAP: float = (
     config.DEFAULT_LLM_STAGE2_DAILY_USD_CAP
+)
+
+#: Canonical reason string emitted by :func:`cooldown_gate` when the
+#: per-ticker cooldown window is still active for the candidate's
+#: ticker. Consumed by VAL-M3-045 / VAL-M5-025 / VAL-CROSS-031. The
+#: Stage-2 dispatcher short-circuits with this reason BEFORE
+#: dispatching any LLM call — a rejected cooldown gate produces ZERO
+#: ``llm_cost_ledger`` rows.
+GATE_REASON_COOLDOWN_ACTIVE: str = "cooldown_active"
+
+#: Re-export of the canonical default from :mod:`biotech_sniper.config`
+#: so callers that already import the gate module can get the default
+#: without a second import of ``config``.
+DEFAULT_PER_TICKER_COOLDOWN_HOURS: int = (
+    config.DEFAULT_PER_TICKER_COOLDOWN_HOURS
 )
 
 
@@ -1331,5 +1352,409 @@ def record_stage2_skip(
             "ticker=%s reason=%s: %s",
             ticker,
             reason,
+            exc,
+        )
+
+
+# ---------------------------------------------------------------------------
+# f-m3-08 — Per-ticker 24h cooldown gate (cheap-first, pre-fanout)
+# ---------------------------------------------------------------------------
+
+
+def _canonical_ticker(ticker: str) -> str:
+    """Return the canonical UPPERCASE form of ``ticker``.
+
+    The cooldown gate uses ``ticker`` as the PRIMARY KEY of
+    ``ticker_cooldown``. Per VAL-M3-083, all writes are
+    UPPERCASE-canonicalised so a cooldown set on ``nvax`` and a
+    candidate with ``NVAX`` resolve to the same row. Surrounding
+    whitespace is stripped defensively.
+    """
+    return (ticker or "").strip().upper()
+
+
+def _parse_iso_utc(text: str) -> Optional[_dt.datetime]:
+    """Parse an ISO-8601 UTC timestamp from ``ticker_cooldown.last_entry_at``.
+
+    The Reading-B writers stamp timestamps via
+    ``strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`` (SQLite's UTC) producing
+    e.g. ``2026-04-30T12:00:00.000Z``. We accept that exact shape AND
+    Python's ``datetime.isoformat()`` shape (with ``+00:00`` or ``Z``)
+    so test fixtures that bypass the SQLite default still work.
+
+    Returns ``None`` if the string cannot be parsed — the gate then
+    falls through to "no row" semantics (allow), so a corrupted row
+    never wedges Stage-2 entries.
+    """
+    if not text:
+        return None
+    s = text.strip()
+    # Accept trailing 'Z' as UTC.
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        dt = _dt.datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=_dt.timezone.utc)
+    return dt.astimezone(_dt.timezone.utc)
+
+
+@dataclass
+class CooldownGateResult:
+    """Outcome of :func:`cooldown_gate`.
+
+    Attributes
+    ----------
+    passed:
+        ``True`` only when no active cooldown blocks entry. ``False``
+        when a ``ticker_cooldown`` row exists for the (canonicalised)
+        ticker AND ``elapsed_seconds < cooldown_seconds``.
+    reason:
+        Canonical short-circuit reason. ``None`` when ``passed=True``;
+        :data:`GATE_REASON_COOLDOWN_ACTIVE` (``"cooldown_active"``)
+        when ``passed=False``.
+    ticker:
+        Canonical UPPERCASE ticker the gate evaluated against.
+    last_entry_at:
+        The ``last_entry_at`` value from the row (verbatim DB string),
+        or ``None`` when no row exists for this ticker.
+    cooldown_hours:
+        The cooldown window applied (per-row override when present,
+        otherwise the env-default
+        :func:`config.get_per_ticker_cooldown_hours`).
+    remaining_seconds:
+        Number of seconds remaining until the cooldown lifts. ``0``
+        when the gate passed; positive when blocked. Computed as
+        ``max(0, cooldown_seconds - elapsed_seconds)`` against a
+        single ``datetime.now(UTC)`` snapshot.
+    """
+
+    passed: bool
+    reason: Optional[str]
+    ticker: str
+    last_entry_at: Optional[str]
+    cooldown_hours: int
+    remaining_seconds: int
+
+
+def cooldown_gate(
+    *,
+    ticker: str,
+    db_path: Union[str, Path],
+    now: Optional[_dt.datetime] = None,
+) -> CooldownGateResult:
+    """Evaluate the per-ticker 24h cooldown gate (cheap-first, pre-fanout).
+
+    The Stage-2 dispatcher invokes this gate FIRST in the cheap-first
+    chain (cooldown → armed → cap-projection → fan-out → unanimity →
+    probability → executor-gates). When a ``ticker_cooldown`` row
+    exists for the (canonicalised UPPERCASE) ticker AND
+    ``elapsed < cooldown_hours``, the gate rejects with
+    ``reason='cooldown_active'`` and the dispatcher short-circuits —
+    NO LLM call is dispatched, so ZERO new ``llm_cost_ledger`` rows
+    appear.
+
+    Parameters
+    ----------
+    ticker:
+        Candidate ticker (case-insensitive). The gate canonicalises
+        to UPPERCASE before any DB lookup so a row written with
+        ``nvax`` and a query with ``NVAX`` resolve to the same row.
+    db_path:
+        Path to the SQLite db (``alpha_sniper.db``). Required because
+        the gate is keyed off persistent state — there is no
+        in-memory fallback.
+    now:
+        Optional UTC ``datetime`` override. Tests pin a specific
+        clock so the boundary parametrisation is deterministic.
+        Production callers omit this kwarg; the gate captures
+        ``datetime.now(UTC)`` ONCE per call (VAL-M3-101 invariant:
+        single clock per evaluation, no two ``datetime.now()``
+        calls).
+
+    Returns
+    -------
+    CooldownGateResult
+        Always non-None. Never raises — DB errors short-circuit to
+        "allow" (a corrupted row never wedges Stage-2 entries).
+
+    Behaviour matrix
+    ----------------
+    +-------------------------------------+--------+----------------------+
+    | State                               | passed | reason               |
+    +=====================================+========+======================+
+    | No row for ticker                   | True   | None                 |
+    +-------------------------------------+--------+----------------------+
+    | Row, elapsed >= cooldown_seconds    | True   | None                 |
+    +-------------------------------------+--------+----------------------+
+    | Row, elapsed < cooldown_seconds     | False  | cooldown_active      |
+    +-------------------------------------+--------+----------------------+
+
+    The boundary is INCLUSIVE — ``elapsed == cooldown_seconds``
+    passes (VAL-M3-101: "allows at exactly cooldown_hours").
+    Per-row ``cooldown_hours`` beats the env default (VAL-M3-100).
+
+    Side effects
+    ------------
+    None. The gate is a pure SELECT — it never INSERTs or UPDATEs
+    ``ticker_cooldown``. The row is advanced ONLY via
+    :func:`record_cooldown_on_success` (called from the executor on
+    successful entry submission). Failed entries (probability /
+    unanimity / cap / armed / concurrency rejections) DO NOT advance
+    the row (VAL-M3-047).
+    """
+    canonical = _canonical_ticker(ticker)
+
+    # Single UTC clock snapshot per evaluation (VAL-M3-101).
+    if now is None:
+        now_utc = _dt.datetime.now(_dt.timezone.utc)
+    else:
+        now_utc = now if now.tzinfo is not None else now.replace(
+            tzinfo=_dt.timezone.utc
+        )
+
+    # Resolve the env default once. Per-row cooldown_hours (when
+    # present in the queried row) beats this; we only fall back when
+    # no row exists.
+    env_default_hours = config.get_per_ticker_cooldown_hours()
+
+    # --- DB lookup --------------------------------------------------
+    row: Optional[_sqlite3.Row] = None
+    try:
+        conn = _db.connect(Path(db_path))
+        try:
+            row = conn.execute(
+                """
+                SELECT ticker, last_entry_at, last_event_id, cooldown_hours
+                FROM ticker_cooldown
+                WHERE ticker = ?
+                """,
+                (canonical,),
+            ).fetchone()
+        finally:
+            conn.close()
+    except _sqlite3.Error as exc:
+        # Defensive: a missing/corrupt DB short-circuits to "allow"
+        # so Stage-2 entries are never wedged by an infrastructure
+        # error. The dispatcher's downstream gates will still
+        # short-circuit on legitimate failures.
+        logger.warning(
+            "stage2_cooldown_gate: db_error allowing entry "
+            "ticker=%s: %s",
+            canonical,
+            exc,
+        )
+        return CooldownGateResult(
+            passed=True,
+            reason=None,
+            ticker=canonical,
+            last_entry_at=None,
+            cooldown_hours=env_default_hours,
+            remaining_seconds=0,
+        )
+
+    if row is None:
+        logger.info(
+            "stage2_cooldown_gate: passed (no row) ticker=%s "
+            "cooldown_hours=%d",
+            canonical,
+            env_default_hours,
+        )
+        return CooldownGateResult(
+            passed=True,
+            reason=None,
+            ticker=canonical,
+            last_entry_at=None,
+            cooldown_hours=env_default_hours,
+            remaining_seconds=0,
+        )
+
+    last_entry_at_str = row["last_entry_at"]
+    # Per-row override beats env default (VAL-M3-100).
+    try:
+        cooldown_hours = int(row["cooldown_hours"])
+    except (TypeError, ValueError, IndexError, KeyError):
+        cooldown_hours = env_default_hours
+
+    last_entry_at = _parse_iso_utc(last_entry_at_str or "")
+    if last_entry_at is None:
+        # Unparseable timestamp — defensive allow (matches "no row"
+        # semantics rather than wedging the dispatcher).
+        logger.warning(
+            "stage2_cooldown_gate: unparseable last_entry_at=%r "
+            "ticker=%s — allowing entry",
+            last_entry_at_str,
+            canonical,
+        )
+        return CooldownGateResult(
+            passed=True,
+            reason=None,
+            ticker=canonical,
+            last_entry_at=last_entry_at_str,
+            cooldown_hours=cooldown_hours,
+            remaining_seconds=0,
+        )
+
+    elapsed_seconds = (now_utc - last_entry_at).total_seconds()
+    cooldown_seconds = cooldown_hours * 3600
+
+    # >= boundary semantics: elapsed >= cooldown → ALLOW (inclusive).
+    if elapsed_seconds >= cooldown_seconds:
+        logger.info(
+            "stage2_cooldown_gate: passed (expired) ticker=%s "
+            "elapsed=%.1fs cooldown=%dh",
+            canonical,
+            elapsed_seconds,
+            cooldown_hours,
+        )
+        return CooldownGateResult(
+            passed=True,
+            reason=None,
+            ticker=canonical,
+            last_entry_at=last_entry_at_str,
+            cooldown_hours=cooldown_hours,
+            remaining_seconds=0,
+        )
+
+    remaining = int(cooldown_seconds - elapsed_seconds)
+    if remaining < 0:
+        remaining = 0
+    logger.info(
+        "stage2_cooldown_gate: gate_failed %s ticker=%s "
+        "elapsed=%.1fs cooldown=%dh remaining_seconds=%d",
+        GATE_REASON_COOLDOWN_ACTIVE,
+        canonical,
+        elapsed_seconds,
+        cooldown_hours,
+        remaining,
+    )
+    return CooldownGateResult(
+        passed=False,
+        reason=GATE_REASON_COOLDOWN_ACTIVE,
+        ticker=canonical,
+        last_entry_at=last_entry_at_str,
+        cooldown_hours=cooldown_hours,
+        remaining_seconds=remaining,
+    )
+
+
+def record_cooldown_on_success(
+    *,
+    ticker: str,
+    db_path: Union[str, Path],
+    last_event_id: Optional[int] = None,
+    cooldown_hours: Optional[int] = None,
+    now: Optional[_dt.datetime] = None,
+) -> None:
+    """UPSERT a ``ticker_cooldown`` row on successful entry submission.
+
+    The cooldown row is advanced ONLY when a ``news_event_entry``
+    paper order is successfully accepted by the executor (VAL-M3-047).
+    Failed gate evaluations (probability, unanimity, cap, armed,
+    concurrency, executor) MUST NOT call this function — the gate
+    record advances the cooldown clock and would block the next
+    legitimate retry.
+
+    The function uses ``ON CONFLICT(ticker) DO UPDATE`` so 10
+    successive calls on the same ticker resolve to exactly ONE row
+    (VAL-M3-070). The PRIMARY KEY is the canonical UPPERCASE ticker,
+    so a write with ``nvax`` and a write with ``NVAX`` UPSERT to the
+    same row.
+
+    Parameters
+    ----------
+    ticker:
+        Ticker symbol (case-insensitive). Canonicalised to UPPERCASE
+        on write (VAL-M3-083).
+    db_path:
+        Path to the SQLite db.
+    last_event_id:
+        Optional FK to ``candidate_events.id`` of the candidate that
+        produced the entry. Persisted alongside ``last_entry_at`` so
+        operators can trace cooldown state back to the originating
+        candidate.
+    cooldown_hours:
+        Optional per-row override. When provided, the row's
+        ``cooldown_hours`` column is set to this value (per-row beats
+        env default, VAL-M3-100). When omitted, the row inherits the
+        column DEFAULT (24) on first insert, and on UPSERT preserves
+        whatever value already exists (no clobbering of a prior
+        operator-set per-row override).
+    now:
+        Optional UTC ``datetime`` override. Tests pin a specific
+        clock for deterministic timestamps. Production callers omit
+        this kwarg; the function captures ``datetime.now(UTC)`` ONCE.
+
+    Side effects
+    ------------
+    Single UPSERT into ``ticker_cooldown``. No reads, no other
+    writes. The function does NOT raise on common DB errors —
+    failures are logged at WARNING and swallowed so the executor's
+    happy path is not derailed by a cooldown bookkeeping miss
+    (the dispatcher's next-call cooldown gate still allows entry,
+    which is the safe-default behaviour).
+    """
+    canonical = _canonical_ticker(ticker)
+
+    if now is None:
+        now_utc = _dt.datetime.now(_dt.timezone.utc)
+    else:
+        now_utc = now if now.tzinfo is not None else now.replace(
+            tzinfo=_dt.timezone.utc
+        )
+    last_entry_at_iso = (
+        now_utc.strftime("%Y-%m-%dT%H:%M:%S.")
+        + f"{now_utc.microsecond // 1000:03d}Z"
+    )
+
+    try:
+        conn = _db.connect(Path(db_path))
+        try:
+            with conn:
+                if cooldown_hours is None:
+                    # Insert with default hours (24); on conflict, only
+                    # bump last_entry_at + last_event_id (preserves any
+                    # prior operator-set per-row cooldown_hours override).
+                    conn.execute(
+                        """
+                        INSERT INTO ticker_cooldown
+                            (ticker, last_entry_at, last_event_id)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT(ticker) DO UPDATE SET
+                            last_entry_at = excluded.last_entry_at,
+                            last_event_id = excluded.last_event_id
+                        """,
+                        (canonical, last_entry_at_iso, last_event_id),
+                    )
+                else:
+                    # Caller-supplied per-row override — write it on both
+                    # insert and update paths.
+                    conn.execute(
+                        """
+                        INSERT INTO ticker_cooldown
+                            (ticker, last_entry_at, last_event_id, cooldown_hours)
+                        VALUES (?, ?, ?, ?)
+                        ON CONFLICT(ticker) DO UPDATE SET
+                            last_entry_at = excluded.last_entry_at,
+                            last_event_id = excluded.last_event_id,
+                            cooldown_hours = excluded.cooldown_hours
+                        """,
+                        (
+                            canonical,
+                            last_entry_at_iso,
+                            last_event_id,
+                            int(cooldown_hours),
+                        ),
+                    )
+        finally:
+            conn.close()
+    except _sqlite3.Error as exc:
+        logger.warning(
+            "record_cooldown_on_success: failed to upsert "
+            "ticker=%s last_entry_at=%s: %s",
+            canonical,
+            last_entry_at_iso,
             exc,
         )

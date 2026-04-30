@@ -308,6 +308,84 @@ def get_llm_stage2_daily_usd_cap() -> float:
 LLM_STAGE2_DAILY_USD_CAP: Final[float] = _resolve_llm_stage2_daily_usd_cap()
 
 
+# ---------------------------------------------------------------------------
+# Stage-2 (Reading-B) per-ticker cooldown (M3 feature f-m3-08).
+# ---------------------------------------------------------------------------
+
+# ``DEFAULT_PER_TICKER_COOLDOWN_HOURS`` is the canonical default for
+# the Reading-B per-ticker cooldown gate. After a successful Stage-2
+# ``news_event_entry`` paper-order submission, the gate writes a
+# ``ticker_cooldown`` row keyed by UPPERCASE ticker. While
+# ``elapsed < cooldown_hours``, subsequent ``news_event_entry``
+# attempts on the same ticker are rejected at the cheap-first cooldown
+# gate WITHOUT dispatching any LLM call (zero ``llm_cost_ledger`` rows).
+# Default ``24`` hours per ``mission.md`` and ``AGENTS.md``
+# § "Reading-B specific risk gates (M3)".
+#
+# Operators can override the default for a deployment by setting the
+# ``PER_TICKER_COOLDOWN_HOURS`` environment variable (an integer in
+# hours); :func:`get_per_ticker_cooldown_hours` reads the environment
+# at call time so the override is hot-reloadable. Invalid /
+# unparseable values fall back to the default with a WARNING log so
+# operators can tell the override was rejected without crashing the
+# Stage-2 dispatcher.
+#
+# A per-row override (``ticker_cooldown.cooldown_hours``) beats this
+# env default — the gate uses the row's value when present, otherwise
+# the resolved env value. (VAL-M3-100.)
+DEFAULT_PER_TICKER_COOLDOWN_HOURS: Final[int] = 24
+
+
+def _resolve_per_ticker_cooldown_hours() -> int:
+    """Return the active cooldown hours, honouring ``PER_TICKER_COOLDOWN_HOURS``.
+
+    Returns :data:`DEFAULT_PER_TICKER_COOLDOWN_HOURS` (``24``) when the
+    env var is unset or unparseable. Surrounding whitespace is
+    stripped. Negative values are accepted as-is — a negative cooldown
+    is "always allow" semantics, an explicit operator decision (the
+    gate's ``elapsed >= cooldown_hours`` check is always true for
+    non-negative elapsed time when ``cooldown_hours <= 0``).
+    """
+    import logging
+
+    raw = os.environ.get("PER_TICKER_COOLDOWN_HOURS")
+    if raw is None:
+        return DEFAULT_PER_TICKER_COOLDOWN_HOURS
+    raw = raw.strip()
+    if not raw:
+        return DEFAULT_PER_TICKER_COOLDOWN_HOURS
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        logging.getLogger(__name__).warning(
+            "PER_TICKER_COOLDOWN_HOURS=%r is not a valid int; "
+            "falling back to default=%d",
+            raw,
+            DEFAULT_PER_TICKER_COOLDOWN_HOURS,
+        )
+        return DEFAULT_PER_TICKER_COOLDOWN_HOURS
+
+
+def get_per_ticker_cooldown_hours() -> int:
+    """Return the active per-ticker cooldown hours.
+
+    Reads ``PER_TICKER_COOLDOWN_HOURS`` from the environment at call
+    time; falls back to :data:`DEFAULT_PER_TICKER_COOLDOWN_HOURS`
+    when unset/unparseable. Callers (e.g.
+    :mod:`biotech_sniper.llm.stage2_gates`) MUST use this getter
+    rather than reading the env var directly so the
+    single-source-of-truth invariant is preserved.
+    """
+    return _resolve_per_ticker_cooldown_hours()
+
+
+#: Module-load-time snapshot of the cooldown hours. Exposed for the
+#: VAL-M3-044 contract-evidence command and for code paths that want
+#: a stable per-process value. Hot-reloadable callers should use
+#: :func:`get_per_ticker_cooldown_hours` instead.
+PER_TICKER_COOLDOWN_HOURS: Final[int] = _resolve_per_ticker_cooldown_hours()
+
+
 # ``STOP_LOSS_PCT`` is the negative percentage drawdown at which the
 # f-m3-09 stop-loss trigger fires. Default is ``-0.50`` (a 50% drop
 # from the entry mid). When ``current_mid / entry_mid - 1`` is less
@@ -617,6 +695,9 @@ __all__ = [
     "DEFAULT_LLM_STAGE2_DAILY_USD_CAP",
     "LLM_STAGE2_DAILY_USD_CAP",
     "get_llm_stage2_daily_usd_cap",
+    "DEFAULT_PER_TICKER_COOLDOWN_HOURS",
+    "PER_TICKER_COOLDOWN_HOURS",
+    "get_per_ticker_cooldown_hours",
     "ENSEMBLE_WEIGHTS",
     "MIN_ENSEMBLE_SCORE",
     "MIN_SCIENCE_GRADE",

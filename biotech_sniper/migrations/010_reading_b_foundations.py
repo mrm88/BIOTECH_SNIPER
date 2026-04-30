@@ -222,10 +222,9 @@ CREATE TABLE IF NOT EXISTS candidate_events (
 _DDL_TICKER_COOLDOWN: Final[str] = """
 CREATE TABLE IF NOT EXISTS ticker_cooldown (
     ticker             TEXT    NOT NULL PRIMARY KEY,
-    cooldown_until     TEXT    NOT NULL,
+    last_entry_at      TEXT    NOT NULL,
     last_event_id      INTEGER,
-    reason             TEXT,
-    created_at         TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    cooldown_hours     INTEGER NOT NULL DEFAULT 24,
     FOREIGN KEY (last_event_id) REFERENCES candidate_events(id)
 )
 """
@@ -352,8 +351,8 @@ _NEW_INDEX_DDL: Final[tuple[str, ...]] = (
     "CREATE INDEX IF NOT EXISTS idx_candidate_events_source_news_event_id "
     "ON candidate_events(source_news_event_id)",
     # ticker_cooldown
-    "CREATE INDEX IF NOT EXISTS idx_ticker_cooldown_until "
-    "ON ticker_cooldown(cooldown_until)",
+    "CREATE INDEX IF NOT EXISTS idx_ticker_cooldown_last_entry_at "
+    "ON ticker_cooldown(last_entry_at)",
     # ensemble_scores_event
     "CREATE INDEX IF NOT EXISTS idx_ensemble_scores_event_candidate "
     "ON ensemble_scores_event(candidate_event_id)",
