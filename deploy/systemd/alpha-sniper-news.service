@@ -3,6 +3,11 @@ Description=Alpha Sniper - Stage-1 news watcher daemon (Reading B)
 Documentation=https://github.com/mrm88/BIOTECH_SNIPER
 Wants=network-online.target
 After=network-online.target
+# Start-limit window/burst belong in [Unit] per systemd(5); placing them
+# under [Service] is silently dropped by systemd >= 230 (verified
+# 2026-04-30 against systemd 249 on the VPS).
+StartLimitBurst=5
+StartLimitIntervalSec=300s
 
 [Service]
 Type=simple
@@ -14,8 +19,6 @@ ExecStart=/root/alpha_sniper/repo/.venv/bin/python -m biotech_sniper.news_daemon
 # --- Restart policy (long-lived; not cron-fired) ---
 Restart=on-failure
 RestartSec=10s
-StartLimitBurst=5
-StartLimitIntervalSec=300s
 
 # --- Graceful shutdown ---
 KillSignal=SIGTERM
