@@ -38,6 +38,7 @@ from tests.test_heartbeat import (  # noqa: F401
     test_stale_predicate_fresh_returns_false,
     test_stale_predicate_handles_z_suffix,
     test_stale_predicate_malformed_json_is_stale,
+    test_stale_predicate_malformed_shape_is_stale,
     test_stale_predicate_missing_file_is_stale,
     test_stale_predicate_unparseable_timestamp_is_stale,
     test_write_accepts_mapping,

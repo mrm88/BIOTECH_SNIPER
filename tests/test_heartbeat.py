@@ -406,6 +406,39 @@ def test_stale_predicate_unparseable_timestamp_is_stale(
     assert is_news_daemon_stale(heartbeat_path) is True
 
 
+@pytest.mark.parametrize(
+    "raw_payload",
+    [
+        "[]",      # JSON-valid top-level list
+        "1",       # JSON-valid top-level int
+        "\"x\"",   # JSON-valid top-level string
+        "null",    # JSON-valid top-level null
+    ],
+    ids=["list", "int", "string", "null"],
+)
+def test_stale_predicate_malformed_shape_is_stale(
+    heartbeat_path: Path, raw_payload: str
+) -> None:
+    """JSON-valid-but-wrong-shape payloads are treated as stale.
+
+    The watchdog readiness predicate must NOT raise ``AttributeError``
+    when the heartbeat file contains a top-level non-object payload
+    (list, int, string, null). Such payloads parse cleanly with
+    :func:`json.loads` but lack the dataclass attributes AND the
+    ``Mapping.keys()`` surface, so an unguarded ``payload.keys()``
+    call would raise ``AttributeError`` — which
+    ``is_news_daemon_stale`` does NOT catch (it only catches
+    ``OSError`` / ``ValueError``). The fix is to make
+    ``_coerce_heartbeat`` raise ``ValueError`` for any
+    non-Mapping / non-Heartbeat payload so the existing catch
+    propagates correctly into ``stale=True``.
+    """
+
+    heartbeat_path.write_text(raw_payload, encoding="utf-8")
+    # Must NOT raise.
+    assert is_news_daemon_stale(heartbeat_path) is True
+
+
 def test_stale_predicate_handles_z_suffix(heartbeat_path: Path) -> None:
     """``Z`` suffix on the timestamp is parsed as UTC."""
 

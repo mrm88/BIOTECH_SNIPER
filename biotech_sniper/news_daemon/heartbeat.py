@@ -217,6 +217,19 @@ def _coerce_heartbeat(payload: Union["Heartbeat", Mapping[str, Any]]) -> Heartbe
             errors_session=int(getattr(payload, "errors_session")),
             version_sha=str(getattr(payload, "version_sha")),
         )
+    # JSON-valid-but-wrong-shape payloads (top-level list, int, str,
+    # None) parse cleanly via ``json.loads`` but lack both the
+    # dataclass attributes AND the ``Mapping.keys()`` surface. An
+    # unguarded ``payload.keys()`` call below would raise
+    # ``AttributeError`` — which ``is_news_daemon_stale`` does NOT
+    # catch (its narrow ``OSError``/``ValueError`` filter is the
+    # contract). Convert the shape error into ``ValueError`` so the
+    # existing catch propagates correctly into ``stale=True``.
+    if not isinstance(payload, Mapping):
+        raise ValueError(
+            "heartbeat payload must be a JSON object, got "
+            f"{type(payload).__name__}"
+        )
     missing = set(_REQUIRED_KEYS) - set(payload.keys())
     if missing:
         raise ValueError(
