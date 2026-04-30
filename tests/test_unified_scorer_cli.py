@@ -303,6 +303,8 @@ def test_cli_warns_on_missing_gemini_key(
     the remaining providers (xai-only or xai+anthropic).
     """
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
     # ANTHROPIC_API_KEY may or may not be set in the test env. Either
     # way, the assertion below only checks that gemini is NOT in
     # providers_used; it does not require anthropic to be present.
@@ -420,6 +422,8 @@ def test_cli_dry_run_warns_on_missing_gemini_key(
     ``providers_used`` (only ``xai`` remains).
     """
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
 
     db_path = _redirect_data_dir(monkeypatch, tmp_path / "data")
     _redirect_play_cards_root(monkeypatch, tmp_path)
