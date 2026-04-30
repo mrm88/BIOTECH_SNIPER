@@ -72,10 +72,11 @@ def test_required_env_vars_expected_set():
         "BIOTECH_SNIPER_HOME",
         "GEMINI_API_KEY",
         "LIVE_MODE",
+        "PERPLEXITY_API_KEY",
         "XAI_API_KEY",
     }
     assert set(REQUIRED_ENV_VARS) == expected
-    assert len(REQUIRED_ENV_VARS) == 8
+    assert len(REQUIRED_ENV_VARS) == 9
     # Tuple is alphabetically sorted (callers diff against `sort`).
     assert list(REQUIRED_ENV_VARS) == sorted(REQUIRED_ENV_VARS)
 

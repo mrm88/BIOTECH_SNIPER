@@ -106,6 +106,7 @@ __all__ = [
     "OUTPUT_USD_PER_TOKEN",
     "SEARCH_USD_PER_LOW_REQUEST",
     "TOKEN_SANITY_CAP",
+    "MAX_CITATION_URL_LENGTH",
     "compute_cost_usd",
     "score_candidate",
 ]
@@ -174,6 +175,16 @@ SEARCH_USD_PER_LOW_REQUEST: float = 5.0 / 1000.0
 #: the upstream bill is what it is, the cap is a tripwire to surface
 #: prompt-bloat / runaway responses for human review (VAL-M3-099).
 TOKEN_SANITY_CAP: int = 50_000
+
+#: Implementation-side cap on a single ``citations[i].url`` value
+#: (VAL-M3-096). When a citation URL exceeds this length we truncate
+#: it (and persist a ``_truncated=True`` marker on the citation
+#: object) instead of rejecting the entire response. The schema
+#: validator therefore rewrites the verdict in-place rather than
+#: raising :class:`PerplexitySchemaError` on length alone — the
+#: upstream remains responsible for short, well-formed URLs but a
+#: pathological 4 KB URL must NOT block a Stage-2 entry decision.
+MAX_CITATION_URL_LENGTH: int = 2048
 
 
 def compute_cost_usd(
@@ -396,6 +407,23 @@ def _validate_against_schema(payload: Any) -> dict[str, Any]:
             raise PerplexitySchemaError(
                 f"verdict 'citations[{idx}].url' must be a non-empty string"
             )
+        # VAL-M3-096: Pathologically long URLs are TRUNCATED rather than
+        # rejected. Persist a ``_truncated=True`` marker on the citation
+        # so downstream consumers (audit log / reading-B report) can
+        # surface the elision. The decision to keep the row prevents a
+        # single long-URL upstream bug from blocking a Stage-2 entry.
+        original_url_length = len(url)
+        if original_url_length > MAX_CITATION_URL_LENGTH:
+            logger.warning(
+                "perplexity_client: citation url at index %d exceeds %d chars "
+                "(len=%d); truncating with _truncated marker",
+                idx,
+                MAX_CITATION_URL_LENGTH,
+                original_url_length,
+            )
+            item["url"] = url[:MAX_CITATION_URL_LENGTH]
+            item["_truncated"] = True
+            item["_original_url_length"] = original_url_length
         title = item["title"]
         if not isinstance(title, str):
             raise PerplexitySchemaError(
@@ -597,7 +625,7 @@ class PerplexityClient:
         )
 
         content = self._extract_message_content(response_json)
-        return self._parse_and_validate_verdict(content)
+        return self._parse_and_validate_verdict(content, secret=self._api_key)
 
     # ------------------------------------------------------------------
     # HTTP layer
@@ -696,18 +724,19 @@ class PerplexityClient:
             if status == 401:
                 raise PerplexityAuthError(
                     f"Perplexity returned HTTP 401 (unauthorized). "
-                    f"Body: {_safe_body_snippet(resp)}"
+                    f"Body: {_safe_body_snippet(resp, secret=self._api_key)}"
                 )
             if status in (400, 422):
                 raise PerplexityBadRequestError(
                     f"Perplexity returned HTTP {status}. "
-                    f"Body: {_safe_body_snippet(resp)}"
+                    f"Body: {_safe_body_snippet(resp, secret=self._api_key)}"
                 )
 
             # Retryable classifications.
             if status == 429:
                 last_exc = PerplexityRateLimitError(
-                    f"Perplexity HTTP 429: {_safe_body_snippet(resp)}"
+                    f"Perplexity HTTP 429: "
+                    f"{_safe_body_snippet(resp, secret=self._api_key)}"
                 )
                 last_kind = "rate_limit"
                 # 429 does NOT count toward the breaker (VAL-M3-086).
@@ -727,7 +756,8 @@ class PerplexityClient:
                 continue
             if status is not None and 500 <= status < 600:
                 last_exc = PerplexityTransportError(
-                    f"Perplexity HTTP {status}: {_safe_body_snippet(resp)}"
+                    f"Perplexity HTTP {status}: "
+                    f"{_safe_body_snippet(resp, secret=self._api_key)}"
                 )
                 last_kind = "transport"
                 # 5xx counts toward the breaker (VAL-M3-063).
@@ -741,7 +771,8 @@ class PerplexityClient:
             # Any other non-2xx is non-retryable transport.
             if status is None or not (200 <= status < 300):
                 raise PerplexityTransportError(
-                    f"Perplexity HTTP {status}: {_safe_body_snippet(resp)}"
+                    f"Perplexity HTTP {status}: "
+                    f"{_safe_body_snippet(resp, secret=self._api_key)}"
                 )
 
             # Success path — parse JSON envelope.
@@ -752,8 +783,9 @@ class PerplexityClient:
                 # envelope level is treated as a schema error so
                 # callers can route the candidate to the next provider.
                 raise PerplexitySchemaError(
-                    f"Perplexity returned non-JSON 200: "
-                    f"{_safe_body_snippet(resp)}"
+                    f"Perplexity returned non-JSON 200 body "
+                    f"(message.content non-JSON body): "
+                    f"{_safe_body_snippet(resp, secret=self._api_key)}"
                 ) from exc
             # Record the success on the breaker. In CLOSED state this
             # contributes to the rolling window (anchoring the
@@ -846,20 +878,30 @@ class PerplexityClient:
         return content
 
     @staticmethod
-    def _parse_and_validate_verdict(content: str) -> dict[str, Any]:
+    def _parse_and_validate_verdict(
+        content: str,
+        *,
+        secret: Optional[str] = None,
+    ) -> dict[str, Any]:
         """Parse ``content`` as JSON and validate against
         :data:`BIOTECH_CATALYST_VERDICT_SCHEMA`.
 
         Wraps ``json.JSONDecodeError`` into :class:`PerplexitySchemaError`
         so callers see a single typed surface for "malformed body"
-        failures (per VAL-M3-011).
+        failures (per VAL-M3-011). The ``secret`` kwarg is the caller's
+        resolved API key — when supplied it is scrubbed from the
+        snippet of malformed content embedded in the exception message
+        (VAL-M3-072 / VAL-M3-073). The same regex pass that catches
+        ``pplx-...`` and ``Bearer ...`` tokens runs unconditionally.
         """
         try:
             data = json.loads(content)
         except json.JSONDecodeError as exc:
+            raw_snippet = content[:120]
+            safe_snippet = _redact_secrets(raw_snippet, extra=secret)
             raise PerplexitySchemaError(
-                f"Perplexity message.content was not valid JSON: "
-                f"{content[:120]!r}"
+                f"Perplexity message.content was a non-JSON body: "
+                f"{safe_snippet!r}"
             ) from exc
         return _validate_against_schema(data)
 
@@ -1086,16 +1128,74 @@ def _get_response_header(resp: Any, name: str) -> Any:
     return None
 
 
-def _safe_body_snippet(resp: Any, limit: int = 200) -> str:
+#: Regex used to scrub anything that looks like a Perplexity API key
+#: out of strings we are about to embed in an exception message
+#: (VAL-M3-072 / VAL-M3-073). The pattern is intentionally broad —
+#: any ``pplx-`` prefix followed by ≥ 8 url-safe characters is
+#: collapsed to ``***``. We also scrub bare ``Bearer <token>`` substrings
+#: so a header echoed in a response body never round-trips through
+#: ``str(exc)``.
+_SECRET_REDACT_PATTERNS: tuple[tuple[Any, str], ...] = ()
+
+
+def _build_secret_redact_patterns() -> tuple[tuple[Any, str], ...]:
+    """Lazily compile the secret-redaction patterns.
+
+    Done lazily so the import is free of regex compilation cost on
+    cold-start; the patterns are cached on the module after first use.
+    """
+    import re as _re
+
+    return (
+        (_re.compile(r"pplx-[A-Za-z0-9_\-]{8,}"), "***"),
+        (_re.compile(r"Bearer\s+[A-Za-z0-9_\-\.]{8,}"), "Bearer ***"),
+    )
+
+
+def _redact_secrets(text: str, *, extra: Optional[str] = None) -> str:
+    """Scrub API-key-shaped substrings out of ``text``.
+
+    Used at every site that builds a user-facing exception message
+    or log line so a 401 body that echoes back the key — or a stack
+    trace that carries the Authorization header verbatim — never
+    leaks the real value. ``extra`` is an optional sentinel value
+    (the caller's resolved API key) that is also scrubbed verbatim
+    even when it does not match :data:`_SECRET_REDACT_PATTERNS`.
+    """
+    global _SECRET_REDACT_PATTERNS  # noqa: PLW0603 - lazy-init cache
+    if not _SECRET_REDACT_PATTERNS:
+        _SECRET_REDACT_PATTERNS = _build_secret_redact_patterns()
+    out = text
+    if extra:
+        out = out.replace(extra, "***")
+    for pat, repl in _SECRET_REDACT_PATTERNS:
+        out = pat.sub(repl, out)
+    return out
+
+
+def _safe_body_snippet(
+    resp: Any,
+    limit: int = 200,
+    *,
+    secret: Optional[str] = None,
+) -> str:
     """Return a truncated, non-secret-leaking snippet of a response body.
 
     Some test doubles set ``resp.text`` to a string; the live
     :class:`requests.Response` exposes the same attr. We tolerate
     objects without ``text`` so a partial mock doesn't blow up.
+
+    Any substring that looks like a Perplexity API key (``pplx-...``) or
+    a bare ``Bearer <token>`` is collapsed to ``***`` before the
+    snippet is returned (VAL-M3-072 / VAL-M3-073). Callers that hold
+    a resolved API key may pass it via ``secret=`` so that exact value
+    is also scrubbed verbatim — the regex catches all reasonable shapes
+    but the explicit sentinel guarantees the contract assertion holds
+    even when the upstream echoes a non-standard substring.
     """
     text = getattr(resp, "text", None)
     if text is None:
         return "<no body>"
-    if len(text) <= limit:
-        return text
-    return text[:limit] + "...<truncated>"
+    if len(text) > limit:
+        text = text[:limit] + "...<truncated>"
+    return _redact_secrets(text, extra=secret)

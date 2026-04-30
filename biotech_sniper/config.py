@@ -734,6 +734,7 @@ REQUIRED_ENV_VARS: Final[tuple[str, ...]] = (
     "BIOTECH_SNIPER_HOME",
     "GEMINI_API_KEY",
     "LIVE_MODE",
+    "PERPLEXITY_API_KEY",
     "XAI_API_KEY",
 )
 
