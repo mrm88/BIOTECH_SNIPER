@@ -5,12 +5,33 @@ network-timeout (no partial-commit) path, and the user-agent +
 table-bootstrap invariants. The schema-drift assertions live in
 :mod:`tests.universe.test_iwm_importer_schema` per VAL-M1-055/056.
 
-The fixtures under ``tests/fixtures/iwm/`` act as VCR cassettes
-for the iShares CSV endpoint — every request is intercepted with
-``monkeypatch`` and answered from a local fixture file, so the
-test suite never touches the network. The cassette pattern
-mirrors the alpaca + perplexity test layout already in the repo
-(plain JSON / CSV files under ``tests/fixtures/cassettes/``).
+Cassette policy — byte-faithful CSV fixtures in lieu of vcrpy YAML
+-------------------------------------------------------------------
+The fixtures under ``tests/fixtures/cassettes/ishares/`` act as
+VCR cassettes for the iShares ``www.ishares.com`` CSV endpoint:
+every HTTP request is intercepted with ``monkeypatch`` and
+answered from a committed CSV file, so the test suite never
+touches the network. We deliberately use byte-faithful CSV
+fixtures here instead of a vcrpy YAML cassette because:
+
+* The endpoint is a plain-body GET with NO Authorization /
+  cookie / API-key header — there is nothing for vcrpy's
+  default redaction to protect, and no auth surface to record.
+* BOM-byte fidelity matters for the parser (see
+  ``iwm_with_bom.csv`` and the BOM-tolerance asserts).
+  vcrpy round-trips bodies through YAML which can
+  re-encode / re-quote bytes; a raw committed CSV preserves
+  the exact 0xEF 0xBB 0xBF prefix and CRLF/LF line endings.
+* Replay determinism is identical to vcrpy: same input bytes
+  on every run, zero network egress under ``pytest -n 2``.
+
+This is the documented exception in AGENTS.md "Tests" — for
+plain-body GET endpoints with no auth headers and where byte
+fidelity matters, byte-faithful committed fixtures are a
+vcrpy-equivalent cassette. The cassette helper is named
+``_install_csv_cassette`` to make the convention explicit.
+The vcrpy YAML pattern remains the default for any provider
+with auth headers (Perplexity, Alpaca, Claude, Gemini, xAI).
 """
 
 from __future__ import annotations
@@ -42,7 +63,7 @@ from biotech_sniper.universe.iwm_importer import (
 )
 
 
-FIXTURE_DIR = Path(__file__).parent.parent / "fixtures" / "iwm"
+FIXTURE_DIR = Path(__file__).parent.parent / "fixtures" / "cassettes" / "ishares"
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +83,7 @@ class _FakeResponse:
             raise requests.HTTPError(f"HTTP {self.status_code}")
 
 
-def _install_cassette(
+def _install_csv_cassette(
     monkeypatch: pytest.MonkeyPatch,
     *,
     fixture: str | None = None,
@@ -70,7 +91,11 @@ def _install_cassette(
     status_code: int = 200,
     raise_exc: Exception | None = None,
 ) -> dict[str, Any]:
-    """Patch ``requests.get`` to answer with a fixture body or an error.
+    """Patch ``requests.get`` to answer with a CSV cassette fixture or an error.
+
+    Acts as the byte-faithful CSV-cassette equivalent of vcrpy for
+    the iShares plain-body GET endpoint (no auth headers, BOM-byte
+    fidelity required). See module docstring for the full rationale.
 
     Returns a dict carrying the captured call args so individual
     tests can assert on User-Agent + URL + timeout values.
@@ -157,7 +182,7 @@ def test_parse_iwm_csv_tolerates_utf8_bom():
 def test_fetch_csv_bytes_sends_descriptive_user_agent(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    captured = _install_cassette(
+    captured = _install_csv_cassette(
         monkeypatch,
         fixture="iwm_happy.csv",
         status_code=200,
@@ -176,7 +201,7 @@ def test_fetch_csv_bytes_raises_upstream_unavailable_on_non_2xx(
     monkeypatch: pytest.MonkeyPatch, status_code: int
 ):
     """Akamai 403, iShares 404, and 5xx all map to UpstreamUnavailable."""
-    _install_cassette(monkeypatch, status_code=status_code, body=b"oops")
+    _install_csv_cassette(monkeypatch, status_code=status_code, body=b"oops")
     with pytest.raises(UpstreamUnavailable) as excinfo:
         fetch_csv_bytes(DEFAULT_IWM_HOLDINGS_URL, timeout=5.0)
     assert str(status_code) in str(excinfo.value)
@@ -186,7 +211,7 @@ def test_fetch_csv_bytes_wraps_request_exceptions_as_upstream_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ):
     """ConnectionError / Timeout / SSLError are all transient upstream errors."""
-    _install_cassette(monkeypatch, raise_exc=requests.ConnectionError("boom"))
+    _install_csv_cassette(monkeypatch, raise_exc=requests.ConnectionError("boom"))
     with pytest.raises(UpstreamUnavailable):
         fetch_csv_bytes(DEFAULT_IWM_HOLDINGS_URL, timeout=5.0)
 
@@ -194,7 +219,7 @@ def test_fetch_csv_bytes_wraps_request_exceptions_as_upstream_unavailable(
 def test_fetch_csv_bytes_wraps_timeout_as_upstream_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    _install_cassette(
+    _install_csv_cassette(
         monkeypatch, raise_exc=requests.Timeout("read timed out")
     )
     with pytest.raises(UpstreamUnavailable):
@@ -209,7 +234,7 @@ def test_fetch_csv_bytes_wraps_timeout_as_upstream_unavailable(
 def test_import_iwm_holdings_writes_snapshot_rows(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
-    _install_cassette(monkeypatch, fixture="iwm_happy.csv")
+    _install_csv_cassette(monkeypatch, fixture="iwm_happy.csv")
     db_path = tmp_path / "alpha_sniper.db"
 
     result = import_iwm_holdings(
@@ -240,7 +265,7 @@ def test_import_iwm_holdings_2k_rows_meets_validation_floor(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
     """≥1900 equity rows after a refresh, per VAL-M1-003 / feature spec."""
-    _install_cassette(monkeypatch, fixture="iwm_2k_rows.csv")
+    _install_csv_cassette(monkeypatch, fixture="iwm_2k_rows.csv")
     db_path = tmp_path / "alpha_sniper.db"
 
     result = import_iwm_holdings(db_path=db_path, max_age_hours=0)
@@ -264,7 +289,7 @@ def test_import_iwm_holdings_idempotent_on_same_day(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
     """Running twice on the same day upserts; row count stays constant."""
-    _install_cassette(monkeypatch, fixture="iwm_happy.csv")
+    _install_csv_cassette(monkeypatch, fixture="iwm_happy.csv")
     db_path = tmp_path / "alpha_sniper.db"
 
     import_iwm_holdings(db_path=db_path, max_age_hours=0)
@@ -297,7 +322,7 @@ def test_import_iwm_holdings_last_good_fallback_on_non_2xx(
     db_path = tmp_path / "alpha_sniper.db"
 
     # First, seed a healthy snapshot from the cassette.
-    _install_cassette(monkeypatch, fixture="iwm_happy.csv")
+    _install_csv_cassette(monkeypatch, fixture="iwm_happy.csv")
     import_iwm_holdings(db_path=db_path, max_age_hours=0)
     conn = sqlite3.connect(db_path)
     pre_count = conn.execute(
@@ -310,7 +335,7 @@ def test_import_iwm_holdings_last_good_fallback_on_non_2xx(
     assert pre_count == 5
 
     # Now simulate iShares returning the failure status code.
-    _install_cassette(monkeypatch, status_code=status_code, body=b"failure")
+    _install_csv_cassette(monkeypatch, status_code=status_code, body=b"failure")
     with pytest.raises(UpstreamUnavailable):
         import_iwm_holdings(db_path=db_path, max_age_hours=0)
 
@@ -331,7 +356,7 @@ def test_import_iwm_holdings_no_partial_commit_on_timeout(
 ):
     """A network timeout writes ZERO rows to a fresh DB."""
     db_path = tmp_path / "alpha_sniper.db"
-    _install_cassette(
+    _install_csv_cassette(
         monkeypatch, raise_exc=requests.Timeout("read timed out")
     )
     with pytest.raises(UpstreamUnavailable):
@@ -374,7 +399,7 @@ def test_main_refresh_writes_rows_and_exits_zero(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
     """`python -m biotech_sniper.universe.iwm_importer --refresh` exit 0."""
-    _install_cassette(monkeypatch, fixture="iwm_happy.csv")
+    _install_csv_cassette(monkeypatch, fixture="iwm_happy.csv")
     db_path = tmp_path / "alpha_sniper.db"
 
     rc = main(["--refresh", "--db", str(db_path)])
@@ -396,7 +421,7 @@ def test_main_dry_run_with_emit_stats_emits_well_formed_json(
     capsys: pytest.CaptureFixture,
 ):
     """`--dry-run --emit-stats` prints JSON with equity_rows + null counters."""
-    _install_cassette(monkeypatch, fixture="iwm_happy.csv")
+    _install_csv_cassette(monkeypatch, fixture="iwm_happy.csv")
     db_path = tmp_path / "alpha_sniper.db"
 
     rc = main(
@@ -434,7 +459,7 @@ def test_main_returns_upstream_unavailable_exit_code_on_403(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
     """Akamai 403 maps to documented exit code 2."""
-    _install_cassette(monkeypatch, status_code=403, body=b"forbidden")
+    _install_csv_cassette(monkeypatch, status_code=403, body=b"forbidden")
     db_path = tmp_path / "alpha_sniper.db"
     rc = main(["--refresh", "--db", str(db_path)])
     assert rc == EXIT_UPSTREAM_UNAVAILABLE
@@ -443,7 +468,7 @@ def test_main_returns_upstream_unavailable_exit_code_on_403(
 def test_main_returns_upstream_unavailable_exit_code_on_404(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
-    _install_cassette(monkeypatch, status_code=404, body=b"not found")
+    _install_csv_cassette(monkeypatch, status_code=404, body=b"not found")
     db_path = tmp_path / "alpha_sniper.db"
     rc = main(["--refresh", "--db", str(db_path)])
     assert rc == EXIT_UPSTREAM_UNAVAILABLE
@@ -452,7 +477,7 @@ def test_main_returns_upstream_unavailable_exit_code_on_404(
 def test_main_returns_upstream_unavailable_exit_code_on_5xx(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
-    _install_cassette(monkeypatch, status_code=503, body=b"unavailable")
+    _install_csv_cassette(monkeypatch, status_code=503, body=b"unavailable")
     db_path = tmp_path / "alpha_sniper.db"
     rc = main(["--refresh", "--db", str(db_path)])
     assert rc == EXIT_UPSTREAM_UNAVAILABLE
@@ -495,7 +520,7 @@ def test_cache_short_circuits_within_refresh_window(
 ):
     """A second invocation within RUSSELL_BIOTECH_REFRESH_HOURS skips fetch."""
     db_path = tmp_path / "alpha_sniper.db"
-    captured = _install_cassette(monkeypatch, fixture="iwm_happy.csv")
+    captured = _install_csv_cassette(monkeypatch, fixture="iwm_happy.csv")
 
     # First run — fetches and persists.
     import_iwm_holdings(db_path=db_path, max_age_hours=0)
@@ -513,7 +538,7 @@ def test_cache_disabled_when_max_age_hours_zero(
 ):
     """RUSSELL_BIOTECH_REFRESH_HOURS=0 forces re-fetch every run."""
     db_path = tmp_path / "alpha_sniper.db"
-    captured = _install_cassette(monkeypatch, fixture="iwm_happy.csv")
+    captured = _install_csv_cassette(monkeypatch, fixture="iwm_happy.csv")
 
     import_iwm_holdings(db_path=db_path, max_age_hours=0)
     import_iwm_holdings(db_path=db_path, max_age_hours=0)

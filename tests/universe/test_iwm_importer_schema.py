@@ -13,7 +13,10 @@ Two contract assertions land here:
   parses ≥ 1 equity row, and never includes any preamble string
   (``Fund Holdings as of``, ``Inception Date``, etc.) as a ticker.
 
-Fixtures live under ``tests/fixtures/iwm/``:
+Fixtures live under ``tests/fixtures/cassettes/ishares/`` (byte-faithful
+CSV cassettes for the iShares plain-body GET endpoint — see
+:mod:`tests.universe.test_iwm_importer` module docstring for the
+vcrpy-equivalent rationale):
 
 * ``iwm_missing_asset_class.csv`` — header with ``Asset Class`` removed.
 * ``iwm_renamed_ticker.csv`` — header with ``Ticker`` renamed to ``Symbol``.
@@ -35,7 +38,7 @@ from biotech_sniper.universe.iwm_importer import (
 )
 
 
-FIXTURE_DIR = Path(__file__).parent.parent / "fixtures" / "iwm"
+FIXTURE_DIR = Path(__file__).parent.parent / "fixtures" / "cassettes" / "ishares"
 
 
 # ---------------------------------------------------------------------------

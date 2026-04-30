@@ -1,11 +1,13 @@
-# IWM importer test fixtures
+# iShares IWM cassette fixtures
 
 Synthetic iShares IWM holdings CSV bytes used by
 `tests/universe/test_iwm_importer.py` and
 `tests/universe/test_iwm_importer_schema.py`.
 
-These fixtures act as VCR cassettes for the iShares
-`www.ishares.com` CSV endpoint:
+These fixtures act as **byte-faithful CSV cassettes** for the
+iShares `www.ishares.com` CSV endpoint — a vcrpy-equivalent for
+plain-body GET endpoints with no auth headers (see the test
+module docstring and AGENTS.md "Tests" section for the policy):
 
 * `iwm_happy.csv` — 9-row preamble + canonical header + 5 equity
   rows + 2 non-equity (Cash) rows. Used by the happy-path test.
