@@ -34,7 +34,17 @@ Behavioural contract
   see :meth:`SECSICClassifier.resolve_ticker_sic`. A 404 from
   EDGAR (delisted CIK / never-issued CIK) writes a tombstone
   row with ``sic IS NULL`` so a subsequent lookup also hits
-  the cache and returns :data:`None`.
+  the cache and returns :data:`None`. A ticker that is absent
+  from the SEC's CIK→ticker map writes a tombstone row with
+  BOTH ``cik IS NULL`` AND ``sic IS NULL`` (per VAL-M1-062),
+  so a second resolution for the same unmapped ticker is also
+  short-circuited.
+* **Cache TTL.** Cached rows (resolved AND tombstone) carry
+  a ``fetched_at`` ISO-8601 timestamp; on lookup, any row
+  older than :data:`DEFAULT_CACHE_TTL_SECONDS` (24 h) is
+  treated as a cache miss and re-fetched. The classifier
+  accepts a ``cache_ttl_seconds`` constructor parameter so
+  callers (and tests) can tune the window.
 * **Retry policy.** ``429`` and ``5xx`` responses, plus any
   transient :class:`requests.RequestException`, are retried
   with exponential backoff (``0.5s × 2.0 ± 20 % jitter``)
@@ -53,6 +63,7 @@ here.
 
 from __future__ import annotations
 
+import calendar
 import json
 import logging
 import random
@@ -62,7 +73,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, Mapping
+from typing import Callable, Final, Mapping
 
 import requests
 
@@ -76,6 +87,7 @@ __all__ = [
     "DEFAULT_BACKOFF_BASE_SECONDS",
     "DEFAULT_BACKOFF_FACTOR",
     "DEFAULT_BACKOFF_JITTER",
+    "DEFAULT_CACHE_TTL_SECONDS",
     "MAX_RETRY_ATTEMPTS",
     "BIOTECH_SIC_CODES",
     "CIK_TICKERS_URL",
@@ -146,6 +158,14 @@ DEFAULT_BACKOFF_JITTER: Final[float] = 0.2
 #: :class:`SECTransientError` rather than poisoning the cache.
 MAX_RETRY_ATTEMPTS: Final[int] = 3
 
+#: Default cache time-to-live (seconds). A cached row whose
+#: ``fetched_at`` is older than this window is treated as a
+#: miss and re-fetched. 24 hours mirrors the project's daily
+#: cron cadence so a stale tombstone gets one chance per day
+#: to be re-validated against EDGAR. Set to ``0`` (or any
+#: non-positive value) to disable the TTL gate entirely.
+DEFAULT_CACHE_TTL_SECONDS: Final[int] = 24 * 60 * 60
+
 #: SIC codes considered "biotech" for Reading-B's
 #: ``russell2k_biotech`` writer. Excludes med-device 3841/3845
 #: and diagnostics 2835 by design — see ``mission.md``.
@@ -185,9 +205,17 @@ class SECSchemaError(SECClassifierError):
 # ---------------------------------------------------------------------------
 
 
+# Note: ``cik`` is the PRIMARY KEY but is intentionally NULLABLE
+# (no ``NOT NULL`` qualifier) so the no-CIK tombstone path
+# (per VAL-M1-062) can write a row with ``cik IS NULL`` for a
+# ticker absent from the SEC's CIK→ticker map. SQLite permits
+# multiple NULL values in a non-INTEGER PRIMARY KEY column —
+# uniqueness for tombstones is enforced via the UNIQUE index
+# on ``ticker`` below. ``sic`` is also nullable (per
+# VAL-M1-014) for the 404 / no-CIK tombstone paths.
 _CIK_SIC_CACHE_DDL: Final[str] = """
 CREATE TABLE IF NOT EXISTS cik_sic_cache (
-    cik               TEXT    NOT NULL PRIMARY KEY,
+    cik               TEXT    PRIMARY KEY,
     ticker            TEXT    NOT NULL,
     sic               INTEGER,
     sic_description   TEXT,
@@ -232,6 +260,33 @@ def _detect_legacy_cik_sic_cache(conn: sqlite3.Connection) -> bool:
     return ticker_is_pk and not cik_is_pk
 
 
+def _detect_cik_not_null_cik_sic_cache(conn: sqlite3.Connection) -> bool:
+    """Return ``True`` when ``cik_sic_cache.cik`` is declared ``NOT NULL``.
+
+    The interim cik-PK schema produced by :pull-request:`f-m1-02b`
+    declared ``cik TEXT NOT NULL PRIMARY KEY``. The fix in
+    :pull-request:`f-fix-m1-02-sec-no-cik-tombstone` (per
+    VAL-M1-062) writes a no-CIK tombstone row with ``cik IS
+    NULL``, which the ``NOT NULL`` qualifier rejects. This
+    helper lets :func:`ensure_cik_sic_cache_table` detect the
+    interim shape and migrate it forward to the corrected
+    ``cik TEXT PRIMARY KEY`` (nullable) shape.
+    """
+    table = conn.execute(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='table' AND name='cik_sic_cache'"
+    ).fetchone()
+    if table is None:
+        return False
+    cols = conn.execute("PRAGMA table_info(cik_sic_cache)").fetchall()
+    # PRAGMA table_info column[3] is ``notnull`` (1 if the column
+    # has the NOT NULL qualifier, 0 otherwise).
+    cik_row = next((c for c in cols if c[1] == "cik"), None)
+    if cik_row is None:
+        return False
+    return bool(cik_row[3])
+
+
 def _migrate_legacy_cik_sic_cache(conn: sqlite3.Connection) -> None:
     """Forward-only migration: legacy ticker-PK shape → cik-PK shape.
 
@@ -272,6 +327,45 @@ def _migrate_legacy_cik_sic_cache(conn: sqlite3.Connection) -> None:
         raise
 
 
+def _migrate_cik_not_null_cik_sic_cache(conn: sqlite3.Connection) -> None:
+    """Forward-only migration: drop ``NOT NULL`` from ``cik`` column.
+
+    SQLite has no ALTER COLUMN, so we recreate the table inside
+    a single transaction. Rows are copied verbatim — the only
+    schema delta is that ``cik`` becomes nullable, which is a
+    relaxation of a constraint and so cannot fail on existing
+    rows (every existing ``cik`` value remains valid). On
+    failure the transaction rolls back and the interim table
+    is preserved.
+    """
+    nested = conn.in_transaction
+    if not nested:
+        conn.execute("BEGIN")
+    try:
+        conn.execute(
+            "ALTER TABLE cik_sic_cache RENAME TO cik_sic_cache_nn_legacy"
+        )
+        conn.execute(_CIK_SIC_CACHE_DDL)
+        conn.execute(
+            "INSERT INTO cik_sic_cache "
+            "(cik, ticker, sic, sic_description, fetched_at) "
+            "SELECT cik, ticker, sic, sic_description, fetched_at "
+            "FROM cik_sic_cache_nn_legacy"
+        )
+        conn.execute("DROP TABLE cik_sic_cache_nn_legacy")
+        for stmt in _CIK_SIC_CACHE_INDEXES:
+            conn.execute(stmt)
+        if not nested:
+            conn.execute("COMMIT")
+    except Exception:
+        if not nested:
+            try:
+                conn.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
+        raise
+
+
 def ensure_cik_sic_cache_table(conn: sqlite3.Connection) -> None:
     """Idempotently create the ``cik_sic_cache`` table.
 
@@ -291,6 +385,12 @@ def ensure_cik_sic_cache_table(conn: sqlite3.Connection) -> None:
     """
     if _detect_legacy_cik_sic_cache(conn):
         _migrate_legacy_cik_sic_cache(conn)
+        return
+    if _detect_cik_not_null_cik_sic_cache(conn):
+        # Interim shape (``cik TEXT NOT NULL PRIMARY KEY``) — drop
+        # the NOT NULL so the no-CIK tombstone path can write
+        # ``cik IS NULL``. See VAL-M1-062.
+        _migrate_cik_not_null_cik_sic_cache(conn)
         return
     conn.execute(_CIK_SIC_CACHE_DDL)
     for stmt in _CIK_SIC_CACHE_INDEXES:
@@ -401,6 +501,12 @@ class SECSICClassifier:
         Exponential-backoff knobs for the 429 / 5xx retry path.
     max_retry_attempts:
         Hard cap on the number of attempts per request.
+    cache_ttl_seconds:
+        Cache time-to-live (seconds). A row whose ``fetched_at``
+        is older than this window is treated as a cache miss
+        and re-fetched. Defaults to
+        :data:`DEFAULT_CACHE_TTL_SECONDS` (24 h). Set to ``0``
+        (or any non-positive value) to disable the TTL gate.
     session:
         Optional :class:`requests.Session` (used by tests for
         cassette interception).
@@ -410,6 +516,11 @@ class SECSICClassifier:
     monotonic:
         Optional callable matching :func:`time.monotonic` (used
         by tests to drive the throttle deterministically).
+    now_iso:
+        Optional zero-arg callable that returns an ISO-8601
+        UTC timestamp string (``%Y-%m-%dT%H:%M:%SZ``). Defaults
+        to the module-level :func:`_now_iso`. Used by tests to
+        drive the TTL gate deterministically.
     """
 
     def __init__(
@@ -423,9 +534,11 @@ class SECSICClassifier:
         backoff_factor: float = DEFAULT_BACKOFF_FACTOR,
         backoff_jitter: float = DEFAULT_BACKOFF_JITTER,
         max_retry_attempts: int = MAX_RETRY_ATTEMPTS,
+        cache_ttl_seconds: int = DEFAULT_CACHE_TTL_SECONDS,
         session: requests.Session | None = None,
-        sleep: "callable[[float], None] | None" = None,
-        monotonic: "callable[[], float] | None" = None,
+        sleep: "Callable[[float], None] | None" = None,
+        monotonic: "Callable[[], float] | None" = None,
+        now_iso: "Callable[[], str] | None" = None,
     ) -> None:
         self._db_path = (
             Path(db_path) if db_path is not None else default_db_path()
@@ -437,9 +550,11 @@ class SECSICClassifier:
         self._backoff_factor = float(backoff_factor)
         self._backoff_jitter = float(backoff_jitter)
         self._max_retry_attempts = int(max_retry_attempts)
+        self._cache_ttl_seconds = int(cache_ttl_seconds)
         self._session = session
         self._sleep = sleep or time.sleep
         self._monotonic = monotonic or time.monotonic
+        self._now_iso_fn: Callable[[], str] = now_iso or _now_iso
 
         self._lock = threading.Lock()
         self._last_request_monotonic: float | None = None
@@ -482,8 +597,17 @@ class SECSICClassifier:
           process (HTTP #1), then the per-CIK submissions
           endpoint is fetched (HTTP #2). Both fetches obey the
           ≤ 8 req/s throttle and the 429 / 5xx retry policy.
-        * 404 path: a tombstone row (``sic IS NULL``) is written
-          to the cache so subsequent lookups also hit the cache.
+        * 404 path: a tombstone row (``cik = <padded>``, ``sic
+          IS NULL``) is written to the cache so subsequent
+          lookups also hit the cache.
+        * No-CIK path: a tombstone row (``cik IS NULL``, ``sic
+          IS NULL``) is written to the cache for tickers absent
+          from the SEC's CIK→ticker map (per VAL-M1-062), so
+          subsequent lookups for the same unmapped ticker also
+          short-circuit on the cache.
+        * TTL: cached rows older than ``cache_ttl_seconds``
+          (24 h by default) are treated as misses and
+          re-fetched.
         """
         norm = (ticker or "").strip().upper()
         if not norm:
@@ -505,11 +629,24 @@ class SECSICClassifier:
         if cik_raw is None:
             # Ticker not present in the SEC's CIK→ticker map —
             # almost certainly an OTC / preferred / private
-            # security. We do NOT tombstone here because we have
-            # no CIK to anchor the row on; the caller can re-try
-            # tomorrow when the SEC refreshes the map.
+            # security. Write a no-CIK tombstone (cik IS NULL,
+            # sic IS NULL) so subsequent lookups for the same
+            # unmapped ticker short-circuit on the cache (per
+            # VAL-M1-062). The TTL gate (24 h by default) gives
+            # the row exactly one re-validation chance per
+            # cron-day in case the SEC subsequently registers
+            # the ticker.
+            now = self._now_iso_fn()
+            self._cache_upsert(
+                ticker=norm,
+                cik=None,
+                sic=None,
+                sic_description=None,
+                fetched_at=now,
+            )
             logger.info(
-                "sec_sic.no_cik ticker=%s reason=not_in_cik_ticker_map",
+                "sec_sic.no_cik ticker=%s reason=not_in_cik_ticker_map "
+                "tombstone_written=true",
                 norm,
             )
             return None
@@ -521,7 +658,7 @@ class SECSICClassifier:
         except _NotFound:
             # Delisted / never-issued CIK — write a tombstone so
             # we don't re-issue the request next cron tick.
-            now = _now_iso()
+            now = self._now_iso_fn()
             self._cache_upsert(
                 ticker=norm,
                 cik=cik,
@@ -538,7 +675,7 @@ class SECSICClassifier:
 
         sic, sic_description = self._parse_submission(submission, cik=cik)
 
-        now = _now_iso()
+        now = self._now_iso_fn()
         self._cache_upsert(
             ticker=norm,
             cik=cik,
@@ -788,6 +925,12 @@ class SECSICClassifier:
             conn.close()
         if row is None:
             return None
+        # TTL gate — a stale row (resolved or tombstone) is
+        # treated as a miss so the caller re-fetches against
+        # SEC. The TTL is disabled when ``cache_ttl_seconds``
+        # is non-positive.
+        if self._is_cache_row_stale(row["fetched_at"]):
+            return None
         # ``sqlite3.Row`` supports both name and index access.
         return SICResolution(
             ticker=row["ticker"],
@@ -798,32 +941,64 @@ class SECSICClassifier:
             cached=True,
         )
 
+    def _is_cache_row_stale(self, fetched_at: str) -> bool:
+        """Return ``True`` when ``fetched_at`` is older than the TTL.
+
+        The classifier's own ``now_iso`` callable is the
+        clock-of-record so tests can drive the TTL gate
+        deterministically.
+        """
+        ttl = self._cache_ttl_seconds
+        if ttl <= 0:
+            return False
+        try:
+            fetched_epoch = calendar.timegm(
+                time.strptime(fetched_at, "%Y-%m-%dT%H:%M:%SZ")
+            )
+            now_epoch = calendar.timegm(
+                time.strptime(self._now_iso_fn(), "%Y-%m-%dT%H:%M:%SZ")
+            )
+        except (ValueError, TypeError):
+            # An unparseable timestamp is conservative: treat as
+            # not-stale to avoid spamming SEC with re-fetches.
+            return False
+        return (now_epoch - fetched_epoch) > ttl
+
     def _cache_upsert(
         self,
         *,
         ticker: str,
-        cik: str,
+        cik: str | None,
         sic: int | None,
         sic_description: str | None,
         fetched_at: str,
     ) -> None:
+        """Upsert one cache row.
+
+        ``cik`` may be :data:`None` for the no-CIK tombstone
+        path (per VAL-M1-062). Because two NULL ``cik`` values
+        do NOT collide on the PRIMARY KEY, but the ``ticker``
+        UNIQUE index DOES collide, we use ``INSERT OR REPLACE``
+        so any prior row with the same ticker (whether it had
+        a real CIK or a NULL tombstone) is replaced.
+        """
         conn = self._connect()
         try:
             conn.execute("BEGIN")
             try:
-                # ``cik`` is the PRIMARY KEY (per VAL-M1-012);
-                # the ON CONFLICT target is ``cik`` so re-fetching
-                # the same CIK refreshes the cached SIC fields
-                # (and the ticker, if SEC ever re-maps a CIK).
+                # ``INSERT OR REPLACE`` honours BOTH the cik PK
+                # and the ticker UNIQUE index — the new row
+                # replaces any conflicting row on either key.
+                # This handles three transitions cleanly:
+                # 1. New ticker → fresh insert.
+                # 2. Same cik (resolved → re-resolved) → replace.
+                # 3. Same ticker, cik NULL→cik (tombstone gets
+                #    upgraded once SEC registers the ticker) →
+                #    replace via ticker UNIQUE.
                 conn.execute(
-                    "INSERT INTO cik_sic_cache "
+                    "INSERT OR REPLACE INTO cik_sic_cache "
                     "(cik, ticker, sic, sic_description, fetched_at) "
-                    "VALUES (?, ?, ?, ?, ?) "
-                    "ON CONFLICT(cik) DO UPDATE SET "
-                    "ticker=excluded.ticker, "
-                    "sic=excluded.sic, "
-                    "sic_description=excluded.sic_description, "
-                    "fetched_at=excluded.fetched_at",
+                    "VALUES (?, ?, ?, ?, ?)",
                     (cik, ticker, sic, sic_description, fetched_at),
                 )
                 conn.execute("COMMIT")

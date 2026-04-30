@@ -160,7 +160,7 @@ CREATE TABLE IF NOT EXISTS iwm_holdings_snapshot (
 
 _DDL_CIK_SIC_CACHE: Final[str] = """
 CREATE TABLE IF NOT EXISTS cik_sic_cache (
-    cik               TEXT    NOT NULL PRIMARY KEY,
+    cik               TEXT    PRIMARY KEY,
     ticker            TEXT    NOT NULL,
     sic               INTEGER,
     sic_description   TEXT,

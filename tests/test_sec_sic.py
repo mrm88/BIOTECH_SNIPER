@@ -214,10 +214,13 @@ def test_ensure_cik_sic_cache_table_creates_expected_schema(db_path: Path):
         }
         # Per VAL-M1-012: cik is the PRIMARY KEY (10-digit
         # zero-padded TEXT); ticker is NOT NULL with a UNIQUE
-        # index. sic INTEGER is nullable to permit 404 tombstones
-        # (per VAL-M1-014).
+        # index. sic INTEGER is nullable to permit 404
+        # tombstones (per VAL-M1-014). cik is ALSO nullable —
+        # the no-CIK tombstone path (per VAL-M1-062) writes
+        # rows with cik IS NULL for tickers absent from the
+        # SEC's CIK→ticker map.
         assert "cik" in cols
-        assert cols["cik"][3] == 1  # NOT NULL
+        assert cols["cik"][3] == 0  # nullable (no NOT NULL qualifier)
         assert cols["cik"][5] == 1  # PK rank == 1
         assert cols["cik"][2].upper() == "TEXT"
         assert "ticker" in cols
@@ -642,10 +645,17 @@ def test_404_tombstone_short_circuits_subsequent_lookup(
     assert classifier.http_call_count == pre
 
 
-def test_ticker_absent_from_map_returns_none(
+def test_ticker_absent_from_map_writes_no_cik_tombstone(
     monkeypatch: pytest.MonkeyPatch, classifier: SECSICClassifier, db_path: Path
 ):
-    """No matching CIK → returns ``None`` without writing the cache."""
+    """No matching CIK → returns ``None`` AND writes a tombstone with cik=NULL.
+
+    Per VAL-M1-062: a ticker absent from the SEC's CIK→ticker
+    map MUST produce a tombstone row (cik IS NULL AND sic IS
+    NULL) so that subsequent lookups for the same unmapped
+    ticker short-circuit on the cache instead of re-hitting
+    SEC.
+    """
     cassette = _Cassette()
     cassette.queue("company_tickers_exchange", _ticker_map_response())
     _install(monkeypatch, cassette)
@@ -653,20 +663,202 @@ def test_ticker_absent_from_map_returns_none(
     result = classifier.resolve_ticker_sic("NONEXISTENT")
     assert result is None
 
-    # The fixture map has 7 rows; "NONEXISTENT" is not one of them.
-    # We do NOT tombstone — only one HTTP call for the map.
+    # Only one HTTP call (the ticker map fetch) — no submissions
+    # call because we never resolved a CIK for this ticker.
     assert classifier.http_call_count == 1
 
     conn = sqlite3.connect(db_path)
     try:
-        # Cache table exists (boostrapped by the lookup) but
-        # no row was written for the unknown ticker.
+        # The tombstone row exists with cik IS NULL AND sic IS
+        # NULL (per VAL-M1-062).
         rows = conn.execute(
-            "SELECT COUNT(*) FROM cik_sic_cache WHERE ticker='NONEXISTENT'"
+            "SELECT cik, sic, sic_description, fetched_at "
+            "FROM cik_sic_cache WHERE ticker='NONEXISTENT'"
+        ).fetchall()
+    finally:
+        conn.close()
+    assert len(rows) == 1
+    cik, sic, sic_description, fetched_at = rows[0]
+    assert cik is None
+    assert sic is None
+    assert sic_description is None
+    assert isinstance(fetched_at, str) and fetched_at  # ISO 8601 timestamp
+
+
+def test_ticker_absent_from_map_short_circuits_subsequent_lookup(
+    monkeypatch: pytest.MonkeyPatch, classifier: SECSICClassifier
+):
+    """Second lookup of the same unmapped ticker hits the tombstone (no HTTP).
+
+    Per VAL-M1-062: the no-CIK tombstone must short-circuit
+    subsequent lookups so the SEC isn't re-hit for tickers we
+    already know are absent from the map.
+    """
+    cassette = _Cassette()
+    cassette.queue("company_tickers_exchange", _ticker_map_response())
+    _install(monkeypatch, cassette)
+
+    first = classifier.resolve_ticker_sic("NONEXISTENT")
+    assert first is None
+    pre = classifier.http_call_count
+    pre_calls = len(cassette.calls)
+
+    second = classifier.resolve_ticker_sic("NONEXISTENT")
+    assert second is None
+    # No new HTTP traffic — the tombstone short-circuited.
+    assert classifier.http_call_count == pre
+    assert len(cassette.calls) == pre_calls
+
+
+def test_ticker_absent_from_map_short_circuits_across_classifier_instances(
+    monkeypatch: pytest.MonkeyPatch, db_path: Path, fake_sleep
+):
+    """A fresh classifier instance also honours the no-CIK tombstone."""
+    cassette = _Cassette()
+    cassette.queue("company_tickers_exchange", _ticker_map_response())
+    _install(monkeypatch, cassette)
+
+    first = SECSICClassifier(db_path=db_path, sleep=fake_sleep)
+    first.resolve_ticker_sic("NONEXISTENT")
+    pre_calls = len(cassette.calls)
+
+    second = SECSICClassifier(db_path=db_path, sleep=fake_sleep)
+    result = second.resolve_ticker_sic("NONEXISTENT")
+    assert result is None
+    # The tombstone row was loaded from the shared db; the
+    # fresh classifier did NOT need to fetch the map.
+    assert second.http_call_count == 0
+    assert len(cassette.calls) == pre_calls
+
+
+def test_no_cik_tombstone_refreshes_after_ttl_expiry(
+    monkeypatch: pytest.MonkeyPatch, db_path: Path, fake_sleep
+):
+    """After TTL expires, the classifier re-fetches and updates the tombstone.
+
+    Drives :data:`now_iso` deterministically so the cache row's
+    ``fetched_at`` is older than ``cache_ttl_seconds`` on the
+    second resolution. The second resolution must:
+
+    1. Treat the cached tombstone as a miss (TTL expired).
+    2. Re-fetch the CIK→ticker map (HTTP #1).
+    3. Re-write the tombstone with the newer ``fetched_at``.
+    """
+    timeline = ["2026-04-01T00:00:00Z"]
+
+    def fake_now_iso() -> str:
+        return timeline[-1]
+
+    classifier = SECSICClassifier(
+        db_path=db_path,
+        sleep=fake_sleep,
+        cache_ttl_seconds=60,  # 1-minute TTL keeps the test fast.
+        now_iso=fake_now_iso,
+    )
+
+    cassette = _Cassette()
+    # Two map fetches expected — one per resolution because the
+    # second resolution misses on TTL and the in-memory map
+    # cache is reset between instances. To reset the in-memory
+    # map we re-instantiate the classifier below.
+    cassette.queue(
+        "company_tickers_exchange",
+        _ticker_map_response(),
+        _ticker_map_response(),
+    )
+    _install(monkeypatch, cassette)
+
+    # First resolution → tombstone written with fetched_at=T1.
+    first = classifier.resolve_ticker_sic("NONEXISTENT")
+    assert first is None
+    pre_calls = classifier.http_call_count
+    assert pre_calls == 1
+
+    conn = sqlite3.connect(db_path)
+    try:
+        row1 = conn.execute(
+            "SELECT cik, sic, fetched_at FROM cik_sic_cache "
+            "WHERE ticker='NONEXISTENT'"
         ).fetchone()
     finally:
         conn.close()
-    assert rows[0] == 0
+    assert row1 is not None
+    cik1, sic1, fetched_at_1 = row1
+    assert cik1 is None and sic1 is None
+    assert fetched_at_1 == "2026-04-01T00:00:00Z"
+
+    # Advance the clock past the TTL (60s window; bump to +120s).
+    timeline.append("2026-04-01T00:02:00Z")
+
+    # A fresh classifier instance ensures the in-memory ticker
+    # map cache is clear, so the TTL-driven re-resolution
+    # observably issues a new HTTP request.
+    second_classifier = SECSICClassifier(
+        db_path=db_path,
+        sleep=fake_sleep,
+        cache_ttl_seconds=60,
+        now_iso=fake_now_iso,
+    )
+    second = second_classifier.resolve_ticker_sic("NONEXISTENT")
+    assert second is None
+    # One new HTTP call (the map re-fetch).
+    assert second_classifier.http_call_count == 1
+
+    conn = sqlite3.connect(db_path)
+    try:
+        row2 = conn.execute(
+            "SELECT cik, sic, fetched_at FROM cik_sic_cache "
+            "WHERE ticker='NONEXISTENT'"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row2 is not None
+    cik2, sic2, fetched_at_2 = row2
+    assert cik2 is None and sic2 is None
+    # The tombstone was refreshed — fetched_at is the new T2.
+    assert fetched_at_2 == "2026-04-01T00:02:00Z"
+    assert fetched_at_2 != fetched_at_1
+
+
+def test_no_cik_tombstone_within_ttl_does_not_refetch(
+    monkeypatch: pytest.MonkeyPatch, db_path: Path, fake_sleep
+):
+    """Within the TTL window the no-CIK tombstone is honoured (no HTTP)."""
+    timeline = ["2026-04-01T00:00:00Z"]
+
+    def fake_now_iso() -> str:
+        return timeline[-1]
+
+    classifier = SECSICClassifier(
+        db_path=db_path,
+        sleep=fake_sleep,
+        cache_ttl_seconds=86400,
+        now_iso=fake_now_iso,
+    )
+
+    cassette = _Cassette()
+    cassette.queue("company_tickers_exchange", _ticker_map_response())
+    _install(monkeypatch, cassette)
+
+    first = classifier.resolve_ticker_sic("NONEXISTENT")
+    assert first is None
+    pre_count = classifier.http_call_count
+
+    # Advance the clock by 30 minutes — well inside the 24 h TTL.
+    timeline.append("2026-04-01T00:30:00Z")
+
+    second_classifier = SECSICClassifier(
+        db_path=db_path,
+        sleep=fake_sleep,
+        cache_ttl_seconds=86400,
+        now_iso=fake_now_iso,
+    )
+    second = second_classifier.resolve_ticker_sic("NONEXISTENT")
+    assert second is None
+    # Tombstone honoured — no fresh HTTP from the second instance.
+    assert second_classifier.http_call_count == 0
+    # And the original classifier's count is also unchanged.
+    assert classifier.http_call_count == pre_count
 
 
 # ---------------------------------------------------------------------------
