@@ -194,11 +194,15 @@ def adapter_db(
     # which falls back to ``DATA_DIR / 'alpha_sniper.db'`` when the
     # caller does not pass ``db_path``.  Patch the module-level
     # function in ``adapters`` so ``polled_universe()`` returns the
-    # expected tickers without touching the project-root DB.
+    # expected tickers without touching the project-root DB.  The
+    # stub accepts the ``db_path`` kwarg threaded through by
+    # f-fix-m2-10-adapters-scope-and-db-path so adapter functions
+    # can call ``resolve_polled_tickers(db_path=db_path)`` without
+    # tripping ``TypeError``.
     monkeypatch.setattr(
         adapters,
         "resolve_polled_tickers",
-        lambda: {"VRTX", "BIIB", "REGN"},
+        lambda *_args, **_kwargs: {"VRTX", "BIIB", "REGN"},
         raising=True,
     )
     return v10_db
@@ -696,3 +700,408 @@ class TestNoLlmLeakageIntoAdapters:
             "stdout=" + result.stdout + " stderr=" + result.stderr
         )
         assert "OK" in result.stdout, result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Test 6 — f-fix-m2-10-adapters-scope-and-db-path
+#
+# (A) Empty ``polled_universe`` short-circuits in the three previously
+#     broken adapters (sec_8k_monitor / ir_events_watcher /
+#     intraday_news_rss) — the underlying watcher run-function is
+#     NEVER called and the adapter returns 0.
+# (B) When ``polled_universe`` returns a single ticker, an out-of-scope
+#     fixture row for a different ticker is filtered out → 0 events
+#     persisted.
+# (C) Two distinct SQLite databases — one with ``russell2k_biotech``
+#     populated, one empty — calling each adapter with ``db_path``
+#     bound to the EMPTY db must reflect the empty universe (zero
+#     rows persisted) regardless of any other (populated) db on disk.
+# ---------------------------------------------------------------------------
+
+
+class TestAdaptersScopeShortCircuitAndDbPath:
+    """Scope-first short-circuit + db_path threading invariants."""
+
+    # -- (A) Empty universe short-circuits without invoking the watcher. ----
+
+    def test_sec_8k_adapter_short_circuits_when_universe_empty(
+        self,
+        adapter_db: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from unittest.mock import MagicMock
+
+        import biotech_sniper.intelligence.sec_8k_monitor as sec
+
+        run_mock = MagicMock(return_value={"signals": []})
+        monkeypatch.setattr(sec, "run_8k_monitor", run_mock, raising=True)
+        monkeypatch.setattr(
+            adapters,
+            "polled_universe",
+            lambda *_a, **_k: [],
+            raising=True,
+        )
+
+        rc = sec_8k_monitor_adapter(db_path=adapter_db)
+
+        assert rc == 0
+        run_mock.assert_not_called()
+
+    def test_ir_events_adapter_short_circuits_when_universe_empty(
+        self,
+        adapter_db: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from unittest.mock import MagicMock
+
+        import biotech_sniper.intelligence.ir_events_watcher as irw
+
+        run_mock = MagicMock(return_value={"signals": []})
+        monkeypatch.setattr(
+            irw, "run_ir_events_check", run_mock, raising=True
+        )
+        monkeypatch.setattr(
+            adapters,
+            "polled_universe",
+            lambda *_a, **_k: [],
+            raising=True,
+        )
+
+        rc = ir_events_watcher_adapter(db_path=adapter_db)
+
+        assert rc == 0
+        run_mock.assert_not_called()
+
+    def test_intraday_rss_adapter_short_circuits_when_universe_empty(
+        self,
+        adapter_db: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from unittest.mock import MagicMock
+
+        import biotech_sniper.intraday_scanner as intra
+
+        scan_mock = MagicMock(return_value=[])
+        monkeypatch.setattr(intra, "scan_news_rss", scan_mock, raising=True)
+        monkeypatch.setattr(
+            adapters,
+            "polled_universe",
+            lambda *_a, **_k: [],
+            raising=True,
+        )
+
+        rc = intraday_news_rss_adapter(db_path=adapter_db)
+
+        assert rc == 0
+        scan_mock.assert_not_called()
+
+    def test_universal_adapter_short_circuits_when_universe_empty(
+        self,
+        adapter_db: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Sanity probe — universal adapter already short-circuited."""
+
+        from unittest.mock import MagicMock
+
+        import biotech_sniper.intelligence.universal_news_watcher as uw
+
+        run_mock = MagicMock(
+            return_value={"new_8ks": [], "news_hits": []}
+        )
+        monkeypatch.setattr(
+            uw, "run_hourly_news_scan", run_mock, raising=True
+        )
+        monkeypatch.setattr(
+            adapters,
+            "polled_universe",
+            lambda *_a, **_k: [],
+            raising=True,
+        )
+
+        rc = universal_news_watcher_adapter(db_path=adapter_db)
+
+        assert rc == 0
+        run_mock.assert_not_called()
+
+    # -- (B) Out-of-scope fixture event filtered out by universe set. ----
+
+    def test_sec_8k_adapter_filters_out_of_scope_ticker(
+        self,
+        adapter_db: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """polled_universe=['ABC'], fixture ticker='XYZ' → 0 persisted."""
+
+        report = {
+            "signals": [
+                {
+                    "ticker": "XYZ",
+                    "type": "8-K filing",
+                    "detail": "Out-of-scope filing",
+                    "filing_url": "https://example.test/xyz-8k",
+                    "published": "2026-04-30T10:00:00Z",
+                }
+            ]
+        }
+        import biotech_sniper.intelligence.sec_8k_monitor as sec
+
+        monkeypatch.setattr(
+            sec, "run_8k_monitor", lambda mode="intraday": report,
+            raising=True,
+        )
+        monkeypatch.setattr(
+            adapters,
+            "polled_universe",
+            lambda *_a, **_k: ["ABC"],
+            raising=True,
+        )
+
+        from biotech_sniper.news_events import SOURCE_SEC_8K
+
+        before = _row_count(adapter_db, SOURCE_SEC_8K)
+        rc = sec_8k_monitor_adapter(db_path=adapter_db)
+        after = _row_count(adapter_db, SOURCE_SEC_8K)
+
+        assert rc == 0
+        assert after == before  # zero rows persisted (XYZ not in {ABC})
+
+    def test_ir_events_adapter_filters_out_of_scope_ticker(
+        self,
+        adapter_db: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        report = {
+            "signals": [
+                {
+                    "ticker": "XYZ",
+                    "type": "ir_signal",
+                    "detail": "Out-of-scope IR page hit",
+                    "ir_url": "https://example.test/xyz-ir",
+                    "detected_date": "2026-04-30",
+                }
+            ]
+        }
+        import biotech_sniper.intelligence.ir_events_watcher as irw
+
+        monkeypatch.setattr(
+            irw, "run_ir_events_check", lambda: report, raising=True,
+        )
+        monkeypatch.setattr(
+            adapters,
+            "polled_universe",
+            lambda *_a, **_k: ["ABC"],
+            raising=True,
+        )
+
+        from biotech_sniper.news_events import SOURCE_IR_EVENTS
+
+        before = _row_count(adapter_db, SOURCE_IR_EVENTS)
+        rc = ir_events_watcher_adapter(db_path=adapter_db)
+        after = _row_count(adapter_db, SOURCE_IR_EVENTS)
+
+        assert rc == 0
+        assert after == before
+
+    def test_intraday_rss_adapter_filters_out_of_scope_ticker(
+        self,
+        adapter_db: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        alerts = [
+            {
+                "ticker": "XYZ",
+                "title": "Out-of-scope news headline",
+                "url": "https://example.test/xyz-news",
+                "published_at": "2026-04-30T10:00:00Z",
+            }
+        ]
+        import biotech_sniper.intraday_scanner as intra
+
+        monkeypatch.setattr(
+            intra, "scan_news_rss", lambda _seen: list(alerts),
+            raising=True,
+        )
+        monkeypatch.setattr(
+            adapters,
+            "polled_universe",
+            lambda *_a, **_k: ["ABC"],
+            raising=True,
+        )
+
+        from biotech_sniper.news_events import SOURCE_INTRADAY_RSS
+
+        before = _row_count(adapter_db, SOURCE_INTRADAY_RSS)
+        rc = intraday_news_rss_adapter(db_path=adapter_db)
+        after = _row_count(adapter_db, SOURCE_INTRADAY_RSS)
+
+        assert rc == 0
+        assert after == before
+
+    # -- (C) db_path bound to empty russell DB → zero events persisted. --
+
+    def test_db_path_threaded_through_polled_universe_two_dbs(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Two databases: populated vs empty russell2k_biotech.
+
+        Each of the four adapters, when bound to the EMPTY db, must
+        reflect the empty universe (zero events persisted) — even
+        though a fully-populated db lives next to it on disk.  This
+        proves ``db_path`` is threaded all the way to
+        :func:`resolve_polled_tickers` (and not silently ignored,
+        defaulting to the production DATA_DIR path).
+        """
+
+        populated_dir = tmp_path / "populated"
+        empty_dir = tmp_path / "empty"
+        populated_dir.mkdir()
+        empty_dir.mkdir()
+        populated_db = _build_v10_db(populated_dir)
+        empty_db = _build_v10_db(empty_dir)
+
+        # Seed only the populated DB.
+        _seed_universe(populated_db, ["ABC", "DEF"])
+
+        # No monkeypatching of ``resolve_polled_tickers`` /
+        # ``polled_universe`` — exercise the REAL scope resolver
+        # against the empty db_path and assert it returns an empty
+        # set.
+        from biotech_sniper.news_daemon.scope import resolve_polled_tickers
+
+        assert resolve_polled_tickers(populated_db) == {"ABC", "DEF"}
+        assert resolve_polled_tickers(empty_db) == set()
+
+        # Also assert via the wrapper the way the adapters call it.
+        assert adapters.polled_universe(db_path=populated_db) == [
+            "ABC",
+            "DEF",
+        ]
+        assert adapters.polled_universe(db_path=empty_db) == []
+
+        # Stub each watcher with a payload for tickers that ARE in
+        # the populated db.  When invoked with db_path=empty_db, the
+        # short-circuit must fire BEFORE the watcher is called.
+        from unittest.mock import MagicMock
+
+        import biotech_sniper.intelligence.ir_events_watcher as irw
+        import biotech_sniper.intelligence.sec_8k_monitor as sec
+        import biotech_sniper.intelligence.universal_news_watcher as uw
+        import biotech_sniper.intraday_scanner as intra
+
+        u_mock = MagicMock(return_value={
+            "new_8ks": [],
+            "news_hits": [
+                {
+                    "ticker": "ABC",
+                    "headline": "headline-abc",
+                    "url": "https://example.test/abc",
+                    "published": "2026-04-30T10:00:00Z",
+                }
+            ],
+        })
+        s_mock = MagicMock(return_value={
+            "signals": [{
+                "ticker": "ABC",
+                "type": "8-K",
+                "detail": "8-K signal",
+                "filing_url": "https://example.test/abc-8k",
+                "published": "2026-04-30T10:01:00Z",
+            }],
+        })
+        i_mock = MagicMock(return_value={
+            "signals": [{
+                "ticker": "ABC",
+                "type": "ir_signal",
+                "detail": "IR page event",
+                "ir_url": "https://example.test/abc-ir",
+                "detected_date": "2026-04-30",
+            }],
+        })
+        x_mock = MagicMock(return_value=[
+            {
+                "ticker": "ABC",
+                "title": "intraday-abc",
+                "url": "https://example.test/abc-rss",
+                "published_at": "2026-04-30T10:02:00Z",
+            }
+        ])
+
+        monkeypatch.setattr(
+            uw, "run_hourly_news_scan", u_mock, raising=True
+        )
+        monkeypatch.setattr(sec, "run_8k_monitor", s_mock, raising=True)
+        monkeypatch.setattr(
+            irw, "run_ir_events_check", i_mock, raising=True
+        )
+        monkeypatch.setattr(intra, "scan_news_rss", x_mock, raising=True)
+
+        from biotech_sniper.news_events import (
+            SOURCE_INTRADAY_RSS,
+            SOURCE_IR_EVENTS,
+            SOURCE_SEC_8K,
+            SOURCE_UNIVERSAL,
+        )
+
+        # Each adapter bound to the EMPTY db: zero rows persisted +
+        # underlying watcher MUST NOT be invoked.
+        assert universal_news_watcher_adapter(db_path=empty_db) == 0
+        assert sec_8k_monitor_adapter(db_path=empty_db) == 0
+        assert ir_events_watcher_adapter(db_path=empty_db) == 0
+        assert intraday_news_rss_adapter(db_path=empty_db) == 0
+
+        u_mock.assert_not_called()
+        s_mock.assert_not_called()
+        i_mock.assert_not_called()
+        x_mock.assert_not_called()
+
+        assert _row_count(empty_db, SOURCE_UNIVERSAL) == 0
+        assert _row_count(empty_db, SOURCE_SEC_8K) == 0
+        assert _row_count(empty_db, SOURCE_IR_EVENTS) == 0
+        assert _row_count(empty_db, SOURCE_INTRADAY_RSS) == 0
+
+        # Adapters bound to the empty db never wrote into the
+        # populated db.
+        assert _row_count(populated_db, SOURCE_UNIVERSAL) == 0
+        assert _row_count(populated_db, SOURCE_SEC_8K) == 0
+        assert _row_count(populated_db, SOURCE_IR_EVENTS) == 0
+        assert _row_count(populated_db, SOURCE_INTRADAY_RSS) == 0
+
+    def test_build_default_rss_fetchers_threads_db_path_to_scope(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """``build_default_rss_fetchers(db_path=X)`` closures use X for scope."""
+
+        empty_dir = tmp_path / "empty"
+        empty_dir.mkdir()
+        empty_db = _build_v10_db(empty_dir)
+
+        from unittest.mock import MagicMock
+
+        import biotech_sniper.intelligence.ir_events_watcher as irw
+        import biotech_sniper.intelligence.sec_8k_monitor as sec
+        import biotech_sniper.intelligence.universal_news_watcher as uw
+        import biotech_sniper.intraday_scanner as intra
+
+        u = MagicMock(side_effect=AssertionError("must not be called"))
+        s = MagicMock(side_effect=AssertionError("must not be called"))
+        i = MagicMock(side_effect=AssertionError("must not be called"))
+        x = MagicMock(side_effect=AssertionError("must not be called"))
+
+        monkeypatch.setattr(uw, "run_hourly_news_scan", u, raising=True)
+        monkeypatch.setattr(sec, "run_8k_monitor", s, raising=True)
+        monkeypatch.setattr(irw, "run_ir_events_check", i, raising=True)
+        monkeypatch.setattr(intra, "scan_news_rss", x, raising=True)
+
+        fetchers = build_default_rss_fetchers(db_path=empty_db)
+        for fetcher in fetchers:
+            assert fetcher() == 0
+
+        u.assert_not_called()
+        s.assert_not_called()
+        i.assert_not_called()
+        x.assert_not_called()

@@ -151,16 +151,32 @@ def persist_events(
     return int(counts.get("inserted", 0))
 
 
-def polled_universe() -> List[str]:
+def polled_universe(db_path: _PathLike = None) -> List[str]:
     """Resolve the Stage-1 polled-ticker set as a sorted list.
 
     Thin wrapper around :func:`resolve_polled_tickers` returning a
     deterministic order so the watcher modules see the same input
     on every invocation (some of them iterate the list to build
     cache keys / feed URLs and stable ordering helps debugging).
+
+    Parameters
+    ----------
+    db_path:
+        Optional filesystem path to the SQLite database whose
+        ``russell2k_biotech ∩ universe`` intersection defines the
+        polled-ticker set.  Forwarded verbatim to
+        :func:`resolve_polled_tickers`.  When ``None`` the underlying
+        function falls back to the production
+        :data:`biotech_sniper.paths.DATA_DIR` /
+        :file:`alpha_sniper.db` location.  Threading this argument
+        through the adapter functions ensures all four adapters
+        resolve scope from the SAME SQLite db they write to (so
+        ``build_default_rss_fetchers(db_path=X)`` produces a fully
+        self-consistent fetcher list — scope source AND write target
+        both bound to ``X``).
     """
 
-    return sorted(resolve_polled_tickers())
+    return sorted(resolve_polled_tickers(db_path))
 
 
 def _normalise_filing(
@@ -262,7 +278,7 @@ def universal_news_watcher_adapter(
         run_hourly_news_scan,
     )
 
-    tickers = polled_universe()
+    tickers = polled_universe(db_path=db_path)
     if not tickers:
         return 0
 
@@ -312,10 +328,20 @@ def sec_8k_monitor_adapter(
 
     from biotech_sniper.intelligence.sec_8k_monitor import run_8k_monitor
 
+    # Scope-first: VAL-M2-013 / VAL-M2-014 require that an empty
+    # ``russell2k_biotech`` intersection produce ZERO source HTTP
+    # traffic and ZERO candidate emissions — so we resolve the
+    # polled-ticker set BEFORE invoking the watcher.  Treating an
+    # empty universe as "no filter" (the previous shape) allowed
+    # out-of-scope rows through whenever the M1 universe seed was
+    # missing.
+    tickers = polled_universe(db_path=db_path)
+    if not tickers:
+        return 0
+
     report = run_8k_monitor(mode=mode) or {}
 
-    tickers = polled_universe()
-    universe = {t.upper() for t in tickers} if tickers else None
+    universe = {t.upper() for t in tickers}
 
     events: List[NewsEvent] = []
     for signal in report.get("signals", []) or []:
@@ -324,7 +350,7 @@ def sec_8k_monitor_adapter(
         ticker = signal.get("ticker")
         if not ticker:
             continue
-        if universe is not None and str(ticker).upper() not in universe:
+        if str(ticker).upper() not in universe:
             continue
         events.append(
             NewsEvent(
@@ -381,10 +407,16 @@ def ir_events_watcher_adapter(
         run_ir_events_check,
     )
 
+    # Scope-first: see ``sec_8k_monitor_adapter`` for the
+    # VAL-M2-013 / VAL-M2-014 rationale.  Empty russell2k_biotech →
+    # zero IR-page probes, zero events persisted.
+    tickers = polled_universe(db_path=db_path)
+    if not tickers:
+        return 0
+
     report = run_ir_events_check() or {}
 
-    tickers = polled_universe()
-    universe = {t.upper() for t in tickers} if tickers else None
+    universe = {t.upper() for t in tickers}
 
     events: List[NewsEvent] = []
     for signal in report.get("signals", []) or []:
@@ -393,7 +425,7 @@ def ir_events_watcher_adapter(
         ticker = signal.get("ticker")
         if not ticker:
             continue
-        if universe is not None and str(ticker).upper() not in universe:
+        if str(ticker).upper() not in universe:
             continue
         events.append(
             NewsEvent(
@@ -444,10 +476,16 @@ def intraday_news_rss_adapter(
 
     from biotech_sniper.intraday_scanner import scan_news_rss
 
+    # Scope-first: see ``sec_8k_monitor_adapter`` for the
+    # VAL-M2-013 / VAL-M2-014 rationale.  Empty russell2k_biotech →
+    # zero RSS HTTP traffic, zero events persisted.
+    tickers = polled_universe(db_path=db_path)
+    if not tickers:
+        return 0
+
     alerts = scan_news_rss(set()) or []
 
-    tickers = polled_universe()
-    universe = {t.upper() for t in tickers} if tickers else None
+    universe = {t.upper() for t in tickers}
 
     events: List[NewsEvent] = []
     for alert in alerts:
@@ -456,7 +494,7 @@ def intraday_news_rss_adapter(
         ticker = alert.get("ticker")
         if not ticker:
             continue
-        if universe is not None and str(ticker).upper() not in universe:
+        if str(ticker).upper() not in universe:
             continue
         events.append(
             NewsEvent(
