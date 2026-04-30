@@ -24,16 +24,26 @@ from __future__ import annotations
 from biotech_sniper.news_daemon.emit import *  # noqa: F401,F403
 from biotech_sniper.news_daemon.emit import (  # noqa: F401  (explicit re-export for IDEs)
     FIELD_SEPARATOR,
+    INSERT_SQL,
     CandidateEvent,
     compute_dedup_key,
+    get_last_emitted_news_event_id,
+    iter_pending_news_events,
+    make_candidate,
+    run_one_poll_cycle,
     write_candidate,
     write_candidates,
 )
 
 __all__ = [
     "FIELD_SEPARATOR",
+    "INSERT_SQL",
     "CandidateEvent",
     "compute_dedup_key",
+    "get_last_emitted_news_event_id",
+    "iter_pending_news_events",
+    "make_candidate",
+    "run_one_poll_cycle",
     "write_candidate",
     "write_candidates",
 ]
