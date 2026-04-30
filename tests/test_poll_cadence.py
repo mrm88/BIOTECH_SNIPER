@@ -76,24 +76,75 @@ def test_constants_match_locked_spec() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_unset_env_returns_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    """VAL-M2-008: unset → 30."""
+def test_explicit_none_returns_default_silently(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``resolve_poll_seconds(None)`` is treated as "unset" — NO warning.
+
+    VAL-M2-008 pins this branch as silent: explicit unset / ``None``
+    must NOT emit a journal line, so operators can rely on the
+    absence of a WARNING to confirm no override is in play.
+    """
+
+    with caplog.at_level(logging.WARNING, logger=_LOGGER_NAME):
+        assert resolve_poll_seconds(None) == DEFAULT_POLL_SECONDS
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+
+
+def test_unset_env_returns_default_silently(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """VAL-M2-008: env var unset → 30 with NO WARNING."""
 
     monkeypatch.delenv("NEWS_POLL_SECONDS", raising=False)
-    assert resolve_poll_seconds() == DEFAULT_POLL_SECONDS
+    with caplog.at_level(logging.WARNING, logger=_LOGGER_NAME):
+        assert resolve_poll_seconds() == DEFAULT_POLL_SECONDS
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
 
 
-def test_explicit_none_returns_default() -> None:
-    """``resolve_poll_seconds(None)`` is treated as "unset"."""
+@pytest.mark.parametrize(
+    "raw,expected_reason",
+    [
+        ("", "empty_string"),
+        ("   ", "whitespace_only"),
+        ("\t", "whitespace_only"),
+        ("\n", "whitespace_only"),
+        (" \t\n ", "whitespace_only"),
+    ],
+)
+def test_empty_or_whitespace_string_warns_and_falls_back(
+    raw: str,
+    expected_reason: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """VAL-M2-010 ``"" → 30``: empty/whitespace string emits WARNING.
 
-    assert resolve_poll_seconds(None) == DEFAULT_POLL_SECONDS
+    The contract pins ``"" → 30`` as a *fallback with WARNING* path
+    (distinct from the silent ``None`` / unset branch in
+    VAL-M2-008).  We assert exactly one WARNING record is emitted
+    with ``event=news_poll_seconds_fallback``, the offending raw
+    value preserved verbatim, ``fallback_to=DEFAULT_POLL_SECONDS``,
+    and ``reason`` distinguishing pure-empty from whitespace-only.
+    """
 
+    with caplog.at_level(logging.WARNING, logger=_LOGGER_NAME):
+        assert resolve_poll_seconds(raw) == DEFAULT_POLL_SECONDS
 
-def test_empty_string_returns_default() -> None:
-    """Whitespace-only override is treated as "unset" (no warning)."""
-
-    assert resolve_poll_seconds("") == DEFAULT_POLL_SECONDS
-    assert resolve_poll_seconds("   ") == DEFAULT_POLL_SECONDS
+    warns = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING
+        and getattr(r, "event", None) == "news_poll_seconds_fallback"
+    ]
+    assert len(warns) == 1, (
+        f"expected exactly one fallback WARNING for raw={raw!r}, got "
+        f"{len(warns)}: {[r.getMessage() for r in warns]}"
+    )
+    rec = warns[0]
+    assert getattr(rec, "raw_value") == raw
+    assert getattr(rec, "fallback_to") == DEFAULT_POLL_SECONDS
+    assert getattr(rec, "reason") == expected_reason
 
 
 def test_env_var_reads_from_environ(monkeypatch: pytest.MonkeyPatch) -> None:

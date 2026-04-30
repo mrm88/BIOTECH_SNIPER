@@ -213,7 +213,11 @@ def resolve_poll_seconds(env_value: object = _RESOLVE_FROM_ENV) -> int:
     +-------------------------+----------------------------------+
     | Input                   | Result                           |
     +=========================+==================================+
-    | unset / ``None`` / ``""``| :data:`DEFAULT_POLL_SECONDS`    |
+    | unset / ``None``        | :data:`DEFAULT_POLL_SECONDS`     |
+    |                         | (silent — VAL-M2-008)            |
+    +-------------------------+----------------------------------+
+    | ``""`` / ``"   "``      | :data:`DEFAULT_POLL_SECONDS`     |
+    | (empty / whitespace)    | + WARNING (VAL-M2-010 ``"" → 30``)|
     +-------------------------+----------------------------------+
     | non-integer (e.g. "abc")| :data:`DEFAULT_POLL_SECONDS`     |
     |                         | + WARNING                        |
@@ -253,11 +257,44 @@ def resolve_poll_seconds(env_value: object = _RESOLVE_FROM_ENV) -> int:
     else:
         raw = env_value  # type: ignore[assignment]
 
-    # ``None`` (explicit unset) or empty/whitespace string → default.
+    # ``None`` (explicit unset / env var missing) → silent default.
+    # VAL-M2-008 pins this branch as silent — operators rely on the
+    # absence of a journal line to confirm no override is in play.
     if raw is None:
         return DEFAULT_POLL_SECONDS
-    raw_str = str(raw).strip()
+
+    # An empty or whitespace-only string is an *operator-supplied*
+    # value (the env var is set but blank, or the CLI flag was
+    # passed an empty argument).  VAL-M2-010's evidence row pins
+    # ``"" → 30`` to "fall back to the 30 s default and emit a
+    # WARNING with the offending value", so this path MUST log
+    # before falling through to the default.  The distinction
+    # vs the ``None`` branch above is deliberate: explicit-unset
+    # is silent (VAL-M2-008), explicit-empty-string is loud
+    # (VAL-M2-010).
+    raw_str_unstripped = str(raw)
+    raw_str = raw_str_unstripped.strip()
     if raw_str == "":
+        # Distinguish truly empty ("") from whitespace-only ("   ")
+        # so the journal line preserves the actual operator input.
+        reason = (
+            "empty_string"
+            if raw_str_unstripped == ""
+            else "whitespace_only"
+        )
+        log.warning(
+            "news_poll_seconds_fallback: NEWS_POLL_SECONDS=%r is "
+            "empty/whitespace; falling back to default %ds",
+            raw_str_unstripped,
+            DEFAULT_POLL_SECONDS,
+            extra={
+                "event": "news_poll_seconds_fallback",
+                "src_module": "news_daemon.poll_loop",
+                "raw_value": raw_str_unstripped,
+                "fallback_to": DEFAULT_POLL_SECONDS,
+                "reason": reason,
+            },
+        )
         return DEFAULT_POLL_SECONDS
 
     try:
