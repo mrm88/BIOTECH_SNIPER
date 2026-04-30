@@ -1,0 +1,38 @@
+[Unit]
+Description=Alpha Sniper - Stage-1 news watcher daemon (Reading B)
+Documentation=https://github.com/mrm88/BIOTECH_SNIPER
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/alpha_sniper/repo
+EnvironmentFile=/root/alpha_sniper/.env
+ExecStart=/root/alpha_sniper/repo/.venv/bin/python -m biotech_sniper.news_daemon
+
+# --- Restart policy (long-lived; not cron-fired) ---
+Restart=on-failure
+RestartSec=10s
+StartLimitBurst=5
+StartLimitIntervalSec=300s
+
+# --- Graceful shutdown ---
+KillSignal=SIGTERM
+TimeoutStopSec=30s
+KillMode=control-group
+
+# --- Resource caps (locked spec; VPS is 2-core under sustained 2x load) ---
+Nice=10
+IOSchedulingClass=idle
+CPUQuota=15%
+MemoryMax=200M
+MemoryHigh=150M
+TasksMax=64
+
+# --- Logging (file-based; rotation delegated to logrotate per mission contract) ---
+StandardOutput=append:/var/log/alpha_sniper/news.log
+StandardError=append:/var/log/alpha_sniper/news.log
+
+[Install]
+WantedBy=multi-user.target

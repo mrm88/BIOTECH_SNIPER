@@ -11,6 +11,50 @@ on the VPS. These files are committed to the repo and copied into
 | `alpha-sniper.service` / `.timer`       | oneshot  | Daily 13:13 UTC (PDT) / 14:13 UTC (PST), `Persistent=true` | `python -m biotech_sniper.master_unified_run` |
 | `alpha-sniper-intraday.service` / `.timer` | oneshot | Mon..Fri 13:22..21:22 UTC (9 elapses/weekday)   | `python -m biotech_sniper.intraday_run`     |
 | `alpha-sniper-watchdog.service` / `.timer` | oneshot | Every 15 min: `*:08, *:23, *:38, *:53` UTC      | `python -m biotech_sniper.watchdog`         |
+| `alpha-sniper-news.service` (no timer)  | simple   | Long-lived (Restart=on-failure, RestartSec=10s) | `python -m biotech_sniper.news_daemon`      |
+
+## Reading-B long-lived service: `alpha-sniper-news.service`
+
+This is the FIRST long-lived (Type=simple) service in the project — the
+Stage-1 news watcher daemon that polls every ~30 s for fresh biotech
+headlines on the Russell-2000 biotech universe. Reading-B does NOT add a
+companion `.timer`.
+
+Resource caps (locked spec; the VPS is 2-core under sustained 2x load):
+
+| Knob               | Value                  | Why                                  |
+|--------------------|------------------------|--------------------------------------|
+| `Nice`             | `10`                   | Yield to existing daily-curated path |
+| `IOSchedulingClass`| `idle`                 | Best-effort I/O only                 |
+| `CPUQuota`         | `15%`                  | Stay under 2-core saturation budget  |
+| `MemoryMax`        | `200M`                 | Hard cap                             |
+| `MemoryHigh`       | `150M`                 | Soft cap (throttle, do not OOM)      |
+| `TasksMax`         | `64`                   | Bound thread/fork explosions         |
+
+Restart policy (long-lived; `StartLimitBurst=5/300s` thrash-protects):
+
+```
+Restart=on-failure
+RestartSec=10s
+StartLimitBurst=5
+StartLimitIntervalSec=300s
+```
+
+Graceful shutdown:
+
+```
+KillSignal=SIGTERM
+TimeoutStopSec=30s
+KillMode=control-group
+```
+
+Logging is file-based (rotation delegated to `logrotate` — see
+`deploy/logrotate/alpha-sniper-news`):
+
+```
+StandardOutput=append:/var/log/alpha_sniper/news.log
+StandardError=append:/var/log/alpha_sniper/news.log
+```
 
 ## Stagger / collision avoidance
 
@@ -52,3 +96,11 @@ systemd-analyze verify deploy/systemd/alpha-sniper-watchdog.timer
 ```
 
 All six exit 0 with no warnings on stderr.
+
+For Reading-B:
+
+```
+systemd-analyze verify deploy/systemd/alpha-sniper-news.service
+```
+
+also exits 0 with no warnings.
