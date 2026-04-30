@@ -43,9 +43,10 @@ import logging
 import signal
 import sqlite3
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, List, Optional, Sequence, Union
+from typing import Callable, Deque, Optional, Sequence, Union
 
 from biotech_sniper.news_daemon.emit import run_one_poll_cycle
 from biotech_sniper.news_daemon.heartbeat import (
@@ -59,11 +60,24 @@ from biotech_sniper.news_daemon.scope import resolve_polled_tickers
 
 __all__ = [
     "DEFAULT_SHUTDOWN_POLL_SECONDS",
+    "RSS_FAILURES_HISTORY_MAXLEN",
     "RssFetcherCallable",
     "ShutdownState",
     "install_signal_handlers",
     "run_main_loop",
 ]
+
+
+#: Hard cap on the per-cycle RSS-failure history retained on
+#: :class:`ShutdownState`.  Bounded-memory discipline matters for a
+#: long-uptime daemon (f-fix-m2-09 / VAL-M2-039 spirit): an unbounded
+#: list would grow by one int per poll cycle (~30 s cadence) for as
+#: long as the systemd service stays alive, eventually defeating the
+#: ``MemoryMax=200M`` envelope.  1024 cycles ≈ 8.5 hours of diagnostic
+#: history at the default 30 s cadence — adequate for forensic
+#: incident reconstruction without any unbounded growth.  Older
+#: entries fall off the left edge of the deque automatically.
+RSS_FAILURES_HISTORY_MAXLEN: int = 1024
 
 
 #: How frequently the sleep loop wakes up to check
@@ -104,7 +118,16 @@ class ShutdownState:
     errors_session: int = 0
     candidates_emitted_session: int = 0
     last_heartbeat_path: Optional[Path] = None
-    rss_failures_per_cycle: List[int] = field(default_factory=list)
+    #: Per-cycle RSS-failure counts, retained as a bounded deque so a
+    #: long-uptime daemon never grows this attribute without limit
+    #: (see :data:`RSS_FAILURES_HISTORY_MAXLEN`).  Older entries drop
+    #: off the left edge automatically once the cap is reached.  The
+    #: per-call observable values (e.g. ``failures`` returned by
+    #: :func:`_drive_rss_fetchers`) are unchanged — only the retained
+    #: history is bounded.
+    rss_failures_per_cycle: Deque[int] = field(
+        default_factory=lambda: deque(maxlen=RSS_FAILURES_HISTORY_MAXLEN)
+    )
 
 
 def _now_iso() -> str:

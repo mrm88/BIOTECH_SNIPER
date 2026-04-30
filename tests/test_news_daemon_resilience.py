@@ -254,7 +254,7 @@ class TestSingleRssSourceFailure:
         assert state.cycles_completed == 3
         assert state.errors_session >= 3, state.errors_session
         # Every cycle saw exactly one failed source.
-        assert state.rss_failures_per_cycle == [1, 1, 1]
+        assert list(state.rss_failures_per_cycle) == [1, 1, 1]
         assert state.candidates_emitted_session >= 1
 
         # Candidate row is committed.
@@ -314,7 +314,7 @@ class TestAllRssSourcesFailure:
         # 5 cycles × 3 sources = 15 failures.
         assert state.errors_session >= 5 * len(sources)
         assert state.candidates_emitted_session == 0
-        assert state.rss_failures_per_cycle == [3, 3, 3, 3, 3]
+        assert list(state.rss_failures_per_cycle) == [3, 3, 3, 3, 3]
 
         # Heartbeat is still updating across cycles.
         hb = read_heartbeat(heartbeat_path)
@@ -657,6 +657,106 @@ class TestSustainedRunMemoryBounded:
         # 30 cycles' allocator peak well below 200 MB.  The bound is
         # generous (resilience contract is "well below 200 MB").
         assert peak < 200 * 1024 * 1024, peak
+
+
+# ---------------------------------------------------------------------------
+# VAL-M2-039 (spirit) — rss_failures_per_cycle history is bounded
+# ---------------------------------------------------------------------------
+
+
+class TestRssFailuresHistoryBounded:
+    """``ShutdownState.rss_failures_per_cycle`` never grows unbounded.
+
+    A long-uptime daemon (months of systemd uptime) would otherwise
+    accumulate one int per poll cycle (~30 s cadence), defeating the
+    bounded-memory discipline that VAL-M2-039 enforces.  The deque
+    cap (:data:`resilience.RSS_FAILURES_HISTORY_MAXLEN`) keeps the
+    history at most ``maxlen`` entries; older entries fall off the
+    left edge automatically.
+    """
+
+    def test_default_state_uses_bounded_deque(self) -> None:
+        """A fresh ``ShutdownState`` exposes a bounded deque."""
+
+        from collections import deque as _deque
+
+        state = ShutdownState()
+        assert isinstance(state.rss_failures_per_cycle, _deque)
+        assert state.rss_failures_per_cycle.maxlen is not None
+        # Contract: maxlen is a small constant ≤ 4096 (a few hours of
+        # diagnostic history at the configured cadence).
+        assert state.rss_failures_per_cycle.maxlen <= 4096
+        # The module-level constant is the source of truth.
+        assert (
+            state.rss_failures_per_cycle.maxlen
+            == resilience.RSS_FAILURES_HISTORY_MAXLEN
+        )
+
+    def test_5000_cycles_of_failures_stay_bounded(self) -> None:
+        """Appending 5000 cycles' worth of failures stays bounded.
+
+        Mirrors f-fix-m2-09 contract: appending 5000 ints (well above
+        any realistic ``maxlen``) caps the deque at exactly the
+        configured ``maxlen`` and preserves only the most recent
+        entries (LIFO-style truncation from the left edge).
+        """
+
+        state = ShutdownState()
+        cap = resilience.RSS_FAILURES_HISTORY_MAXLEN
+
+        for cycle_idx in range(5000):
+            # Simulate a per-cycle failure count in a small range.
+            state.rss_failures_per_cycle.append(cycle_idx % 7)
+
+        # Bounded-memory invariant: never grows past the configured
+        # maxlen no matter how many cycles run.
+        assert len(state.rss_failures_per_cycle) <= cap
+        assert len(state.rss_failures_per_cycle) == cap
+        # The tail is the most recent appends (deque truncates from
+        # the LEFT when maxlen is reached).
+        last = state.rss_failures_per_cycle[-1]
+        assert last == (5000 - 1) % 7
+
+    def test_run_main_loop_does_not_unbound_history(
+        self,
+        v10_db: Path,
+        heartbeat_path: Path,
+    ) -> None:
+        """Driving the loop preserves the deque (does NOT replace it).
+
+        A regression where the loop reassigned the attribute to a
+        list would silently restore unbounded growth.  Pinning the
+        type after a multi-cycle run prevents that drift.
+        """
+
+        from collections import deque as _deque
+
+        state = ShutdownState()
+        fake_clock = _FakeClock()
+        rc = run_main_loop(
+            v10_db,
+            poll_seconds=1,
+            max_cycles=4,
+            rss_fetchers=(
+                lambda: (_ for _ in ()).throw(RuntimeError("boom1")),
+                lambda: (_ for _ in ()).throw(RuntimeError("boom2")),
+            ),
+            state=state,
+            install_handlers=False,
+            sleep_func=fake_clock.sleep,
+            monotonic=fake_clock.monotonic,
+            heartbeat_path=heartbeat_path,
+            version_sha="d" * 40,
+        )
+
+        assert rc == 0
+        assert isinstance(state.rss_failures_per_cycle, _deque)
+        assert (
+            state.rss_failures_per_cycle.maxlen
+            == resilience.RSS_FAILURES_HISTORY_MAXLEN
+        )
+        # 4 cycles × 2 failing sources each.
+        assert list(state.rss_failures_per_cycle) == [2, 2, 2, 2]
 
 
 # ---------------------------------------------------------------------------

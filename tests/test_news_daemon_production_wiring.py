@@ -555,7 +555,7 @@ class TestSingleSourceHttp500WithRealAdapters:
         # One failure per cycle from the universal_news_watcher adapter.
         assert state.errors_session >= 3, state.errors_session
         # Per-cycle failure count is exactly 1 (the other 3 sources OK).
-        assert state.rss_failures_per_cycle == [1, 1, 1]
+        assert list(state.rss_failures_per_cycle) == [1, 1, 1]
 
         # Healthy sources persisted rows on cycle #1; subsequent
         # cycles were idempotent (UNIQUE blocked re-inserts).
