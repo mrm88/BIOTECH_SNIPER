@@ -74,6 +74,7 @@ from biotech_sniper.exec.stage2_dispatcher import (
     build_play_card,
 )
 from biotech_sniper.llm.ensemble import EnsembleEventResult
+from biotech_sniper.llm.stage2_gates import record_cooldown_on_success
 from biotech_sniper.paper_executor import (
     ConcurrencyCapExceeded,
     ContractTooExpensive,
@@ -392,4 +393,32 @@ def submit_news_event_entry(
 
     # Hand off to the existing PaperExecutor.execute(). All sizing,
     # cap, and persistence semantics are inherited unchanged.
-    return executor.execute(play_card)
+    alpaca_order_id = executor.execute(play_card)
+
+    # f-m3-11: on a successful entry submission, UPSERT the
+    # ``ticker_cooldown`` row so subsequent entries on this ticker
+    # within the cooldown window are blocked by the cheap-first
+    # cooldown gate (VAL-M3-061 / VAL-M3-070). Per VAL-M3-047 the
+    # cooldown clock advances ONLY on a successful entry — gate
+    # failures (probability, unanimity, cap, armed, concurrency,
+    # halted underlying, contract-too-expensive) MUST NOT reach this
+    # line. A successful executor.execute() that returns an empty
+    # ``alpaca_order_id`` indicates an idempotent short-circuit
+    # against a pre-existing paper_orders row; in that case the
+    # cooldown row was already advanced on the original submission,
+    # so the UPSERT here is still safe (idempotent on ticker PK)
+    # but records the latest event_id for traceability.
+    candidate_event_id = play_card.get("candidate_event_id")
+    record_cooldown_on_success(
+        ticker=ticker,
+        db_path=executor.db_path,
+        last_event_id=(
+            int(candidate_event_id)
+            if isinstance(candidate_event_id, (int, str))
+            and str(candidate_event_id).strip()
+            and str(candidate_event_id).strip().lstrip("-").isdigit()
+            else None
+        ),
+    )
+
+    return alpaca_order_id
