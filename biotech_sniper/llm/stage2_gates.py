@@ -873,13 +873,17 @@ def armed_gate(
     Atomicity
     ---------
     The gate is a single synchronous function. The existence /
-    type / readability checks are performed within one call with
-    NO ``time.sleep``, ``await``, ``asyncio.sleep``, or
-    ``Lock.acquire(timeout=...)`` between them. Under the Python GIL
-    the sequence ``stat() → S_ISREG → access(R_OK) → return`` cannot
-    be interrupted by another thread observing an intermediate
+    type / readability checks are performed via a SINGLE
+    ``os.stat()`` syscall — readability is decided from the
+    ``st_mode`` bits returned by that one call, NOT a second
+    filesystem probe. There is NO ``os.access`` / ``Path.is_file`` /
+    ``Path.exists`` second-probe and NO ``time.sleep``,
+    ``await``, ``asyncio.sleep``, or ``Lock.acquire(timeout=...)``
+    between any operations. Under the Python GIL the sequence
+    ``stat() → S_ISREG → mode-bit check → return`` cannot be
+    interrupted by another thread observing an intermediate
     decision, so a TOCTOU race between the gate and the downstream
-    submit is structurally impossible. (VAL-M3-036.)
+    submit is structurally impossible. (VAL-M3-036, f-fix-m3-06.)
 
     Side effects
     ------------
@@ -931,12 +935,24 @@ def armed_gate(
             armed_path=str(target_path),
         )
 
-    # Mode 000 (or any mode that strips the read bit for the running
-    # uid) — treated as absent per the f-m3-06 contract. ``os.access``
-    # honours the effective uid + ACLs, so root bypasses this branch
-    # (which is acceptable: on the VPS the daemon runs as root and
-    # the operator's intent is "any readable .armed file = armed").
-    if not os.access(target_path, os.R_OK):
+    # Mode-bit check derived from the SAME ``st`` already in scope —
+    # any read bit (owner / group / other) satisfies "readable".
+    # We deliberately do NOT call ``os.access(R_OK)`` here:
+    #   1. ``os.access`` is a SECOND filesystem syscall, breaking the
+    #      single-stat invariant and opening a TOCTOU window between
+    #      the initial ``stat`` above and the access probe (the
+    #      target path could be replaced in between).
+    #   2. ``os.access`` honours the effective uid + ACLs, so when
+    #      the daemon runs as root (production VPS condition per
+    #      AGENTS.md) a chmod-000 ``.armed`` file would be ACCEPTED
+    #      — but the contract behaviour matrix above and VAL-M3-031
+    #      explicitly require chmod-000 to be REJECTED regardless of
+    #      who runs the daemon. Reading the mode bits from the
+    #      already-in-scope ``st`` enforces that invariant uniformly.
+    read_bit_set = bool(
+        st.st_mode & (_stat.S_IRUSR | _stat.S_IRGRP | _stat.S_IROTH)
+    )
+    if not read_bit_set:
         logger.info(
             "stage2_armed_gate: gate_failed %s "
             "armed_path=%s reason=not_readable mode=%o",

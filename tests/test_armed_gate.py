@@ -184,11 +184,15 @@ def test_armed_directory_treated_as_absent(tmp_path):
 def test_armed_chmod_000_treated_as_absent(tmp_path):
     """A regular file with mode 000 (no read bit) → treated as absent.
 
-    Skipped when running as root because root reads anything regardless
-    of the mode bits.
+    Per f-fix-m3-06 contract, this rejection MUST hold even when the
+    daemon runs as root. The gate inspects the mode bits returned by
+    the single ``os.stat`` call (NOT ``os.access``, whose effective-uid
+    semantics would let root bypass the rejection on the production
+    VPS where the daemon runs as root). Skipped only on Windows where
+    POSIX mode bits don't carry their usual meaning.
     """
-    if hasattr(os, "geteuid") and os.geteuid() == 0:
-        pytest.skip("root bypasses mode bits; cannot validate chmod 000")
+    if sys.platform == "win32":
+        pytest.skip("POSIX mode bits don't apply on Windows")
     armed = tmp_path / ".armed"
     armed.write_bytes(b"")
     armed.chmod(0o000)
@@ -196,9 +200,172 @@ def test_armed_chmod_000_treated_as_absent(tmp_path):
         res = armed_gate(armed_path=armed)
         assert res.passed is False
         assert res.reason == "armed_file_missing"
+        assert res.reason == GATE_REASON_ARMED_FILE_MISSING
     finally:
         # Restore writability so pytest can clean up tmp_path.
         armed.chmod(0o644)
+
+
+def test_armed_chmod_0o400_owner_readable_passes(tmp_path):
+    """A regular file with mode 0o400 (owner-read only) → passes.
+
+    Any read bit is sufficient — the gate only treats absence of ALL
+    three read bits (S_IRUSR | S_IRGRP | S_IROTH) as "absent".
+    """
+    if sys.platform == "win32":
+        pytest.skip("POSIX mode bits don't apply on Windows")
+    armed = tmp_path / ".armed"
+    armed.write_bytes(b"")
+    armed.chmod(0o400)
+    try:
+        res = armed_gate(armed_path=armed)
+        assert res.passed is True
+        assert res.reason is None
+    finally:
+        armed.chmod(0o644)
+
+
+def test_armed_chmod_0o040_group_read_only_passes(tmp_path):
+    """A regular file with mode 0o040 (group-read only) → passes.
+
+    Per the f-fix-m3-06 contract, ANY read bit (owner / group / other)
+    is sufficient to satisfy the gate — the gate's semantics are
+    "any read bit set" rather than "the running uid can read".
+    Under ``os.access(R_OK)`` semantics this case would have been
+    rejected when the test process owns the file (because the kernel
+    consults the owner bits first when uid == owner), but the
+    mode-bit check on ``st_mode`` accepts any-read-bit. This is the
+    canonical case that distinguishes the new mode-bit invariant
+    from the old ``os.access`` probe.
+    """
+    if sys.platform == "win32":
+        pytest.skip("POSIX mode bits don't apply on Windows")
+    armed = tmp_path / ".armed"
+    armed.write_bytes(b"")
+    armed.chmod(0o040)
+    try:
+        res = armed_gate(armed_path=armed)
+        assert res.passed is True
+        assert res.reason is None
+    finally:
+        armed.chmod(0o644)
+
+
+def test_armed_chmod_0o004_other_read_only_passes(tmp_path):
+    """A regular file with mode 0o004 (other-read only) → passes.
+
+    Completes the any-read-bit matrix: owner-read, group-read,
+    other-read each individually satisfy the gate.
+    """
+    if sys.platform == "win32":
+        pytest.skip("POSIX mode bits don't apply on Windows")
+    armed = tmp_path / ".armed"
+    armed.write_bytes(b"")
+    armed.chmod(0o004)
+    try:
+        res = armed_gate(armed_path=armed)
+        assert res.passed is True
+        assert res.reason is None
+    finally:
+        armed.chmod(0o644)
+
+
+def test_armed_gate_uses_mode_bits_not_os_access():
+    """Source-level guard: ``armed_gate`` MUST NOT call ``os.access``.
+
+    Per f-fix-m3-06, the second filesystem probe via ``os.access`` was
+    removed (TOCTOU + root-bypass). The only filesystem syscall on the
+    success path is the single ``os.stat()`` at the top of the
+    function; readability is decided from the ``st_mode`` bits in
+    scope.
+    """
+    src = Path(stage2_gates.__file__).read_text(encoding="utf-8")
+    start_match = re.search(r"^def armed_gate\(", src, re.MULTILINE)
+    assert start_match is not None
+    rest = src[start_match.start():]
+    boundary = re.search(
+        r"\n(def |class |@dataclass\n|# ---)",
+        rest[1:],
+    )
+    body = rest if boundary is None else rest[: 1 + boundary.start()]
+    # Strip the docstring so the guard scans the executable code only.
+    docstring_match = re.search(r'"""(?:.|\n)*?"""', body)
+    if docstring_match is not None:
+        body_no_doc = (
+            body[: docstring_match.start()] + body[docstring_match.end():]
+        )
+    else:
+        body_no_doc = body
+    # Strip comment lines / inline comments so the guard targets
+    # executable code only — the implementation legitimately mentions
+    # ``os.access`` in its rationale comment.
+    body_code_lines = []
+    for line in body_no_doc.splitlines():
+        # Drop everything after a ``#`` not inside a string literal.
+        # The function body has no ``#`` chars inside strings, so a
+        # naive split is sufficient and stable here.
+        code = line.split("#", 1)[0]
+        body_code_lines.append(code)
+    body_code = "\n".join(body_code_lines)
+    # ``os.access`` is the explicit forbidden second-probe pattern.
+    assert "os.access(" not in body_code, (
+        "armed_gate body contains os.access(...) — per f-fix-m3-06 "
+        "the gate must use the mode bits from the single os.stat() "
+        "call instead. os.access is non-atomic (TOCTOU) and honours "
+        "the effective uid (root bypasses the chmod-000 rejection)."
+    )
+    # And just to be defensive: no other filesystem probe APIs on the
+    # success path either. (``os.stat`` is the single allowed call.)
+    for forbidden in (
+        "os.path.exists(",
+        "os.path.isfile(",
+        "os.path.isdir(",
+        ".is_file(",
+        ".is_dir(",
+        ".exists(",
+    ):
+        assert forbidden not in body_code, (
+            f"armed_gate body contains second filesystem probe "
+            f"{forbidden!r} — f-fix-m3-06 invariant requires exactly "
+            f"ONE os.stat() call per invocation."
+        )
+
+
+def test_armed_gate_single_stat_syscall(monkeypatch, tmp_path):
+    """Behavioural guard: a passing invocation calls ``os.stat`` exactly
+    once and never calls ``os.access`` (or any equivalent second
+    filesystem probe).
+    """
+    armed = _make_tmp_armed(tmp_path)
+    real_stat = os.stat
+    real_access = os.access
+    stat_calls = {"n": 0}
+    access_calls = {"n": 0}
+
+    def counting_stat(path, *args, **kwargs):
+        # Only count stats made by the gate (not unrelated calls in
+        # logging / typing helpers).
+        stat_calls["n"] += 1
+        return real_stat(path, *args, **kwargs)
+
+    def counting_access(path, *args, **kwargs):
+        access_calls["n"] += 1
+        return real_access(path, *args, **kwargs)
+
+    monkeypatch.setattr("biotech_sniper.llm.stage2_gates.os.stat", counting_stat)
+    monkeypatch.setattr(
+        "biotech_sniper.llm.stage2_gates.os.access", counting_access
+    )
+    res = armed_gate(armed_path=armed)
+    assert res.passed is True
+    assert stat_calls["n"] == 1, (
+        f"Expected exactly 1 os.stat call inside armed_gate; "
+        f"got {stat_calls['n']}"
+    )
+    assert access_calls["n"] == 0, (
+        f"armed_gate must not call os.access — f-fix-m3-06 invariant. "
+        f"Observed {access_calls['n']} call(s)."
+    )
 
 
 def test_armed_symlink_to_directory_treated_as_absent(tmp_path):
