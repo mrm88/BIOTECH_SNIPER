@@ -432,8 +432,19 @@ _ALTER_TABLE_ADD_COLUMNS: tuple[tuple[str, str, str], ...] = (
 # databases get this from ``schema.sql``; production databases that
 # pre-date f-m3-09 need a recreate migration because SQLite cannot
 # add a CHECK constraint via ``ALTER TABLE``.
+#
+# f-m1-07 (Reading-B v9 → v10): the closing ``)`` is intentionally
+# omitted from the fragment so a v10 ``paper_orders`` whose CHECK
+# carries the additional ``'news_event_entry'`` member
+# (``event IN ('open','iv_crush_exit','stop_loss','adverse_news','rotation','news_event_entry')``)
+# still contains the v9 prefix as a substring after whitespace +
+# comma normalisation. Without this relaxation, calling
+# :func:`run_migrations` on a v10 db would mis-detect the CHECK
+# as missing and trigger an unnecessary recreate that would
+# downgrade the enum back to the v9 closed set — losing the
+# Reading-B ``news_event_entry`` extension on every connect.
 _PAPER_ORDERS_EVENT_CHECK_FRAGMENT: Final[str] = (
-    "event IN ('open','iv_crush_exit','stop_loss','adverse_news','rotation')"
+    "event IN ('open','iv_crush_exit','stop_loss','adverse_news','rotation'"
 )
 
 # f-m3-11: required CHECK clause on ``paper_orders.purpose``. Same

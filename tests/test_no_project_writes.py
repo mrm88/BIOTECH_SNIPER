@@ -76,6 +76,15 @@ ALLOWED_PATH_FILE_USES = {
     PACKAGE_ROOT / "audit.py",
     PACKAGE_ROOT / "calendar" / "pdufa.py",
     PACKAGE_ROOT / "calendar" / "ema.py",
+    # f-m1-07: migrations/runner.py uses ``Path(__file__).parent``
+    # to discover sibling ``0NN_*.py`` migration files via
+    # :func:`importlib.util.spec_from_file_location`. Migration
+    # filenames cannot be regular Python module names because they
+    # start with a digit, so ``importlib.util`` (which requires a
+    # filesystem path) is the only legal way to load them. The
+    # discovered files are read-only — runner.py never WRITES under
+    # ``Path(__file__).parent``, only reads.
+    PACKAGE_ROOT / "migrations" / "runner.py",
 }
 
 
