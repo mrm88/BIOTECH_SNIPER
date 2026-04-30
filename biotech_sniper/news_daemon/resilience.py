@@ -445,9 +445,28 @@ def run_main_loop(
         # daemon (per VAL-M2-037 / VAL-M2-038).
         try:
             polled = resolve_polled_tickers(db_path)
+            # f-fix-m2-09: pass the polled set THROUGH UNCHANGED.  An
+            # earlier ``polled-or-None`` ternary collapsed an empty
+            # set to ``None``, which :func:`run_one_poll_cycle` and
+            # :func:`iter_pending_news_events` interpret as "no scope
+            # filter, scan all news_events past the watermark".  On
+            # 2026-04-30 the VPS emitted 7 stray candidate_events rows
+            # during the ~6.5 minute window between the v10 migration
+            # restart (18:41:30Z) and universe seeding (18:48:00Z)
+            # because of this bug, violating VAL-M2-014 ("zero
+            # candidate_events" under empty russell) and VAL-M2-054
+            # ("Ticker present in universe but absent from
+            # russell2k_biotech yields zero candidates").  Forwarding
+            # ``polled`` unchanged means the ``if not polled_set:
+            # return (0, 0)`` short-circuit at the top of
+            # :func:`run_one_poll_cycle` actually fires and the scope
+            # filter is honored.  :func:`resolve_polled_tickers` already
+            # logs the canonical empty-russell WARNING + heartbeat is
+            # still flushed below, so the M4 watchdog mtime stays
+            # fresh.
             scanned, inserted = run_one_poll_cycle(
                 db_path,
-                polled_tickers=polled if polled else None,
+                polled_tickers=polled,
             )
             state.candidates_emitted_session += int(inserted or 0)
         except Exception as exc:  # noqa: BLE001 - resilience hook

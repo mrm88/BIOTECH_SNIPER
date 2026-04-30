@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import logging
 import re
 import sqlite3
 import threading
@@ -987,3 +988,150 @@ class TestPollCycleExceptionNonFatal:
         assert state.cycles_completed == 4
         assert state.errors_session == 4
         assert boom_count["n"] == 4
+
+
+# ---------------------------------------------------------------------------
+# f-fix-m2-09 — empty russell2k_biotech MUST NOT bypass the scope filter.
+#
+# Forensic context (2026-04-30): on the live VPS, between the v10 migration
+# restart (18:41:30Z) and the universe seeding (18:48:00Z) — a ~6.5 minute
+# window during which ``russell2k_biotech`` was empty — the daemon emitted
+# 7 candidate_events rows (RARE×3, EDIT, KALV, MD, TECH) at 18:42:13Z. The
+# culprit was the ``polled_tickers=polled if polled else None`` ternary in
+# :func:`run_main_loop`: the ternary collapsed an empty set to ``None``,
+# which :func:`run_one_poll_cycle` and
+# :func:`iter_pending_news_events` interpret as "no scope filter, scan
+# every news_events row past the watermark", bypassing VAL-M2-014 and
+# VAL-M2-054.
+#
+# Hermetic unit tests of each component PASSED individually
+# (``resolve_polled_tickers`` returned ``set()`` ✓;
+# ``run_one_poll_cycle(polled_tickers=[])`` returned ``(0, 0)`` ✓), but the
+# connector-level bug between them slipped through. This integration test
+# exercises the FULL chain ``run_main_loop -> resolve_polled_tickers ->
+# run_one_poll_cycle`` end-to-end so a regression of the empty-set->None
+# collapse is caught at unit-test time, not after another live VPS
+# emission incident. AGENTS.md "Integration tests for connector code"
+# convention enforces this pattern.
+# ---------------------------------------------------------------------------
+
+
+class TestEmptyRussell2kBiotechIntegration:
+    """f-fix-m2-09 — empty russell2k_biotech must NOT bypass scope filter."""
+
+    def test_empty_russell_zero_candidates_emitted(
+        self,
+        tmp_path: Path,
+        heartbeat_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Empty russell + matching biotech news → zero candidate_events.
+
+        Drives the FULL production chain (``run_main_loop`` →
+        ``resolve_polled_tickers`` → ``run_one_poll_cycle``) so the
+        empty-set→None collapse that VPS forensic 2026-04-30 surfaced
+        cannot regress.
+
+        Asserts:
+
+        * ``SELECT COUNT(*) FROM candidate_events == 0`` — the scope
+          filter actually fires on the empty russell case (VAL-M2-014
+          + VAL-M2-054).
+        * The canonical ``"russell2k_biotech empty; M1 may not be
+          seeded; idling"`` WARNING fired at least once.
+        * ``state.errors_session == 0`` — the empty-russell idling
+          path is NOT an error per VAL-M2-014.
+        * The heartbeat file is updated with a fresh ``last_poll_ts``
+          so the M4 watchdog mtime stays fresh while M1 is missing.
+        """
+
+        # 1. v10 db — but russell2k_biotech is intentionally LEFT EMPTY
+        # (the VPS forensic precondition: M1 universe seed has not yet
+        # run when the daemon starts).
+        db_path = _build_v10_db(tmp_path)
+
+        # 2. Seed news_events for biotech tickers whose keywords WOULD
+        # match the matcher — exactly the production failure mode that
+        # produced the 7 stray rows on 2026-04-30.
+        for ticker, title in [
+            ("VRTX", "VRTX FDA approval announced"),
+            ("BIIB", "BIIB phase 3 readout positive"),
+            ("REGN", "REGN PDUFA decision"),
+        ]:
+            _seed_news_event(
+                db_path,
+                ticker=ticker,
+                title=title,
+                url=f"https://example.com/empty/{ticker}",
+            )
+
+        # 3. Drive run_main_loop for one full cycle.
+        state = ShutdownState()
+        fake_clock = _FakeClock()
+        with caplog.at_level(logging.WARNING):
+            rc = run_main_loop(
+                db_path,
+                poll_seconds=1,
+                max_cycles=1,
+                rss_fetchers=(),
+                state=state,
+                install_handlers=False,
+                sleep_func=fake_clock.sleep,
+                monotonic=fake_clock.monotonic,
+                heartbeat_path=heartbeat_path,
+                version_sha="9" * 40,
+            )
+
+        assert rc == 0
+        assert state.cycles_completed == 1
+
+        # 4. Zero candidate_events emitted — the scope-filter bypass
+        # must NOT happen.  This is the VAL-M2-014 / VAL-M2-054 invariant
+        # that the forensic 2026-04-30 incident violated.
+        conn = sqlite3.connect(db_path)
+        try:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM candidate_events"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        assert count == 0, (
+            "Empty russell2k_biotech must yield zero candidate_events; "
+            f"got {count} — scope filter was bypassed (regression of "
+            "f-fix-m2-09 'polled if polled else None' collapse)."
+        )
+
+        # 5. Canonical empty-russell WARNING fired (VAL-M2-014).
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelname == "WARNING"
+            and "russell2k_biotech empty" in r.getMessage()
+        ]
+        assert len(warnings) >= 1, (
+            "missing canonical empty-russell WARNING; got records="
+            + repr([(r.levelname, r.getMessage()) for r in caplog.records])
+        )
+
+        # 6. errors_session unchanged — idling is NOT an error
+        # per VAL-M2-014 ("this is not an error").
+        assert state.errors_session == 0, state.errors_session
+
+        # 7. Heartbeat flushed on every cycle (so the M4 watchdog mtime
+        # stays fresh even while M1 is missing).
+        assert heartbeat_path.exists(), (
+            "heartbeat file must be flushed every cycle, even on the "
+            "empty-russell idling path"
+        )
+        hb = read_heartbeat(heartbeat_path)
+        assert hb.last_poll_ts != ""
+        # last_poll_ts is parseable ISO-8601 UTC.
+        text = hb.last_poll_ts
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        parsed = datetime.datetime.fromisoformat(text)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+        # Heartbeat counters reflect the empty-russell idle cycle.
+        assert hb.errors_session == 0
+        assert hb.candidates_emitted_session == 0
