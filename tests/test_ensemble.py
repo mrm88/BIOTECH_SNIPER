@@ -17,3 +17,12 @@ plain ``test_*`` module-level functions.
 from __future__ import annotations
 
 from tests.scoring.test_ensemble import *  # noqa: F401,F403
+
+# f-fix-m3-03: also expose the global wall-clock timeout regression
+# tests for ``score_candidate_event`` so the worker's verification
+# command (``pytest -q tests/test_ensemble.py``) collects them.
+from tests.llm.test_ensemble_event import (  # noqa: F401
+    test_global_wallclock_timeout_all_slow,
+    test_global_wallclock_timeout_mixed_speeds,
+    test_global_wallclock_timeout_all_fast_regression,
+)

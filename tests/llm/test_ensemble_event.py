@@ -247,6 +247,134 @@ def test_per_provider_timeout(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# f-fix-m3-03: global wall-clock timeout (NOT per-future sequential)
+#
+# The contract requires a SINGLE global wall-clock budget — every
+# provider that hasn't returned by t_start_global + timeout_seconds
+# must be classified as a timeout error, not as a success. The
+# previous sequential ``for fut in futures: fut.result(timeout=...)``
+# loop gave each future its own fresh timeout window measured from
+# the loop's wait-time, which silently let providers that were over
+# their deadline finish "successfully".
+# ---------------------------------------------------------------------------
+
+
+def test_global_wallclock_timeout_all_slow(tmp_path):
+    """4 providers each sleeping 3.0s with timeout_seconds=1.0 — total
+    wall-clock <= 1.5s and ALL FOUR ProviderResults must carry
+    error.startswith('timeout') (none successful)."""
+    db_path = tmp_path / "alpha.db"
+    cand_id = _build_v10_db(db_path)
+
+    providers = {p: _make_slow_provider(3.0) for p in ALL_PROVIDERS}
+    t0 = time.perf_counter()
+    result = score_candidate_event(
+        {"id": cand_id, "ticker": "TESTX"},
+        run_id="run-global-timeout-all-slow",
+        db_path=db_path,
+        providers=providers,
+        timeout_seconds=1.0,
+    )
+    elapsed = time.perf_counter() - t0
+    assert elapsed <= 1.5, (
+        f"global wall-clock budget violated: elapsed={elapsed:.2f}s "
+        f"(expected <= 1.5s with timeout_seconds=1.0)"
+    )
+    pp = {r.provider: r for r in result.per_provider_results}
+    assert set(pp) == set(ALL_PROVIDERS)
+    for name in ALL_PROVIDERS:
+        err = pp[name].error or ""
+        assert err.startswith("timeout"), (
+            f"provider={name} expected error.startswith('timeout'), "
+            f"got error={err!r}"
+        )
+        # No successful provider should have leaked through.
+        assert pp[name].label is None
+        assert pp[name].probability is None
+
+
+def test_global_wallclock_timeout_mixed_speeds(tmp_path):
+    """Mixed-speed run: two fast (0.05s) providers, two slow (5.0s)
+    providers with timeout_seconds=0.5 — first two are success (no
+    error), last two are timeouts."""
+    db_path = tmp_path / "alpha.db"
+    cand_id = _build_v10_db(db_path)
+
+    # Map ALL_PROVIDERS canonical order to fast/fast/slow/slow.
+    speeds = [0.05, 0.05, 5.0, 5.0]
+    providers = {
+        name: (
+            _make_unanimous_material_provider(sleep=sleep)
+            if sleep < 1.0
+            else _make_slow_provider(sleep)
+        )
+        for name, sleep in zip(ALL_PROVIDERS, speeds)
+    }
+    fast_names = [name for name, sleep in zip(ALL_PROVIDERS, speeds)
+                  if sleep < 1.0]
+    slow_names = [name for name, sleep in zip(ALL_PROVIDERS, speeds)
+                  if sleep >= 1.0]
+    assert len(fast_names) == 2 and len(slow_names) == 2
+
+    t0 = time.perf_counter()
+    result = score_candidate_event(
+        {"id": cand_id, "ticker": "TESTX"},
+        run_id="run-global-timeout-mixed",
+        db_path=db_path,
+        providers=providers,
+        timeout_seconds=0.5,
+    )
+    elapsed = time.perf_counter() - t0
+    assert elapsed <= 1.5, (
+        f"global wall-clock budget violated: elapsed={elapsed:.2f}s "
+        f"(expected <= 1.5s with timeout_seconds=0.5)"
+    )
+    pp = {r.provider: r for r in result.per_provider_results}
+    # The two fast providers should succeed.
+    for name in fast_names:
+        assert pp[name].error is None, (
+            f"fast provider={name} unexpected error={pp[name].error!r}"
+        )
+        assert pp[name].label == "material"
+    # The two slow providers should be classified as timeouts.
+    for name in slow_names:
+        err = pp[name].error or ""
+        assert err.startswith("timeout"), (
+            f"slow provider={name} expected error.startswith('timeout'), "
+            f"got error={err!r}"
+        )
+
+
+def test_global_wallclock_timeout_all_fast_regression(tmp_path):
+    """Regression: 4 providers each returning instantly still produce
+    4 successful ProviderResults under the global wall-clock model."""
+    db_path = tmp_path / "alpha.db"
+    cand_id = _build_v10_db(db_path)
+
+    providers = _all_unanimous()  # all instant, unanimous material/bullish.
+    t0 = time.perf_counter()
+    result = score_candidate_event(
+        {"id": cand_id, "ticker": "TESTX"},
+        run_id="run-global-timeout-all-fast",
+        db_path=db_path,
+        providers=providers,
+        timeout_seconds=1.0,
+    )
+    elapsed = time.perf_counter() - t0
+    assert elapsed < 1.0, (
+        f"happy path took too long: elapsed={elapsed:.2f}s"
+    )
+    pp = {r.provider: r for r in result.per_provider_results}
+    assert set(pp) == set(ALL_PROVIDERS)
+    for name in ALL_PROVIDERS:
+        assert pp[name].error is None, (
+            f"provider={name} unexpected error={pp[name].error!r}"
+        )
+        assert pp[name].label == "material"
+        assert pp[name].probability == pytest.approx(0.85)
+
+
+# ---------------------------------------------------------------------------
 # VAL-M3-019: partial-failure tolerated; mean over successful only.
 # ---------------------------------------------------------------------------
 

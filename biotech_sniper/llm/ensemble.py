@@ -68,7 +68,7 @@ import logging
 import sqlite3
 import time
 import uuid
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import ALL_COMPLETED, Future, ThreadPoolExecutor, wait
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -1225,28 +1225,51 @@ def score_candidate_event(
                 )
                 futures[name] = fut
 
-            # Wait with per-provider timeout. We use a single overall
-            # ``wait`` budget equal to ``timeout_seconds + small slack``
-            # because ``Future.result(timeout=...)`` raises
-            # ``concurrent.futures.TimeoutError`` per-future and
-            # leaves the underlying worker running. Since the worker
-            # itself imposes a 20 s HTTP timeout in production, this
-            # is fine; for tests the worker is a stub that may sleep
-            # arbitrarily, so we explicitly use ``cancel_futures=True``
-            # in the shutdown call below.
+            # Single global wall-clock budget for the entire fan-out
+            # (f-fix-m3-03). The previous per-future ``fut.result(
+            # timeout=...)`` loop gave each future its OWN timeout
+            # window measured from the loop's wait-time, which let
+            # providers that were already past the deadline finish
+            # "successfully" because the next ``fut.result(timeout=T)``
+            # gave them another T-second window. Use
+            # ``concurrent.futures.wait(..., timeout=timeout_seconds,
+            # return_when=ALL_COMPLETED)`` so the wait returns after
+            # at most ``timeout_seconds`` from the moment we issue
+            # the wait, regardless of how many providers have already
+            # completed. After wait() returns, every future still in
+            # ``not_done`` is converted to a timeout ProviderResult
+            # WITHOUT calling ``fut.result`` (which would block again
+            # for the worker thread to wind down). The
+            # ``executor.shutdown(wait=False, cancel_futures=True)``
+            # call in the finally block prevents dangling stubs from
+            # corrupting downstream state. Since the worker itself
+            # imposes a 20 s HTTP timeout in production, this is
+            # fine; for tests the worker is a stub that may sleep
+            # arbitrarily.
+            done, not_done = wait(
+                futures.values(),
+                timeout=timeout_seconds,
+                return_when=ALL_COMPLETED,
+            )
             for name, fut in futures.items():
-                try:
-                    pr = fut.result(timeout=timeout_seconds)
-                except (TimeoutError, FuturesTimeoutError) as exc:  # type: ignore[misc]
+                if fut in not_done:
                     pr = ProviderResult(
                         provider=name,
-                        error=f"timeout: {exc!r}",
+                        error="timeout: deadline exceeded",
                     )
-                except Exception as exc:  # noqa: BLE001 - all failures captured
-                    pr = ProviderResult(
-                        provider=name,
-                        error=f"{type(exc).__name__}: {exc}",
-                    )
+                else:
+                    try:
+                        pr = fut.result()
+                    except (TimeoutError, FuturesTimeoutError) as exc:  # type: ignore[misc]
+                        pr = ProviderResult(
+                            provider=name,
+                            error=f"timeout: {exc!r}",
+                        )
+                    except Exception as exc:  # noqa: BLE001 - all failures captured
+                        pr = ProviderResult(
+                            provider=name,
+                            error=f"{type(exc).__name__}: {exc}",
+                        )
                 new_results[name] = pr
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
