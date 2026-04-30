@@ -1,0 +1,23 @@
+/var/log/alpha_sniper/news.log {
+    size 50M
+    rotate 5
+    compress
+    copytruncate
+    missingok
+    notifempty
+    create 640 root root
+}
+# Logrotate policy for the Reading-B news daemon (mission feature
+# f-m4-03; fulfills VAL-M4-013, VAL-M4-014, VAL-M4-015).
+#
+# The news log is produced by the long-lived
+# alpha-sniper-news.service systemd unit; rotation is delegated
+# to logrotate per the M4 contract. delaycompress is intentionally
+# omitted -- it is incompatible with copytruncate (the rotated
+# tail would never be gzipped because the live file is the same
+# inode after copytruncate).
+#
+# Verify on VPS:
+#   logrotate -d /etc/logrotate.d/alpha-sniper-news      # dry-run, exit 0
+#   logrotate -f /etc/logrotate.d/alpha-sniper-news      # force rotate
+#   ls -l /var/log/alpha_sniper/news.log*                # news.log + news.log.1.gz
