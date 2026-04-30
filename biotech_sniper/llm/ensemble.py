@@ -1145,6 +1145,32 @@ def score_candidate_event(
         **(dict(providers) if providers else {}),
     }
 
+    # Reading-B circuit breaker (feature f-m3-12, VAL-M3-064/066): when
+    # the Perplexity in-process breaker is OPEN, the ensemble degrades
+    # to 3-leg (xai+anthropic+gemini). The Perplexity provider is NOT
+    # invoked, NO ensemble_scores_event row is written for it, and the
+    # returned ``per_provider_results`` contains 3 entries (not 4).
+    # The 3 successful results are still persisted to
+    # ``ensemble_scores_event`` so the run is captured in the audit
+    # trail as score-only telemetry; downstream gates structurally
+    # cannot trigger a paper-orders entry without all 4 providers, so
+    # this mode is effectively read-only for trading.
+    from biotech_sniper.exec import breaker as _breaker_module
+
+    breaker_was_open = _breaker_module.is_open()
+    if breaker_was_open:
+        logger.warning(
+            "score_candidate_event: breaker_open: perplexity, mode=score_only "
+            "(candidate_event_id=%s run_id=%s)",
+            candidate_event_id,
+            resolved_run_id,
+        )
+        active_providers: tuple[str, ...] = tuple(
+            p for p in ALL_PROVIDERS if p != "perplexity"
+        )
+    else:
+        active_providers = ALL_PROVIDERS
+
     # Hydrate any already-persisted rows for this (candidate, run_id).
     existing: dict[str, ProviderResult] = {}
     if persist and candidate_event_id is not None:
@@ -1167,7 +1193,10 @@ def score_candidate_event(
             existing = {}
 
     # Determine which providers still need to be invoked.
-    providers_to_call = [p for p in ALL_PROVIDERS if p not in existing]
+    providers_to_call = [
+        p for p in active_providers
+        if p not in existing
+    ]
 
     # Fan-out to remaining providers.
     new_results: dict[str, ProviderResult] = {}
@@ -1222,9 +1251,11 @@ def score_candidate_event(
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
 
-    # Merge existing + new results into the canonical-order list.
+    # Merge existing + new results into the canonical-order list. When
+    # the breaker is OPEN, the Perplexity slot is omitted entirely
+    # (3-leg degraded mode, VAL-M3-064).
     per_provider_results: list[ProviderResult] = []
-    for name in ALL_PROVIDERS:
+    for name in active_providers:
         if name in existing:
             per_provider_results.append(existing[name])
         elif name in new_results:
@@ -1300,13 +1331,17 @@ def score_candidate_event(
 
     if not successful:
         gate_failed_reason = "insufficient_providers"
-    elif len(successful) < len(ALL_PROVIDERS):
+    elif len(successful) < len(active_providers):
         # Any partial failure trips the unanimity precondition (4/4
-        # required). The probability gate is structurally dependent
-        # on having all four results — VAL-M3-025.
+        # required when the breaker is CLOSED; 3/3 in score-only mode
+        # where the result still cannot trigger entry because all
+        # four providers are required for unanimity per VAL-M3-025 —
+        # the breaker-OPEN path therefore always reports
+        # gate_failed_reason='breaker_open' below).
         gate_failed_reason = "unanimity"
     else:
-        # All four returned. Check label / direction unanimity.
+        # All providers in the active set returned. Check label /
+        # direction unanimity.
         labels = {r.label for r in successful}
         if labels == {"material"}:
             directions = {r.direction for r in successful}
@@ -1321,6 +1356,16 @@ def score_candidate_event(
                 consensus_label = "material"
         else:
             gate_failed_reason = "unanimity"
+
+    # When the breaker was OPEN at call time the result cannot
+    # trigger a news_event_entry (the unanimity gate structurally
+    # requires 4 providers). Surface a dedicated reason so audit
+    # consumers can disambiguate this mode from a plain
+    # label-disagreement rejection.
+    if breaker_was_open and gate_failed_reason in (None, "unanimity"):
+        gate_failed_reason = "breaker_open"
+        consensus_label = None
+        consensus_direction = None
 
     return EnsembleEventResult(
         candidate_event_id=int(candidate_event_id) if candidate_event_id else None,

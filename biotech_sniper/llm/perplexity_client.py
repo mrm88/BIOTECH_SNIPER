@@ -83,6 +83,7 @@ from typing import Any, Mapping, Optional
 import requests
 
 from biotech_sniper import config, db
+from biotech_sniper.exec import breaker as breaker_module
 from biotech_sniper.paths import DATA_DIR
 
 __all__ = [
@@ -657,6 +658,7 @@ class PerplexityClient:
         attempts_so_far = 0
         last_exc: Optional[BaseException] = None
         last_kind: str = "transport"  # 'transport' | 'timeout' | 'rate_limit'
+        retry_after_seconds: Optional[float] = None
 
         while attempts_so_far < max_total:
             try:
@@ -669,6 +671,8 @@ class PerplexityClient:
             except requests.Timeout as exc:
                 last_exc = exc
                 last_kind = "timeout"
+                # Timeouts count toward the breaker (VAL-M3-086).
+                breaker_module.record_timeout()
                 attempts_so_far += 1
                 if attempts_so_far >= max_total:
                     break
@@ -677,6 +681,9 @@ class PerplexityClient:
             except requests.ConnectionError as exc:
                 last_exc = exc
                 last_kind = "transport"
+                # Connection errors are transport failures — count
+                # toward the breaker the same way as timeouts.
+                breaker_module.record_timeout()
                 attempts_so_far += 1
                 if attempts_so_far >= max_total:
                     break
@@ -703,16 +710,28 @@ class PerplexityClient:
                     f"Perplexity HTTP 429: {_safe_body_snippet(resp)}"
                 )
                 last_kind = "rate_limit"
+                # 429 does NOT count toward the breaker (VAL-M3-086).
+                breaker_module.record_429()
+                # Honor Retry-After header (VAL-M3-095) on next sleep.
+                retry_after_seconds = breaker_module.parse_retry_after(
+                    _get_response_header(resp, "Retry-After")
+                )
                 attempts_so_far += 1
                 if attempts_so_far >= max_total:
                     break
-                self._sleep_backoff(attempts_so_far - 1)
+                self._sleep_backoff(
+                    attempts_so_far - 1,
+                    retry_after_seconds=retry_after_seconds,
+                )
+                retry_after_seconds = None
                 continue
             if status is not None and 500 <= status < 600:
                 last_exc = PerplexityTransportError(
                     f"Perplexity HTTP {status}: {_safe_body_snippet(resp)}"
                 )
                 last_kind = "transport"
+                # 5xx counts toward the breaker (VAL-M3-063).
+                breaker_module.record_5xx_failure()
                 attempts_so_far += 1
                 if attempts_so_far >= max_total:
                     break
@@ -727,7 +746,7 @@ class PerplexityClient:
 
             # Success path — parse JSON envelope.
             try:
-                return resp.json()
+                envelope = resp.json()
             except ValueError as exc:
                 # 200 with a body that is not valid JSON at the
                 # envelope level is treated as a schema error so
@@ -736,6 +755,12 @@ class PerplexityClient:
                     f"Perplexity returned non-JSON 200: "
                     f"{_safe_body_snippet(resp)}"
                 ) from exc
+            # Record the success on the breaker. In CLOSED state this
+            # contributes to the rolling window (anchoring the
+            # failure-rate denominator); in HALF_OPEN it closes the
+            # breaker (VAL-M3-065).
+            breaker_module.record_success()
+            return envelope
 
         # Out of retries.
         if last_kind == "timeout":
@@ -756,7 +781,12 @@ class PerplexityClient:
             f"{last_exc!r}"
         ) from last_exc
 
-    def _sleep_backoff(self, retry_index: int) -> None:
+    def _sleep_backoff(
+        self,
+        retry_index: int,
+        *,
+        retry_after_seconds: Optional[float] = None,
+    ) -> None:
         """Sleep for ``backoff_base * 2**retry_index`` seconds with
         ±20% multiplicative jitter.
 
@@ -765,15 +795,31 @@ class PerplexityClient:
         For the contract default ``backoff_base=0.5`` this yields
         per-retry sleeps in [0.4, 0.6] / [0.8, 1.2] / [1.6, 2.4]
         seconds.
+
+        ``retry_after_seconds`` (VAL-M3-095) is the value parsed from
+        an upstream ``Retry-After`` header. When supplied AND positive,
+        it acts as a LOWER BOUND on the actual sleep — the client
+        sleeps for ``max(retry_after, geometric_backoff)`` so the
+        upstream's request-rate guidance is honored without ever
+        sleeping LESS than the geometric curve would have asked.
         """
         if self._backoff_base <= 0:
-            # Short-circuit so tests can pass ``backoff_base=0.0`` to
-            # eliminate sleep without falling through to ``time.sleep(0)``
-            # (which still yields a context switch on some OSes).
+            # When backoff is disabled (test mode), still honor
+            # Retry-After if supplied — the contract requires the
+            # server-recommended floor regardless of jitter config.
+            if retry_after_seconds is not None and retry_after_seconds > 0:
+                time.sleep(float(retry_after_seconds))
+            # Otherwise short-circuit so tests can pass
+            # ``backoff_base=0.0`` to eliminate sleep without
+            # falling through to ``time.sleep(0)`` (which still
+            # yields a context switch on some OSes).
             return
         base = self._backoff_base * (2 ** max(0, retry_index))
         jitter = random.uniform(0.8, 1.2)  # ±20% multiplicative
-        time.sleep(base * jitter)
+        sleep_seconds = base * jitter
+        if retry_after_seconds is not None and retry_after_seconds > sleep_seconds:
+            sleep_seconds = float(retry_after_seconds)
+        time.sleep(sleep_seconds)
 
     # ------------------------------------------------------------------
     # Response parsing
@@ -1018,6 +1064,25 @@ def _extract_response_request_id(
     candidate = response_json.get("id")
     if isinstance(candidate, str) and candidate.strip():
         return candidate
+    return None
+
+
+def _get_response_header(resp: Any, name: str) -> Any:
+    """Best-effort fetch of a response header by name.
+
+    Tolerates simple test doubles whose ``.headers`` attribute is a
+    plain ``dict`` as well as :class:`requests.structures.CaseInsensitiveDict`.
+    Returns ``None`` when the header is absent or the response object
+    has no ``headers`` attribute.
+    """
+    headers = getattr(resp, "headers", None)
+    if headers is None:
+        return None
+    try:
+        if hasattr(headers, "get"):
+            return headers.get(name)
+    except Exception:  # pragma: no cover - defensive
+        return None
     return None
 
 

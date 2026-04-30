@@ -77,3 +77,24 @@ def _neutralize_dotenv(monkeypatch):
     except ImportError:  # pragma: no cover - dotenv is a hard dep
         return
     monkeypatch.setattr(dotenv, "load_dotenv", lambda *_a, **_kw: False)
+
+
+@pytest.fixture(autouse=True)
+def _reset_perplexity_breaker_between_tests():
+    """Reset the Reading-B Stage-2 Perplexity circuit breaker singleton
+    between tests so 5xx outcomes recorded by one test do not pollute
+    a subsequent test's view of breaker state.
+
+    The breaker is a deliberately in-process singleton (see
+    :mod:`biotech_sniper.exec.breaker`); this fixture restores the
+    "fresh process" precondition that production code relies on at
+    daemon start.
+    """
+    try:
+        from biotech_sniper.exec import breaker as _breaker_module
+    except ImportError:  # pragma: no cover - module always available
+        yield
+        return
+    _breaker_module.reset_breaker_for_test()
+    yield
+    _breaker_module.reset_breaker_for_test()
