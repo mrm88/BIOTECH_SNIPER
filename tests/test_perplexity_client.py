@@ -728,6 +728,141 @@ def test_non_json_body_raises_schema_error_not_json_decode_error():
 
 
 # ---------------------------------------------------------------------------
+# f-fix-m3-01 — Schema strictness: additionalProperties=False + URI format
+# ---------------------------------------------------------------------------
+
+
+def test_schema_validation_rejects_unknown_top_level_field():
+    """Unknown top-level keys (the schema declares
+    ``additionalProperties=False``) must raise :class:`PerplexitySchemaError`
+    with a deterministic ``unknown top-level field(s)`` message naming
+    the sorted list of extras."""
+    raw = json.dumps(
+        {
+            "probability": 0.8,
+            "label": "material",
+            "direction": "bullish",
+            "rationale": "fine",
+            "citations": [{"url": "https://example.com", "title": "x"}],
+            "extra_field": "x",
+            "another_extra": 1,
+        }
+    )
+    client = _make_client_with_content(raw)
+    with pytest.raises(PerplexitySchemaError) as exc:
+        client.score_candidate({"ticker": "X", "headline": "y"})
+    msg = str(exc.value)
+    assert "unknown top-level field(s)" in msg
+    # Sorted-list message lists both extras in lexical order.
+    assert "['another_extra', 'extra_field']" in msg
+
+
+def test_schema_validation_rejects_unknown_citation_field():
+    """Unknown citation keys must raise :class:`PerplexitySchemaError` —
+    the schema declares ``additionalProperties=False`` on each citation
+    object. Whitelisted truncation markers (``_truncated`` /
+    ``_original_url_length``) remain allowed; this test exercises an
+    ARBITRARY unknown key."""
+    raw = json.dumps(
+        {
+            "probability": 0.8,
+            "label": "material",
+            "direction": "bullish",
+            "rationale": "fine",
+            "citations": [
+                {
+                    "url": "https://example.com",
+                    "title": "x",
+                    "rogue_key": "no",
+                }
+            ],
+        }
+    )
+    client = _make_client_with_content(raw)
+    with pytest.raises(PerplexitySchemaError) as exc:
+        client.score_candidate({"ticker": "X", "headline": "y"})
+    msg = str(exc.value)
+    assert "citations[0]" in msg
+    assert "unknown field(s)" in msg
+    assert "rogue_key" in msg
+
+
+def test_schema_validation_rejects_url_with_no_scheme():
+    """Non-URI citation URL (``'not a url'``) must raise
+    :class:`PerplexitySchemaError`. The schema declares
+    ``format='uri'`` so a structural URI parse is required."""
+    raw = json.dumps(
+        {
+            "probability": 0.8,
+            "label": "material",
+            "direction": "bullish",
+            "rationale": "fine",
+            "citations": [{"url": "not a url", "title": "x"}],
+        }
+    )
+    client = _make_client_with_content(raw)
+    with pytest.raises(PerplexitySchemaError) as exc:
+        client.score_candidate({"ticker": "X", "headline": "y"})
+    assert "url" in str(exc.value).lower()
+
+
+def test_schema_validation_rejects_url_with_disallowed_scheme():
+    """Disallowed schemes (e.g. ``javascript:`` / ``data:`` / ``file:``)
+    must raise :class:`PerplexitySchemaError`. Perplexity citations are
+    web URLs — the allow-list is ``{http, https, ftp, ftps}``."""
+    raw = json.dumps(
+        {
+            "probability": 0.8,
+            "label": "material",
+            "direction": "bullish",
+            "rationale": "fine",
+            "citations": [{"url": "javascript:alert(1)", "title": "x"}],
+        }
+    )
+    client = _make_client_with_content(raw)
+    with pytest.raises(PerplexitySchemaError) as exc:
+        client.score_candidate({"ticker": "X", "headline": "y"})
+    assert "url" in str(exc.value).lower()
+
+
+def test_schema_validation_rejects_whitespace_only_url():
+    """A whitespace-only URL has no scheme and no netloc/path — it must
+    raise :class:`PerplexitySchemaError`."""
+    raw = json.dumps(
+        {
+            "probability": 0.8,
+            "label": "material",
+            "direction": "bullish",
+            "rationale": "fine",
+            "citations": [{"url": "   ", "title": "x"}],
+        }
+    )
+    client = _make_client_with_content(raw)
+    with pytest.raises(PerplexitySchemaError) as exc:
+        client.score_candidate({"ticker": "X", "headline": "y"})
+    assert "url" in str(exc.value).lower()
+
+
+def test_schema_validation_accepts_valid_https_url_with_query_string():
+    """A well-formed ``https://`` URL with a path + query string passes
+    schema validation."""
+    raw = json.dumps(
+        {
+            "probability": 0.8,
+            "label": "material",
+            "direction": "bullish",
+            "rationale": "fine",
+            "citations": [
+                {"url": "https://example.com/path?q=1", "title": "ok"}
+            ],
+        }
+    )
+    client = _make_client_with_content(raw)
+    out = client.score_candidate({"ticker": "X", "headline": "y"})
+    assert out["citations"][0]["url"] == "https://example.com/path?q=1"
+
+
+# ---------------------------------------------------------------------------
 # VAL-M3-015 — VCR cassettes redact secrets; pytest does NOT call live
 # Perplexity.
 # ---------------------------------------------------------------------------

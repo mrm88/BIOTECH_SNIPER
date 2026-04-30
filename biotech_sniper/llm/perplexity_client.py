@@ -79,6 +79,7 @@ import sqlite3
 import time
 from pathlib import Path
 from typing import Any, Mapping, Optional
+from urllib.parse import urlsplit
 
 import requests
 
@@ -350,6 +351,16 @@ def _validate_against_schema(payload: Any) -> dict[str, Any]:
             f"verdict missing required field(s): {sorted(missing)}"
         )
 
+    # f-fix-m3-01: enforce schema's ``additionalProperties=False`` on the
+    # top-level object. Unknown keys must be rejected so the verdict shape
+    # stays locked to the contract — silently accepting them lets a
+    # provider-side schema drift slip through unnoticed.
+    extra_top = set(payload) - required
+    if extra_top:
+        raise PerplexitySchemaError(
+            f"verdict has unknown top-level field(s): {sorted(extra_top)}"
+        )
+
     # probability — number in [0, 1].
     prob = payload["probability"]
     if isinstance(prob, bool) or not isinstance(prob, (int, float)):
@@ -402,10 +413,53 @@ def _validate_against_schema(payload: Any) -> dict[str, Any]:
                 raise PerplexitySchemaError(
                     f"verdict 'citations[{idx}]' missing required '{cit_required}'"
                 )
+        # f-fix-m3-01: enforce ``additionalProperties=False`` on each
+        # citations[] item. The truncation-marker keys (``_truncated`` /
+        # ``_original_url_length``) are explicitly whitelisted so the
+        # VAL-M3-096 long-URL rewrite below can re-validate the same
+        # payload without tripping this check on a re-entry.
+        extra_cit = set(item) - {
+            "url",
+            "title",
+            "snippet",
+            "_truncated",
+            "_original_url_length",
+        }
+        if extra_cit:
+            raise PerplexitySchemaError(
+                f"verdict 'citations[{idx}]' has unknown field(s): "
+                f"{sorted(extra_cit)}"
+            )
         url = item["url"]
+        # f-fix-m3-01: structural URI validation (the schema declares
+        # ``format='uri'``). Replace the prior "non-empty string" check
+        # with a parse via :func:`urllib.parse.urlsplit` and require:
+        #   - ``url`` is a string,
+        #   - non-empty scheme AND (non-empty netloc OR non-empty path),
+        #   - scheme ∈ {http, https, ftp, ftps} (Perplexity citations
+        #     are web URLs; ``javascript:`` / ``data:`` / ``file:`` are
+        #     refused outright).
         if not isinstance(url, str) or not url:
             raise PerplexitySchemaError(
                 f"verdict 'citations[{idx}].url' must be a non-empty string"
+            )
+        try:
+            parsed = urlsplit(url)
+        except ValueError as exc:
+            raise PerplexitySchemaError(
+                f"verdict 'citations[{idx}].url' is not a parseable URI: "
+                f"{exc}"
+            )
+        scheme = parsed.scheme.lower()
+        if not scheme or not (parsed.netloc or parsed.path):
+            raise PerplexitySchemaError(
+                f"verdict 'citations[{idx}].url' is not a valid URI "
+                f"(format='uri'): {url!r}"
+            )
+        if scheme not in {"http", "https", "ftp", "ftps"}:
+            raise PerplexitySchemaError(
+                f"verdict 'citations[{idx}].url' has disallowed scheme "
+                f"{scheme!r} (allowed: http, https, ftp, ftps)"
             )
         # VAL-M3-096: Pathologically long URLs are TRUNCATED rather than
         # rejected. Persist a ``_truncated=True`` marker on the citation
