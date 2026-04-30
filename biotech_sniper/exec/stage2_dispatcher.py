@@ -87,6 +87,11 @@ __all__ = [
     "build_play_card",
     "derive_catalyst_type",
     "assert_single_leg_for_news_entry",
+    # f-fix-m3-13: thin orchestration helper composing cooldown ->
+    # armed -> cap -> score_candidate_event with a single
+    # short-circuit return on first rejection (VAL-M3-071).
+    "Stage2ChainResult",
+    "run_stage2_chain",
 ]
 
 logger = logging.getLogger(__name__)
@@ -582,3 +587,79 @@ def assert_single_leg_for_news_entry(
             f"got {n}"
         )
     return legs[0]
+
+
+# ---------------------------------------------------------------------------
+# f-fix-m3-13 — Thin Stage-2 chain orchestrator (cheap-first short-circuit)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Stage2ChainResult:
+    """Outcome of :func:`run_stage2_chain`.
+
+    Attributes
+    ----------
+    passed:
+        ``True`` only when EVERY cheap gate passed AND the 4-provider
+        fan-out completed. ``False`` whenever any gate rejected.
+    reason:
+        Canonical short-circuit reason from the rejecting gate
+        (``cooldown_active`` / ``armed_file_missing`` /
+        ``daily_cap_exceeded``). ``None`` when the chain reached
+        ``score_candidate_event`` and ran the fan-out.
+    gate:
+        Symbolic name of the gate that produced the rejection
+        (``"cooldown"`` / ``"armed"`` / ``"cap"``). ``None`` on a
+        clean fan-out.
+    ensemble_result:
+        The :class:`EnsembleEventResult` produced by
+        :func:`score_candidate_event` when all cheap gates passed.
+        ``None`` whenever the chain short-circuited.
+    """
+
+    passed: bool
+    reason: Optional[str]
+    gate: Optional[str]
+    ensemble_result: Optional[EnsembleEventResult] = None
+
+
+def run_stage2_chain(
+    *,
+    candidate_event_row: Mapping[str, Any],
+    db_path: Optional[Any] = None,
+    armed_path: Optional[Any] = None,
+    now: Optional[datetime.datetime] = None,
+    providers: Optional[Mapping[str, Any]] = None,
+) -> Stage2ChainResult:
+    """Compose the Stage-2 cheap-first chain at the orchestration entry.
+
+    Order (per VAL-M3-071): cooldown → armed → cap → fan-out. A single
+    short-circuit return on the first rejection guarantees zero LLM
+    invocations / zero ``llm_cost_ledger`` rows / zero
+    ``ensemble_scores_event`` rows when ANY cheap gate rejects.
+    """
+    # Late imports keep stage2_dispatcher import-cheap.
+    from biotech_sniper.llm.ensemble import score_candidate_event
+    from biotech_sniper.llm.stage2_gates import (
+        armed_gate,
+        cooldown_gate,
+        daily_cap_gate,
+    )
+
+    ticker = str(candidate_event_row.get("ticker", "")).strip().upper()
+    cool = cooldown_gate(ticker=ticker, db_path=db_path, now=now)
+    if not cool.passed:
+        return Stage2ChainResult(passed=False, reason=cool.reason, gate="cooldown")
+    arm = armed_gate(armed_path=armed_path)
+    if not arm.passed:
+        return Stage2ChainResult(passed=False, reason=arm.reason, gate="armed")
+    cap = daily_cap_gate(db_path=db_path)
+    if not cap.passed:
+        return Stage2ChainResult(passed=False, reason=cap.reason, gate="cap")
+    ensemble = score_candidate_event(
+        candidate_event_row, db_path=db_path, providers=providers,
+    )
+    return Stage2ChainResult(
+        passed=True, reason=None, gate=None, ensemble_result=ensemble,
+    )
