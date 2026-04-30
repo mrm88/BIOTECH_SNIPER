@@ -655,6 +655,301 @@ def test_candidate_events_fk_to_news_events_enforced(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# f-fix-m1-07 — paper_orders recreate is FK-safe with linked child rows
+# ---------------------------------------------------------------------------
+
+
+def test_paper_orders_recreate_fk_safe_with_linked_children(tmp_path):
+    """v9 → v10 migrates cleanly when ``paper_orders`` already has linked
+    rows in ``execution_events`` and ``execution_fills``.
+
+    Reproduces the scrutiny finding for f-m1-07-migration-v9-to-v10
+    (VAL-M1-048): without the FK-safe envelope, the
+    ``DROP`` step inside the ``paper_orders`` recreate raises
+    ``FOREIGN KEY constraint failed`` because
+    :func:`biotech_sniper.db.connect` opens every connection with
+    ``PRAGMA foreign_keys=ON`` and the child rows reference the
+    parent table. The fix wraps the recreate in the canonical
+    ``foreign_keys=OFF`` / ``BEGIN`` / rebuild / ``foreign_key_check`` /
+    ``COMMIT`` / ``foreign_keys=ON`` envelope.
+
+    Asserts:
+
+    * Migration succeeds (``schema_version`` advances to 10).
+    * ``PRAGMA foreign_key_check`` returns zero rows post-migration.
+    * Child rows in ``execution_events`` + ``execution_fills`` are
+      preserved with valid ``paper_order_id`` references.
+    * Parent row in ``paper_orders`` is preserved.
+    * ``PRAGMA foreign_keys`` is restored to ON after migration.
+    """
+    db_path = tmp_path / "alpha.db"
+    _build_v9_db(db_path)
+
+    conn = db.connect(db_path)
+    try:
+        # Parent paper_orders row.
+        conn.execute(
+            "INSERT INTO paper_orders "
+            "(id, status, event, client_order_id, purpose, qty) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("po-fk-1", "filled", "open", "co-fk-1", "entry", 1),
+        )
+        # Two execution_events children referencing po-fk-1.
+        conn.execute(
+            "INSERT INTO execution_events "
+            "(paper_order_id, event_type, event_at) VALUES (?, ?, ?)",
+            ("po-fk-1", "submitted", "2026-04-29T00:00:00Z"),
+        )
+        conn.execute(
+            "INSERT INTO execution_events "
+            "(paper_order_id, event_type, event_at) VALUES (?, ?, ?)",
+            ("po-fk-1", "filled", "2026-04-29T00:00:01Z"),
+        )
+        # One execution_fills child referencing po-fk-1.
+        conn.execute(
+            "INSERT INTO execution_fills "
+            "(paper_order_id, filled_at, filled_price, filled_qty, "
+            " requested_mid_at_submit, slippage_bps, slippage_usd, "
+            " time_to_fill_ms, partial_qty_remaining) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "po-fk-1",
+                "2026-04-29T00:00:01Z",
+                1.5,
+                1,
+                1.4,
+                0.0,
+                0.0,
+                1000,
+                0,
+            ),
+        )
+        conn.commit()
+
+        # Sanity: parent + children present BEFORE migration.
+        ev_pre = conn.execute(
+            "SELECT COUNT(*) FROM execution_events WHERE paper_order_id='po-fk-1'"
+        ).fetchone()[0]
+        fl_pre = conn.execute(
+            "SELECT COUNT(*) FROM execution_fills WHERE paper_order_id='po-fk-1'"
+        ).fetchone()[0]
+        assert ev_pre == 2
+        assert fl_pre == 1
+    finally:
+        conn.close()
+
+    # Run migration. Must NOT raise — proves the FK-safe envelope is
+    # in place. On the buggy code path this raises
+    # ``MigrationError: ... IntegrityError('FOREIGN KEY constraint failed')``.
+    summary = run_migrations_runner(
+        db_path, target_version=10, take_backup_first=False
+    )
+    assert summary["from_version"] == 9
+    assert summary["applied"] == [10]
+    assert summary["no_op"] is False
+
+    conn = db.connect(db_path)
+    try:
+        # Schema bumped to 10.
+        assert db.current_schema_version(conn) == 10
+
+        # PRAGMA foreign_keys restored to ON.
+        fk_pragma = conn.execute("PRAGMA foreign_keys").fetchone()[0]
+        assert fk_pragma == 1, f"expected foreign_keys=1, got {fk_pragma}"
+
+        # PRAGMA foreign_key_check returns no rows.
+        violations = conn.execute("PRAGMA foreign_key_check").fetchall()
+        assert violations == [], f"FK violations after migration: {violations}"
+
+        # Child rows preserved with valid paper_order_id references.
+        ev_rows = conn.execute(
+            "SELECT paper_order_id, event_type FROM execution_events "
+            "WHERE paper_order_id='po-fk-1' ORDER BY event_at"
+        ).fetchall()
+        assert len(ev_rows) == 2
+        assert all(r["paper_order_id"] == "po-fk-1" for r in ev_rows)
+        assert [r["event_type"] for r in ev_rows] == ["submitted", "filled"]
+
+        fl_rows = conn.execute(
+            "SELECT paper_order_id, filled_qty FROM execution_fills "
+            "WHERE paper_order_id='po-fk-1'"
+        ).fetchall()
+        assert len(fl_rows) == 1
+        assert fl_rows[0]["paper_order_id"] == "po-fk-1"
+        assert fl_rows[0]["filled_qty"] == 1
+
+        # Parent row preserved.
+        po = conn.execute(
+            "SELECT id, status, event, client_order_id "
+            "FROM paper_orders WHERE id='po-fk-1'"
+        ).fetchone()
+        assert po is not None
+        assert po["id"] == "po-fk-1"
+        assert po["status"] == "filled"
+        assert po["event"] == "open"
+        assert po["client_order_id"] == "co-fk-1"
+
+        # And the new event value 'news_event_entry' is now accepted —
+        # confirms the recreate did its job (CHECK enum extended).
+        conn.execute(
+            "INSERT INTO paper_orders "
+            "(id, status, event, client_order_id, purpose, qty) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                "po-news-fk-1",
+                "submitted",
+                "news_event_entry",
+                "co-news-fk-1",
+                "entry",
+                1,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_paper_orders_recreate_fk_safe_preserves_forward_only_grep():
+    """f-fix-m1-07: VAL-M1-039 forward-only literal grep still passes.
+
+    The FK-safe envelope must NOT introduce a literal
+    ``DROP TABLE <legacy>`` substring in the migration source —
+    the script must continue to interpolate the legacy table name
+    via :data:`_PO_TABLE_NAME` so the validator's bare ``grep -nE
+    'DROP\\s+(TABLE|INDEX|VIEW)\\s+(<legacy>)'`` returns no matches.
+    Mirrors the existing ``test_migration_contains_no_destructive_legacy_drops``
+    test but locks in the invariant after f-fix-m1-07's edit.
+    """
+    repo_root = Path(__file__).resolve().parent.parent
+    text = (
+        repo_root
+        / "biotech_sniper"
+        / "migrations"
+        / "010_reading_b_foundations.py"
+    ).read_text(encoding="utf-8")
+
+    legacy_alt = "|".join(_LEGACY_TABLES_FOR_FORWARD_ONLY)
+    forbidden = re.compile(
+        rf"DROP\s+(TABLE|INDEX|VIEW)\s+({legacy_alt})", re.IGNORECASE
+    )
+    matches = forbidden.findall(text)
+    assert matches == [], (
+        f"VAL-M1-039 forward-only violation after f-fix-m1-07: {matches}"
+    )
+
+
+def test_paper_orders_recreate_fk_safe_no_orphans_with_many_children(tmp_path):
+    """Stress-shaped variant: many child rows survive the FK-safe rebuild.
+
+    Inserts 20 ``execution_events`` rows and 10 ``execution_fills`` rows
+    spread across 3 distinct ``paper_orders`` parents, then runs the
+    v9 → v10 migration. Asserts every child row still resolves to its
+    parent post-migration (i.e. no orphan rows leaked from the
+    create-copy-drop-rename dance).
+    """
+    db_path = tmp_path / "alpha.db"
+    _build_v9_db(db_path)
+
+    parent_ids = ("po-many-1", "po-many-2", "po-many-3")
+    expected_event_count = 0
+    expected_fill_count = 0
+
+    conn = db.connect(db_path)
+    try:
+        for i, pid in enumerate(parent_ids):
+            conn.execute(
+                "INSERT INTO paper_orders "
+                "(id, status, event, client_order_id, purpose, qty) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (pid, "filled", "open", f"co-{pid}", "entry", 1),
+            )
+            # 6-7 events per parent.
+            n_events = 6 + (i % 2)
+            for j in range(n_events):
+                conn.execute(
+                    "INSERT INTO execution_events "
+                    "(paper_order_id, event_type, event_at) "
+                    "VALUES (?, ?, ?)",
+                    (
+                        pid,
+                        "submitted" if j == 0 else "filled",
+                        f"2026-04-29T00:00:{j:02d}Z",
+                    ),
+                )
+                expected_event_count += 1
+            # 3-4 fills per parent.
+            n_fills = 3 + (i % 2)
+            for j in range(n_fills):
+                conn.execute(
+                    "INSERT INTO execution_fills "
+                    "(paper_order_id, filled_at, filled_price, filled_qty, "
+                    " requested_mid_at_submit, slippage_bps, slippage_usd, "
+                    " time_to_fill_ms, partial_qty_remaining) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        pid,
+                        f"2026-04-29T00:01:{j:02d}Z",
+                        1.5 + j * 0.1,
+                        1,
+                        1.4,
+                        0.0,
+                        0.0,
+                        1000 + j,
+                        0,
+                    ),
+                )
+                expected_fill_count += 1
+        conn.commit()
+    finally:
+        conn.close()
+
+    # Run migration; must succeed.
+    summary = run_migrations_runner(
+        db_path, target_version=10, take_backup_first=False
+    )
+    assert summary["applied"] == [10]
+
+    conn = db.connect(db_path)
+    try:
+        # FK invariants intact.
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+
+        # All child rows preserved + resolve to a real parent.
+        ev_total = conn.execute(
+            "SELECT COUNT(*) FROM execution_events"
+        ).fetchone()[0]
+        fl_total = conn.execute(
+            "SELECT COUNT(*) FROM execution_fills"
+        ).fetchone()[0]
+        assert ev_total == expected_event_count
+        assert fl_total == expected_fill_count
+
+        # No orphan children — every paper_order_id resolves.
+        orphans_ev = conn.execute(
+            "SELECT COUNT(*) FROM execution_events ee "
+            "WHERE NOT EXISTS ("
+            "  SELECT 1 FROM paper_orders po WHERE po.id = ee.paper_order_id"
+            ")"
+        ).fetchone()[0]
+        orphans_fl = conn.execute(
+            "SELECT COUNT(*) FROM execution_fills ef "
+            "WHERE NOT EXISTS ("
+            "  SELECT 1 FROM paper_orders po WHERE po.id = ef.paper_order_id"
+            ")"
+        ).fetchone()[0]
+        assert orphans_ev == 0
+        assert orphans_fl == 0
+
+        # All parent rows preserved.
+        po_count = conn.execute(
+            "SELECT COUNT(*) FROM paper_orders"
+        ).fetchone()[0]
+        assert po_count == len(parent_ids)
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
 # DowngradeForbidden
 # ---------------------------------------------------------------------------
 

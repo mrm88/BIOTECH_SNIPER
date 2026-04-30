@@ -635,6 +635,123 @@ def _recreate_paper_orders_with_news_event_entry(conn: sqlite3.Connection) -> No
         conn.execute(stmt)
 
 
+def _apply_paper_orders_recreate_fk_safe(conn: sqlite3.Connection) -> None:
+    """Run :func:`_recreate_paper_orders_with_news_event_entry` inside the
+    canonical SQLite FK-safe schema-rebuild envelope (f-fix-m1-07).
+
+    Background
+    ----------
+
+    The bare ``_recreate_paper_orders_with_news_event_entry`` issues a
+    ``DROP`` of the legacy parent table (via f-string interpolation
+    of :data:`_PO_TABLE_NAME` so the VAL-M1-039 forward-only grep
+    stays clean — see ``_recreate_paper_orders_with_news_event_entry``
+    docstring). On a production-shaped DB with rows in
+    ``execution_events`` / ``execution_fills`` referencing
+    ``paper_orders(id)``, the DROP raises ``FOREIGN KEY constraint
+    failed`` because :func:`biotech_sniper.db.connect` opens every
+    connection with ``PRAGMA foreign_keys=ON``.
+
+    Canonical SQLite pattern
+    ------------------------
+
+    The SQLite project documents the canonical schema-rebuild dance
+    at https://www.sqlite.org/lang_altertable.html (section "Making
+    Other Kinds Of Table Schema Changes"):
+
+    1. ``PRAGMA foreign_keys = OFF;``  *(must run OUTSIDE any open
+       transaction — the PRAGMA is a no-op while a tx is open)*
+    2. ``BEGIN;``
+    3. *(create-copy-drop-rename the table — children unchanged)*
+    4. ``PRAGMA foreign_key_check;``  *(any rows ⇒ violation)*
+    5. ``COMMIT;``
+    6. ``PRAGMA foreign_keys = ON;``
+
+    The migration runner in :mod:`biotech_sniper.migrations.runner`
+    wraps the entire ``apply()`` call in its own ``BEGIN IMMEDIATE``
+    / ``COMMIT`` envelope, so this helper:
+
+    * COMMITs the runner's transaction (persisting work done so far —
+      the new tables / indexes from step 1 of :func:`apply`, and any
+      ``llm_cost_ledger`` recreate from step 3),
+    * runs the FK-safe envelope above (off → BEGIN → rebuild →
+      foreign_key_check → COMMIT → on),
+    * re-opens a fresh ``BEGIN IMMEDIATE`` so the runner's outer
+      ``COMMIT`` (and the ``schema_version`` INSERT it wraps) still
+      has a transaction to commit against.
+
+    The contract with the runner is preserved: ``apply()`` returns
+    with the same "transaction is open" state the runner gave us.
+    The runner itself is unchanged — the FK-toggle pattern stays
+    local to migration 010 (mission policy: "Keep this pattern
+    local to migration 010 — do not change the runner contract
+    beyond what's strictly needed").
+
+    Failure modes
+    -------------
+
+    * ``foreign_key_check`` returns rows — rolls the rebuild
+      transaction back, restores ``PRAGMA foreign_keys=ON``, and
+      raises :class:`sqlite3.IntegrityError`. The runner catches the
+      exception and reports the migration failed; ``schema_version``
+      stays at 9.
+    * The recreate itself raises (e.g. SQLite error) — best-effort
+      ``ROLLBACK``, restores ``PRAGMA foreign_keys=ON``, propagates
+      the original exception.
+
+    The outer ``finally`` always re-opens a transaction so the
+    runner's outer ``COMMIT`` / ``ROLLBACK`` machinery has something
+    to act on regardless of which failure path fired.
+    """
+    # Persist work the runner's transaction has already accumulated
+    # (step 1 new tables + indexes, step 3 llm_cost_ledger recreate).
+    # PRAGMA foreign_keys cannot be toggled inside a transaction, so
+    # this commit MUST land before the PRAGMA.
+    conn.execute("COMMIT")
+    try:
+        conn.execute("PRAGMA foreign_keys = OFF")
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                _recreate_paper_orders_with_news_event_entry(conn)
+                # Foreign-key invariants must hold before we
+                # re-enable enforcement. Run the check while still
+                # inside the rebuild transaction so a violation
+                # rolls the rebuild back atomically.
+                violations = conn.execute(
+                    "PRAGMA foreign_key_check"
+                ).fetchall()
+                if violations:
+                    raise sqlite3.IntegrityError(
+                        f"PRAGMA foreign_key_check after paper_orders "
+                        f"recreate reported {len(violations)} "
+                        f"violation(s): {violations!r}"
+                    )
+                conn.execute("COMMIT")
+            except Exception:
+                # Best-effort ROLLBACK on any failure inside the
+                # rebuild transaction. If the ROLLBACK itself errors
+                # (e.g. tx was already auto-committed by the driver),
+                # swallow that and let the original exception
+                # propagate.
+                try:
+                    conn.execute("ROLLBACK")
+                except sqlite3.Error:
+                    pass
+                raise
+        finally:
+            # Always restore FK enforcement, regardless of how the
+            # rebuild ended (success, FK violation, or unrelated
+            # SQLite error).
+            conn.execute("PRAGMA foreign_keys = ON")
+    finally:
+        # Re-open a transaction so the runner's outer COMMIT
+        # (and the schema_version INSERT) still has a tx to
+        # commit against. Mirrors the BEGIN IMMEDIATE the runner
+        # opened before calling apply().
+        conn.execute("BEGIN IMMEDIATE")
+
+
 def _is_fault_inject_enabled() -> bool:
     """Return ``True`` when ``MIGRATION_FAULT_INJECT`` env var is truthy.
 
@@ -703,5 +820,17 @@ def apply(conn: sqlite3.Connection) -> None:
         _recreate_llm_cost_ledger_with_perplexity(conn)
 
     # 4) paper_orders.event CHECK extension.
+    #
+    # ``paper_orders`` is referenced by ``execution_events`` and
+    # ``execution_fills`` via FOREIGN KEY clauses. With
+    # ``PRAGMA foreign_keys=ON`` (the default for every
+    # :func:`biotech_sniper.db.connect` connection) the DROP TABLE
+    # step inside the recreate dance raises
+    # ``FOREIGN KEY constraint failed`` whenever child rows exist —
+    # which is the production-shaped state on the VPS DB. Wrap the
+    # recreate in the canonical SQLite FK-safe envelope (PRAGMA off
+    # → BEGIN → rebuild → foreign_key_check → COMMIT → PRAGMA on)
+    # via :func:`_apply_paper_orders_recreate_fk_safe`. See that
+    # function's docstring for the full rationale (f-fix-m1-07).
     if not _has_event_news_event_entry(conn):
-        _recreate_paper_orders_with_news_event_entry(conn)
+        _apply_paper_orders_recreate_fk_safe(conn)
