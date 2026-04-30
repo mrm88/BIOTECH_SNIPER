@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>FDA Calendar | BiopharmCatalyst (test fixture)</title>
+</head>
+<body>
+  <header>
+    <h1>FDA Calendar</h1>
+    <p>Test cassette mirroring the BiopharmCatalyst FDA calendar HTML
+       structure used by biotech_sniper.calendar.pdufa.</p>
+  </header>
+
+  <main>
+    <table id="fda-calendar">
+      <thead>
+        <tr>
+          <th>Stage</th>
+          <th>Catalyst Date</th>
+          <th>Drug</th>
+          <th>Ticker</th>
+          <th>Company</th>
+          <th>Indication</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>PDUFA</td>
+          <td>May 30, 2026</td>
+          <td>Suzetrigine</td>
+          <td><a href="/biotechs/vertex-pharmaceuticals-VRTX">VRTX</a></td>
+          <td>Vertex Pharmaceuticals</td>
+          <td>Acute pain</td>
+        </tr>
+        <tr>
+          <td>PDUFA</td>
+          <td>2026-06-15</td>
+          <td>AXS-05 (Auvelity)</td>
+          <td>AXSM</td>
+          <td>Axsome Therapeutics</td>
+          <td>Alzheimer's agitation</td>
+        </tr>
+        <tr>
+          <td>PDUFA</td>
+          <td>06/30/2026</td>
+          <td>Roctavian</td>
+          <td>BMRN</td>
+          <td>BioMarin Pharmaceutical</td>
+          <td>Hemophilia A</td>
+        </tr>
+        <tr>
+          <td>PDUFA</td>
+          <td>Q3 2026</td>
+          <td>Vusolimogene oncorepvec (RP1)</td>
+          <td>REPL</td>
+          <td>Replimune</td>
+          <td>Melanoma</td>
+        </tr>
+        <tr>
+          <td>PDUFA</td>
+          <td>H2 2026</td>
+          <td>COMP360 psilocybin</td>
+          <td>CMPS</td>
+          <td>COMPASS Pathways</td>
+          <td>Treatment-resistant depression</td>
+        </tr>
+        <tr>
+          <td>PDUFA</td>
+          <td>Mid 2026</td>
+          <td>Lumateperone (label expansion)</td>
+          <td>ITCI</td>
+          <td>Intra-Cellular Therapies</td>
+          <td>MDD/Bipolar</td>
+        </tr>
+        <tr>
+          <td>PDUFA</td>
+          <td>July 10, 2026</td>
+          <td>Elevidys (label expansion)</td>
+          <td>SRPT</td>
+          <td>Sarepta Therapeutics</td>
+          <td>DMD</td>
+        </tr>
+        <tr>
+          <!-- multiple drugs for the same ticker should persist as
+               distinct rows -->
+          <td>PDUFA</td>
+          <td>August 22, 2026</td>
+          <td>Sotagliflozin (HFpEF expansion)</td>
+          <td>VRTX</td>
+          <td>Vertex Pharmaceuticals</td>
+          <td>HFpEF</td>
+        </tr>
+        <tr>
+          <!-- malformed date should be silently dropped -->
+          <td>PDUFA</td>
+          <td>TBD soon</td>
+          <td>Junk parser test row</td>
+          <td>FAKE</td>
+          <td>Imaginary Therapeutics</td>
+          <td>—</td>
+        </tr>
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>

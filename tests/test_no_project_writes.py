@@ -53,14 +53,21 @@ PACKAGE_ROOT = REPO_ROOT / "biotech_sniper"
 # they reference assets that legitimately live inside the package
 # itself (not state files):
 #
-# * ``paths.py``         — fallback when BIOTECH_SNIPER_HOME is unset.
-# * ``db/__init__.py``   — locates ``schema.sql`` next to the module.
-# * ``audit.py``         — locates ``.env`` *one or two levels above*
-#                          the package, never under the package.
+# * ``paths.py``           — fallback when BIOTECH_SNIPER_HOME is unset.
+# * ``db/__init__.py``     — locates ``schema.sql`` next to the module.
+# * ``audit.py``           — locates ``.env`` *one or two levels above*
+#                            the package, never under the package.
+# * ``calendar/pdufa.py``  — locates the bundled, read-only
+#                            ``seed/pdufa_seed.json`` next to the module
+#                            (used as the last-good fallback dataset
+#                            when the live BiopharmCatalyst HTML is
+#                            blocked by Cloudflare). The seed file is
+#                            never written to from production code.
 ALLOWED_PATH_FILE_USES = {
     PACKAGE_ROOT / "paths.py",
     PACKAGE_ROOT / "db" / "__init__.py",
     PACKAGE_ROOT / "audit.py",
+    PACKAGE_ROOT / "calendar" / "pdufa.py",
 }
 
 

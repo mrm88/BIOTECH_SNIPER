@@ -1,0 +1,67 @@
+{
+  "_comment": [
+    "Manually curated PDUFA seed entries used as the last-good fallback by",
+    "biotech_sniper.calendar.pdufa when the BiopharmCatalyst HTML source is",
+    "blocked by Cloudflare or the operator runs the CLI in a sandbox without",
+    "outbound network access. Each entry MUST have ticker (uppercase),",
+    "drug, action_date (ISO-8601 YYYY-MM-DD), sponsor, and source_url.",
+    "",
+    "These dates target a rolling 90-day window centered on the bundling",
+    "date and are refreshed by future operator runs. They are not guaranteed",
+    "to reflect the live FDA pipeline; the live BiopharmCatalyst scrape",
+    "supersedes them whenever it succeeds (UPSERT on the composite UNIQUE",
+    "key (ticker, drug, action_date))."
+  ],
+  "source_url": "https://www.biopharmcatalyst.com/calendars/fda-calendar",
+  "as_of_date": "2026-04-15",
+  "entries": [
+    {
+      "ticker": "VRTX",
+      "drug": "Suzetrigine",
+      "action_date": "2026-05-30",
+      "sponsor": "Vertex Pharmaceuticals"
+    },
+    {
+      "ticker": "AXSM",
+      "drug": "AXS-05 (Auvelity)",
+      "action_date": "2026-06-15",
+      "sponsor": "Axsome Therapeutics"
+    },
+    {
+      "ticker": "BMRN",
+      "drug": "Roctavian",
+      "action_date": "2026-06-30",
+      "sponsor": "BioMarin Pharmaceutical"
+    },
+    {
+      "ticker": "SRPT",
+      "drug": "Elevidys (label expansion)",
+      "action_date": "2026-07-10",
+      "sponsor": "Sarepta Therapeutics"
+    },
+    {
+      "ticker": "IDYA",
+      "drug": "Darovasertib",
+      "action_date": "2026-07-25",
+      "sponsor": "IDEAYA Biosciences"
+    },
+    {
+      "ticker": "REPL",
+      "drug": "Vusolimogene oncorepvec (RP1)",
+      "action_date": "Q3 2026",
+      "sponsor": "Replimune"
+    },
+    {
+      "ticker": "CMPS",
+      "drug": "COMP360 psilocybin",
+      "action_date": "H2 2026",
+      "sponsor": "COMPASS Pathways"
+    },
+    {
+      "ticker": "ITCI",
+      "drug": "Lumateperone (label expansion)",
+      "action_date": "2026-05-15",
+      "sponsor": "Intra-Cellular Therapies"
+    }
+  ]
+}
