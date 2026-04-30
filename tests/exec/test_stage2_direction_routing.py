@@ -12,3 +12,12 @@ node-ID forms collect.
 """
 
 from tests.test_stage2_dispatcher import *  # noqa: F401,F403
+
+# f-m3-10 adds the halted-underlying assertion VAL-M3-090; the canonical
+# body lives in ``tests.test_stage2_paper_executor`` (the wiring layer),
+# but the validation contract Evidence pins the node ID under this
+# direction-routing path. Re-export the single test the contract names
+# so the dual-path collection still works.
+from tests.test_stage2_paper_executor import (  # noqa: F401
+    test_halted_underlying_rejects_cleanly,
+)

@@ -7,5 +7,9 @@ play_card destined for :class:`biotech_sniper.paper_executor.PaperExecutor`.
 
 Public surface (Reading-B M3):
 
-* :mod:`biotech_sniper.exec.stage2_dispatcher`
+* :mod:`biotech_sniper.exec.stage2_dispatcher` — direction + OTM
+  strike routing → single-leg ``news_event_entry`` play_card.
+* :mod:`biotech_sniper.exec.stage2_paper_executor` — wiring from
+  the dispatcher to :class:`biotech_sniper.paper_executor.PaperExecutor`,
+  including the underlying halted/delisted pre-check (VAL-M3-090).
 """
