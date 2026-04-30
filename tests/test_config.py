@@ -21,12 +21,43 @@ from __future__ import annotations
 import importlib
 import sys
 
+import pytest
+
 
 def _reload_config():
     """Reload the config module so module-level constants pick up env changes."""
     if "biotech_sniper.config" in sys.modules:
         return importlib.reload(sys.modules["biotech_sniper.config"])
     return importlib.import_module("biotech_sniper.config")
+
+
+# ---------------------------------------------------------------------------
+# Defensive teardown — keep config module state from leaking across tests.
+# ---------------------------------------------------------------------------
+#
+# Every test in this file calls ``importlib.reload(biotech_sniper.config)``
+# while ``LLM_PROVIDERS_DEEP`` (or another narrow override) is briefly set
+# via ``monkeypatch.setenv``. ``monkeypatch.setenv`` restores the env var on
+# teardown, but it does NOT undo the module reload — so module-level
+# constants such as ``LLM_PROVIDERS["deep"]`` keep the leaked value in
+# ``sys.modules`` and bleed into sibling tests under xdist's loadfile
+# distribution (root cause discovered by f-misc-03; see
+# tests/test_unified_scorer_cli.py).
+#
+# This autouse fixture re-reloads ``biotech_sniper.config`` after every test
+# in this file, with the env restored to its canonical pre-test state by
+# ``monkeypatch`` (whose teardown runs before this fixture's teardown
+# because monkeypatch is a non-autouse fixture requested by each test, and
+# pytest finalises fixtures in LIFO order). The reload snaps module
+# constants back to whatever the natural environment yields, so no leaked
+# ``LLM_PROVIDERS["deep"] = ["anthropic"]`` (or similar) survives into the
+# next test.
+@pytest.fixture(autouse=True)
+def _restore_config_module_after_test():
+    """Reload biotech_sniper.config after each test to revert module state."""
+    yield
+    if "biotech_sniper.config" in sys.modules:
+        importlib.reload(sys.modules["biotech_sniper.config"])
 
 
 def _clear_env(monkeypatch):

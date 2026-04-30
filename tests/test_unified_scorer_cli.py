@@ -309,20 +309,15 @@ def test_cli_warns_on_missing_gemini_key(
     # way, the assertion below only checks that gemini is NOT in
     # providers_used; it does not require anthropic to be present.
     #
-    # f-misc-03 isolation: ``_resolve_deep_providers`` falls back to
-    # ``_config.LLM_PROVIDERS["deep"]`` (a module-level constant
-    # captured at import time) when ``LLM_PROVIDERS_DEEP`` is unset.
-    # Sibling tests in this suite (notably ``tests/test_config.py``
-    # and ``tests/test_gemini_client.py``) re-import / reload
-    # ``biotech_sniper.config`` while ``LLM_PROVIDERS_DEEP=anthropic``
-    # is briefly in scope. ``monkeypatch.setenv`` restores the env
-    # var on teardown but does NOT undo the module reload, so the
-    # leaked ``LLM_PROVIDERS["deep"] = ["anthropic"]`` persists in
-    # ``sys.modules`` and elides ``gemini`` from this test's deep-
-    # provider list. Pin the env var explicitly to the canonical
-    # default so this test is robust regardless of any prior reload
-    # state in the same xdist worker.
-    monkeypatch.setenv("LLM_PROVIDERS_DEEP", "anthropic,gemini")
+    # NOTE (f-misc-04): the upstream root cause of cross-test config
+    # module-state leakage was fixed in tests/test_config.py and
+    # tests/test_gemini_client.py via an autouse teardown fixture that
+    # re-reloads ``biotech_sniper.config`` after every test in those
+    # files. With that fix in place, sibling tests no longer leave
+    # ``LLM_PROVIDERS["deep"] = ["anthropic"]`` lingering in
+    # ``sys.modules``, so this test no longer needs the defensive
+    # ``LLM_PROVIDERS_DEEP=anthropic,gemini`` pin that f-misc-03
+    # originally added as a workaround.
 
     db_path = _redirect_data_dir(monkeypatch, tmp_path / "data")
     _redirect_play_cards_root(monkeypatch, tmp_path)
@@ -439,14 +434,13 @@ def test_cli_dry_run_warns_on_missing_gemini_key(
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("XAI_API_KEY", raising=False)
-    # f-misc-03 isolation: pin LLM_PROVIDERS_DEEP=anthropic,gemini so
-    # this test is robust against config-module reloads from sibling
-    # tests (``test_config.py`` / ``test_gemini_client.py``) that
-    # leak ``LLM_PROVIDERS["deep"] = ["anthropic"]`` via
-    # ``importlib.reload(_config)`` while ``LLM_PROVIDERS_DEEP=anthropic``
-    # is briefly in scope. See companion comment in
+    # NOTE (f-misc-04): the f-misc-03 ``LLM_PROVIDERS_DEEP=anthropic,gemini``
+    # workaround is no longer required — ``test_config.py`` and
+    # ``test_gemini_client.py`` now ship an autouse teardown fixture
+    # that re-reloads ``biotech_sniper.config`` after every test, so
+    # the leaked ``LLM_PROVIDERS["deep"] = ["anthropic"]`` no longer
+    # survives into this test. See companion comment in
     # ``test_cli_warns_on_missing_gemini_key`` above.
-    monkeypatch.setenv("LLM_PROVIDERS_DEEP", "anthropic,gemini")
 
     db_path = _redirect_data_dir(monkeypatch, tmp_path / "data")
     _redirect_play_cards_root(monkeypatch, tmp_path)

@@ -38,6 +38,51 @@ CASSETTE_DIR = Path(__file__).parent / "fixtures" / "cassettes" / "gemini"
 
 
 # ---------------------------------------------------------------------------
+# Defensive teardown — keep config / gemini_client module state from leaking
+# across tests under xdist's loadfile distribution.
+# ---------------------------------------------------------------------------
+#
+# Several tests in this file call ``importlib.reload(biotech_sniper.config)``
+# (and ``importlib.reload(gemini_client)``) while ``LLM_PROVIDERS_DEEP`` is
+# briefly set to a narrow value (e.g. ``"anthropic"``) via
+# ``monkeypatch.setenv``. ``monkeypatch.setenv`` restores the env var on
+# teardown, but it does NOT undo the module reload — so module-level
+# constants such as ``LLM_PROVIDERS["deep"]`` keep the leaked value in
+# ``sys.modules`` and bleed into sibling tests under xdist's loadfile
+# distribution (root cause discovered by f-misc-03; see
+# tests/test_unified_scorer_cli.py).
+#
+# This autouse fixture re-reloads both modules after every test in this
+# file. ``monkeypatch`` is a non-autouse fixture requested by each test,
+# so its teardown runs before this fixture's teardown (pytest finalises
+# fixtures in LIFO order, and autouse fixtures are set up first). By the
+# time we reload, the env has been restored to its natural pre-test state,
+# so the reload snaps the constants back to canonical values.
+@pytest.fixture(autouse=True)
+def _restore_config_module_after_test():
+    """Reload biotech_sniper.config after each test to revert module state.
+
+    We deliberately do NOT reload :mod:`biotech_sniper.llm.gemini_client`
+    here: this test file imports concrete classes (``GeminiClient``,
+    ``GeminiAuthError``, ``GeminiParseError``, ``GeminiError``) at
+    module load time, and reloading ``gemini_client`` would replace the
+    module's class objects so that the bare names captured at import
+    time would no longer ``isinstance``-match exceptions raised by
+    methods looked up on the reloaded classes — every ``pytest.raises(
+    GeminiParseError)`` and similar would silently start failing.
+    The handful of tests below that explicitly call
+    ``importlib.reload(gemini_client)`` already pair the reload with a
+    matching reload in their own ``try/finally``, so we leave that
+    module's state to those tests.
+    """
+    import sys as _sys
+
+    yield
+    if "biotech_sniper.config" in _sys.modules:
+        importlib.reload(_sys.modules["biotech_sniper.config"])
+
+
+# ---------------------------------------------------------------------------
 # Fake Google GenAI SDK doubles
 # ---------------------------------------------------------------------------
 
