@@ -290,6 +290,129 @@ class TestParseEmaHtml:
         with pytest.raises(EMAParseError):
             parse_ema_html(body)
 
+    def test_product_header_at_column_zero_is_not_dropped_by_or_fallback(
+        self,
+    ) -> None:
+        """Regression for f-fix-m1-05-ema-header-index-zero.
+
+        With the old ``idx_product = col_index.get("product") or
+        col_index.get("medicine") or ...`` chain, a Product header
+        at column 0 caused ``col_index.get("product")`` to return
+        the int ``0`` (falsy), the chain fell through to the next
+        ``col_index.get("medicine")`` (None), and finally
+        ``idx_product`` ended up as ``None``. The parser then
+        dispatched to its heuristic "longest non-date / non-ticker
+        / non-sponsor cell" fallback which — given a typical CHMP
+        row layout — picks the long Indication string instead of
+        the actual Product name.
+
+        With the explicit ``_idx``-based resolution, a Product
+        header at column 0 is preserved and the parsed
+        ``product`` equals the column-0 cell verbatim.
+        """
+        long_indication = (
+            "Treatment of advanced metastatic colorectal carcinoma "
+            "in adult patients harbouring KRAS G12C mutation after "
+            "prior systemic therapy"
+        )
+        html = (
+            "<html><body><table>"
+            "<tr>"
+            "<th>Product</th>"
+            "<th>Indication</th>"
+            "<th>Sponsor</th>"
+            "<th>Meeting date</th>"
+            "</tr>"
+            "<tr>"
+            "<td>Brikoda</td>"
+            f"<td>{long_indication}</td>"
+            "<td>Acme Biotech Holdings</td>"
+            "<td>22 May 2026</td>"
+            "</tr>"
+            "</table></body></html>"
+        ).encode("utf-8")
+
+        rows = parse_ema_html(html)
+        assert len(rows) == 1, rows
+        assert rows[0].product == "Brikoda", rows[0].product
+        # The indication string is intentionally far longer than
+        # "Brikoda" so the heuristic fallback would pick it if the
+        # `or`-on-zero bug were still present.
+        assert rows[0].product != long_indication, (
+            "heuristic fallback dispatched on column-0 header — "
+            "`or`-on-zero bug regression"
+        )
+
+    def test_sponsor_header_at_column_zero_is_not_dropped_by_or_fallback(
+        self,
+    ) -> None:
+        """Regression for f-fix-m1-05-ema-header-index-zero (ticker_or_sponsor).
+
+        With the old chain
+        ``idx_sponsor = col_index.get("company") or
+        col_index.get("sponsor") or ...``, a Sponsor header at
+        column 0 produced ``idx_sponsor = None`` (because
+        ``col_index.get("sponsor") == 0`` is falsy), no sponsor
+        was extracted, the heuristic ticker recovery found no
+        ticker-shaped cell, and the entire row was dropped because
+        ``ticker_or_sponsor`` resolved to ``None``.
+
+        With the explicit ``_idx``-based resolution, the sponsor
+        cell at column 0 is preserved and ``ticker_or_sponsor``
+        equals the upper-cased sponsor string.
+        """
+        html = (
+            "<html><body><table>"
+            "<tr>"
+            "<th>Sponsor</th>"
+            "<th>Product</th>"
+            "<th>Meeting date</th>"
+            "</tr>"
+            "<tr>"
+            "<td>Acme Biotech Holdings</td>"
+            "<td>Wonderdrug</td>"
+            "<td>22 May 2026</td>"
+            "</tr>"
+            "</table></body></html>"
+        ).encode("utf-8")
+
+        rows = parse_ema_html(html)
+        assert len(rows) == 1, rows
+        assert rows[0].ticker_or_sponsor == "ACME BIOTECH HOLDINGS"
+        assert rows[0].sponsor == "Acme Biotech Holdings"
+        assert rows[0].product == "Wonderdrug"
+        assert rows[0].meeting_date == "2026-05-22"
+
+
+class TestIdxHelper:
+    """Direct unit-tests for the :func:`_idx` helper.
+
+    These pin the contract that a column at index 0 is preserved
+    rather than silently treated as missing by an ``or``-chain.
+    """
+
+    def test_returns_zero_for_first_column_header(self) -> None:
+        col_index = {"product": 0, "indication": 1, "ticker": 2}
+        assert ema_module._idx(col_index, "product") == 0
+
+    def test_returns_first_match_when_zero_index(self) -> None:
+        # First match wins, even if it lands on column 0 (falsy int).
+        col_index = {"product": 0, "medicine": 1}
+        assert ema_module._idx(col_index, "product", "medicine") == 0
+
+    def test_falls_through_to_second_name_when_first_missing(
+        self,
+    ) -> None:
+        col_index = {"medicine": 0}
+        assert ema_module._idx(col_index, "product", "medicine") == 0
+
+    def test_returns_none_when_no_name_present(self) -> None:
+        col_index = {"ticker": 2}
+        assert ema_module._idx(col_index, "product", "medicine") is None
+
+    def test_returns_none_for_empty_col_index(self) -> None:
+        assert ema_module._idx({}, "product") is None
+
 
 # ---------------------------------------------------------------------------
 # parse_seed_json

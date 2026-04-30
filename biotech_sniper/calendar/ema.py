@@ -134,6 +134,7 @@ __all__ = [
     "EMAParseError",
     "ParsedEMA",
     "ScrapeResult",
+    "_idx",
     "default_db_path",
     "default_seed_path",
     "ensure_ema_calendar_table",
@@ -586,6 +587,44 @@ _TICKER_RE: Final[re.Pattern[str]] = re.compile(
 )
 
 
+def _idx(col_index: dict[str, int], *names: str) -> int | None:
+    """Return the first matching header column index, or :data:`None`.
+
+    This helper exists to lock down a subtle bug where a column at
+    index 0 is silently treated as "missing" by ``or``-style
+    fallback chains:
+
+    .. code-block:: python
+
+        # BUG: when "product" is at column 0, ``col_index.get("product")``
+        # returns the int 0, which is FALSY, so the chain dispatches
+        # to the next ``col_index.get("medicine")`` (also None) and
+        # finally drops idx_product to None — at which point the
+        # heuristic "longest non-date/non-ticker cell" fallback runs
+        # and can return the indication string instead of the
+        # product name.
+        idx_product = (
+            col_index.get("product")
+            or col_index.get("medicine")
+            or col_index.get("inn")
+        )
+
+    The fix is to use explicit ``in`` membership tests so a
+    column-0 hit is preserved unchanged. The first ``name`` present
+    in ``col_index`` wins.
+
+    Returns
+    -------
+    int | None
+        The column index of the first matching header name, or
+        :data:`None` when none of ``names`` is present.
+    """
+    for name in names:
+        if name in col_index:
+            return col_index[name]
+    return None
+
+
 def _is_likely_ticker(token: str) -> bool:
     """Return ``True`` when ``token`` looks like a US biotech ticker."""
     if not (1 <= len(token) <= 6):
@@ -657,35 +696,42 @@ def parse_ema_html(
                 header_cells = [_extract_text(th).lower() for th in ths]
 
         col_index = {h: i for i, h in enumerate(header_cells)}
-        idx_ticker = (
-            col_index.get("ticker")
-            or col_index.get("symbol")
+        # NOTE: explicit ``in``-based ``_idx`` resolution — never
+        # ``col_index.get(name) or <fallback>``. ``or`` treats a
+        # column at index 0 as missing (0 is falsy in Python) and
+        # silently dispatches to the heuristic fallback path,
+        # which for ``product`` can return the indication string
+        # rather than the actual product name.
+        idx_ticker = _idx(col_index, "ticker", "symbol")
+        idx_sponsor = _idx(
+            col_index,
+            "company",
+            "sponsor",
+            "applicant",
+            "marketing authorisation holder",
+            "mah",
         )
-        idx_sponsor = (
-            col_index.get("company")
-            or col_index.get("sponsor")
-            or col_index.get("applicant")
-            or col_index.get("marketing authorisation holder")
-            or col_index.get("mah")
+        idx_product = _idx(
+            col_index,
+            "product",
+            "medicine",
+            "inn",
+            "name",
+            "invented name",
         )
-        idx_product = (
-            col_index.get("product")
-            or col_index.get("medicine")
-            or col_index.get("inn")
-            or col_index.get("name")
-            or col_index.get("invented name")
+        idx_meeting = _idx(
+            col_index,
+            "meeting date",
+            "meeting",
+            "chmp meeting",
+            "date of meeting",
         )
-        idx_meeting = (
-            col_index.get("meeting date")
-            or col_index.get("meeting")
-            or col_index.get("chmp meeting")
-            or col_index.get("date of meeting")
-        )
-        idx_opinion = (
-            col_index.get("opinion date")
-            or col_index.get("opinion")
-            or col_index.get("chmp opinion")
-            or col_index.get("date of opinion")
+        idx_opinion = _idx(
+            col_index,
+            "opinion date",
+            "opinion",
+            "chmp opinion",
+            "date of opinion",
         )
 
         for tr in table.find_all("tr"):
