@@ -17,11 +17,49 @@ Net effect: 3 tests in ``test_config.py`` and 1 in ``test_build_report.py``
 fail on the VPS but pass locally where no ``.env`` file is present.
 Stubbing ``dotenv.load_dotenv`` to a no-op for every test eliminates the
 source of pollution while leaving production code unchanged.
+
+websockets.legacy DeprecationWarning pre-emption
+------------------------------------------------
+Feature ``f-misc-02-websockets-legacy-deprecation``: ``alpaca-py==0.34.0``
+imports ``websockets.legacy`` at the top of ``alpaca.trading.stream``,
+and ``websockets==14.2`` emits a one-shot ``DeprecationWarning`` from
+its ``legacy/__init__.py`` module body the first time that module is
+loaded. The smoke-import coverage in ``test_network_whitelist`` and the
+migration tests then surface the warning during ``-n 2`` runs (and
+upgrade it to an error under ``-W error::DeprecationWarning``).
+
+We cannot bump ``alpaca-py`` in this scoped feature without re-recording
+cassettes, so we pre-import ``websockets.legacy`` here under a single
+:func:`warnings.catch_warnings` block. The module body runs exactly once
+per Python process; subsequent ``import websockets.legacy`` calls are
+``sys.modules`` cache hits that never re-execute the ``warnings.warn``
+line. The filter is scoped to this single import (one specific
+``DeprecationWarning`` whose message contains ``websockets.legacy``) and
+torn down immediately on exit, so no other warnings are silenced.
 """
 
 from __future__ import annotations
 
+import warnings
+
 import pytest
+
+# Targeted pre-import: consume the one-shot websockets.legacy
+# DeprecationWarning before any test triggers an alpaca-py import. The
+# filter is scoped to message=".*websockets\.legacy.*" so a sibling
+# DeprecationWarning would still propagate. Errors loading the module
+# (e.g. websockets uninstalled) are silently ignored — the only
+# guarantee we need is that *if* it loads, no warning surfaces from it.
+with warnings.catch_warnings():
+    warnings.filterwarnings(
+        "ignore",
+        message=r".*websockets\.legacy is deprecated.*",
+        category=DeprecationWarning,
+    )
+    try:
+        import websockets.legacy  # noqa: F401  # pre-emptive load
+    except Exception:  # pragma: no cover - websockets always installed
+        pass
 
 
 @pytest.fixture(autouse=True)
