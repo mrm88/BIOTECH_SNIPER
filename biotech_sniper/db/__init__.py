@@ -425,6 +425,19 @@ _ALTER_TABLE_ADD_COLUMNS: tuple[tuple[str, str, str], ...] = (
     # Used by the adverse-news exit hook to detect headlines that
     # should auto-close active plays.
     ("news_events", "enrichment_label", "enrichment_label TEXT"),
+    # f-m3-02 (Reading-B Stage-2): ``cost_estimated`` is set to ``1``
+    # when the Perplexity response did NOT carry a
+    # ``usage.cost.total_cost`` block and the per-row ``cost_usd``
+    # therefore comes from the local fallback formula. ``0`` (the
+    # default) when the upstream cost is taken verbatim. Used by the
+    # Stage-2 daily $-cap projection to know whether to widen the
+    # safety margin (estimated rows may diverge from the upstream
+    # bill by ±15-20%).
+    (
+        "llm_cost_ledger",
+        "cost_estimated",
+        "cost_estimated INTEGER NOT NULL DEFAULT 0",
+    ),
 )
 
 

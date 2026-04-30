@@ -447,7 +447,26 @@ def _recreate_llm_cost_ledger_with_perplexity(conn: sqlite3.Connection) -> None:
     """
     cols = _column_names(conn, _LCL_TABLE_NAME)
     has_note = "note" in cols
-    note_clause = ",\n    note               TEXT" if has_note else ""
+    # f-m3-02: ``cost_estimated`` is added to the ledger by
+    # ``_ALTER_TABLE_ADD_COLUMNS`` (see :mod:`biotech_sniper.db`)
+    # BEFORE this v10 migration runs, so a v9-schema db that has
+    # already gone through :func:`db.run_migrations` will arrive
+    # here with the column present. The recreate dance must
+    # preserve it (otherwise the column would be silently dropped
+    # on the v9→v10 upgrade and re-added by the post-v10
+    # ALTER pass on the next connect, producing churn detected by
+    # ``test_idempotent_rerun_on_v10``).
+    has_cost_estimated = "cost_estimated" in cols
+    extra_clauses = []
+    if has_note:
+        extra_clauses.append("note               TEXT")
+    if has_cost_estimated:
+        extra_clauses.append(
+            "cost_estimated     INTEGER NOT NULL DEFAULT 0"
+        )
+    extra_ddl = (
+        ",\n    " + ",\n    ".join(extra_clauses) if extra_clauses else ""
+    )
 
     # Step 1: create the new table under a non-conflicting alias.
     conn.execute(
@@ -464,39 +483,28 @@ def _recreate_llm_cost_ledger_with_perplexity(conn: sqlite3.Connection) -> None:
             latency_ms         INTEGER,
             cost_usd           REAL,
             request_id         TEXT,
-            called_at          TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')){note_clause}
+            called_at          TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')){extra_ddl}
         )
         """
     )
 
+    base_cols = (
+        "id, provider, model_id, purpose, prompt_tokens, "
+        "completion_tokens, latency_ms, cost_usd, request_id, called_at"
+    )
+    extra_cols = ""
     if has_note:
-        conn.execute(
-            f"""
-            INSERT INTO {_LCL_NEW_ALIAS} (
-                id, provider, model_id, purpose, prompt_tokens,
-                completion_tokens, latency_ms, cost_usd, request_id,
-                called_at, note
-            )
-            SELECT id, provider, model_id, purpose, prompt_tokens,
-                   completion_tokens, latency_ms, cost_usd, request_id,
-                   called_at, note
-            FROM {_LCL_TABLE_NAME}
-            """
-        )
-    else:
-        conn.execute(
-            f"""
-            INSERT INTO {_LCL_NEW_ALIAS} (
-                id, provider, model_id, purpose, prompt_tokens,
-                completion_tokens, latency_ms, cost_usd, request_id,
-                called_at
-            )
-            SELECT id, provider, model_id, purpose, prompt_tokens,
-                   completion_tokens, latency_ms, cost_usd, request_id,
-                   called_at
-            FROM {_LCL_TABLE_NAME}
-            """
-        )
+        extra_cols += ", note"
+    if has_cost_estimated:
+        extra_cols += ", cost_estimated"
+
+    conn.execute(
+        f"""
+        INSERT INTO {_LCL_NEW_ALIAS} ({base_cols}{extra_cols})
+        SELECT {base_cols}{extra_cols}
+        FROM {_LCL_TABLE_NAME}
+        """
+    )
 
     # Step 2: drop the legacy table. The DROP is constructed via
     # f-string interpolation of :data:`_LCL_TABLE_NAME` so the

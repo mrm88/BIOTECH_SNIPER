@@ -75,12 +75,15 @@ from __future__ import annotations
 import json
 import logging
 import random
+import sqlite3
 import time
+from pathlib import Path
 from typing import Any, Mapping, Optional
 
 import requests
 
-from biotech_sniper import config
+from biotech_sniper import config, db
+from biotech_sniper.paths import DATA_DIR
 
 __all__ = [
     "PerplexityClient",
@@ -97,6 +100,12 @@ __all__ = [
     "DEFAULT_TIMEOUT",
     "DEFAULT_MAX_RETRIES",
     "DEFAULT_BACKOFF_BASE",
+    "DEFAULT_PURPOSE",
+    "INPUT_USD_PER_TOKEN",
+    "OUTPUT_USD_PER_TOKEN",
+    "SEARCH_USD_PER_LOW_REQUEST",
+    "TOKEN_SANITY_CAP",
+    "compute_cost_usd",
     "score_candidate",
 ]
 
@@ -133,6 +142,65 @@ DEFAULT_MAX_RETRIES: int = 3
 #: i.e. retry-0 ∈ [0.4, 0.6], retry-1 ∈ [0.8, 1.2], retry-2 ∈ [1.6, 2.4]
 #: for the contract base of 0.5s.
 DEFAULT_BACKOFF_BASE: float = 0.5
+
+
+# ---------------------------------------------------------------------------
+# Cost-ledger pricing (Reading-B Stage-2; VAL-M3-014)
+# ---------------------------------------------------------------------------
+
+#: Default ``llm_cost_ledger.purpose`` for Stage-2 event-driven calls.
+#: Mirrors the rest of the deep-tier providers' purpose taxonomy
+#: (``deep_science``, ``debate``, ...) so the f-m4 Reading-B report
+#: can group rows by ``purpose`` without special-casing perplexity.
+DEFAULT_PURPOSE: str = "stage2_event_scoring"
+
+#: Perplexity sonar list pricing (USD per input token). Documented
+#: at $1 per 1M input tokens (low-context tier; sonar-pro/sonar-deep
+#: are explicitly forbidden by the Stage-2 daily $20 cap).
+INPUT_USD_PER_TOKEN: float = 1.0 / 1_000_000
+
+#: Perplexity sonar list pricing (USD per completion token). $1 per 1M.
+OUTPUT_USD_PER_TOKEN: float = 1.0 / 1_000_000
+
+#: Per-request search-context surcharge for ``search_context_size="low"``.
+#: $5 per 1k requests at the time of mission setup. Higher contexts
+#: (``medium`` / ``high``) carry larger surcharges and are forbidden
+#: by the Stage-2 budget so we never bill them.
+SEARCH_USD_PER_LOW_REQUEST: float = 5.0 / 1000.0
+
+#: Sanity-cap on per-call ``usage.total_tokens``. Exceeding this
+#: emits a WARNING but does NOT clip the recorded ``cost_usd`` —
+#: the upstream bill is what it is, the cap is a tripwire to surface
+#: prompt-bloat / runaway responses for human review (VAL-M3-099).
+TOKEN_SANITY_CAP: int = 50_000
+
+
+def compute_cost_usd(
+    *,
+    prompt_tokens: int,
+    completion_tokens: int,
+    search_context: Optional[str],
+) -> float:
+    """Fallback cost formula matching the documented sonar pricing.
+
+    ``cost_usd = prompt_tokens × INPUT_RATE + completion_tokens ×
+    OUTPUT_RATE + (search_context == 'low' ? SEARCH_RATE : 0)``.
+
+    The ``search_context`` argument is matched case-insensitively;
+    any value other than ``'low'`` (including ``None``, the empty
+    string, ``'medium'``, ``'high'``) excludes the search surcharge —
+    Reading-B never sends those tiers, but the helper is defensive.
+
+    Returns a non-negative ``float`` in USD. The result is NOT
+    rounded so callers can compare against the recorded
+    ``cost_usd`` within ``1e-9`` (VAL-M3-014 evidence threshold).
+    """
+    p = max(0, int(prompt_tokens))
+    c = max(0, int(completion_tokens))
+    base = p * INPUT_USD_PER_TOKEN + c * OUTPUT_USD_PER_TOKEN
+    if isinstance(search_context, str) and search_context.lower() == "low":
+        base += SEARCH_USD_PER_LOW_REQUEST
+    return float(base)
 
 
 # ---------------------------------------------------------------------------
@@ -432,6 +500,9 @@ class PerplexityClient:
         max_retries: int = DEFAULT_MAX_RETRIES,
         backoff_base: float = DEFAULT_BACKOFF_BASE,
         timeout: float = DEFAULT_TIMEOUT,
+        db_path: Optional[Path] = None,
+        default_purpose: str = DEFAULT_PURPOSE,
+        search_context_size: str = "low",
     ) -> None:
         resolved_key = (
             api_key if api_key is not None else config.get_perplexity_api_key()
@@ -450,6 +521,12 @@ class PerplexityClient:
         self._max_retries: int = int(max_retries)
         self._backoff_base: float = float(backoff_base)
         self._timeout: float = float(timeout)
+        self._db_path: Path = (
+            Path(db_path) if db_path is not None
+            else DATA_DIR / "alpha_sniper.db"
+        )
+        self._default_purpose: str = default_purpose
+        self._search_context_size: str = search_context_size
 
     # ------------------------------------------------------------------
     # Public API
@@ -460,6 +537,7 @@ class PerplexityClient:
         candidate: Mapping[str, Any],
         *,
         model: Optional[str] = None,
+        purpose: Optional[str] = None,
     ) -> dict[str, Any]:
         """Score a single Stage-2 candidate event.
 
@@ -471,15 +549,52 @@ class PerplexityClient:
 
         Raises a typed subclass of :class:`PerplexityClientError` on
         failure — see the module docstring for the full hierarchy.
+
+        Side effect: appends EXACTLY ONE row to ``llm_cost_ledger``
+        with ``provider='perplexity'`` per HTTP-200 response received
+        from Perplexity. The ledger row is written BEFORE the
+        verdict is parsed/validated so the audit trail captures the
+        upstream bill even when the response body subsequently fails
+        schema validation (VAL-M3-012, audit-safe ordering invariant).
+
+        Cost computation (VAL-M3-014, VAL-M3-082):
+
+        * If the response carries ``usage.cost.total_cost``, that
+          value is recorded verbatim and ``cost_estimated=0``.
+        * Otherwise the local fallback formula is used
+          (``compute_cost_usd``) and ``cost_estimated=1``.
+
+        Token-cap (VAL-M3-099): when ``usage.total_tokens`` exceeds
+        :data:`TOKEN_SANITY_CAP` (50_000) a WARNING is logged but
+        the recorded ``cost_usd`` reflects the true bill — no
+        clipping.
         """
         chosen_model = model or self._model
+        chosen_purpose = purpose if purpose is not None else self._default_purpose
         messages = [
             {"role": "system", "content": STAGE2_SYSTEM_PROMPT},
             {"role": "user", "content": _build_candidate_user_prompt(candidate)},
         ]
+
+        t_start = time.perf_counter()
         response_json = self._chat_completion(
             messages=messages, model=chosen_model
         )
+        latency_ms = max(0, int((time.perf_counter() - t_start) * 1000))
+
+        # Audit-safe ordering: persist the cost-ledger row BEFORE the
+        # verdict is parsed/validated so even a schema-violating body
+        # leaves a trace in ``llm_cost_ledger``. The ensemble's daily
+        # $-cap projection thus sees the bill regardless of whether
+        # the call's verdict was usable.
+        self._record_cost_ledger_row(
+            response_json=response_json,
+            model_id=_extract_response_model_id(response_json, default=chosen_model),
+            purpose=chosen_purpose,
+            latency_ms=latency_ms,
+            request_id=_extract_response_request_id(response_json),
+        )
+
         content = self._extract_message_content(response_json)
         return self._parse_and_validate_verdict(content)
 
@@ -702,6 +817,113 @@ class PerplexityClient:
             ) from exc
         return _validate_against_schema(data)
 
+    # ------------------------------------------------------------------
+    # Cost ledger
+    # ------------------------------------------------------------------
+
+    def _record_cost_ledger_row(
+        self,
+        *,
+        response_json: Mapping[str, Any],
+        model_id: str,
+        purpose: str,
+        latency_ms: int,
+        request_id: Optional[str],
+    ) -> None:
+        """Append exactly one row to ``llm_cost_ledger`` for this call.
+
+        Computes ``cost_usd`` from the response's ``usage`` block:
+
+        * If ``usage.cost.total_cost`` is present and finite, that
+          value is used verbatim and ``cost_estimated=0``.
+        * Otherwise the local fallback formula is used
+          (:func:`compute_cost_usd`) and ``cost_estimated=1``.
+
+        Token-cap tripwire (VAL-M3-099): when ``usage.total_tokens``
+        exceeds :data:`TOKEN_SANITY_CAP` a single WARNING is emitted
+        — no clipping of the recorded ``cost_usd``.
+
+        Failures to write the row are swallowed at WARNING (mirrors
+        :meth:`GeminiClient._log_cost_row` / :meth:`ClaudeClient._log_cost_row`):
+        a sqlite hiccup must not break the Stage-2 scoring flow. The
+        DB is the source of truth for cost reconciliation, but a
+        missing row causes the daily-cap projection to under-count
+        which is conservative, not catastrophic.
+        """
+        usage = response_json.get("usage") if isinstance(response_json, Mapping) else None
+        prompt_tokens = _coerce_int(_get_nested(usage, "prompt_tokens"), default=0)
+        completion_tokens = _coerce_int(
+            _get_nested(usage, "completion_tokens"), default=0
+        )
+        total_tokens = _coerce_int(
+            _get_nested(usage, "total_tokens"),
+            default=prompt_tokens + completion_tokens,
+        )
+
+        upstream_total_cost = _coerce_float(
+            _get_nested(usage, "cost", "total_cost")
+        )
+        if upstream_total_cost is not None:
+            cost_usd = float(upstream_total_cost)
+            cost_estimated = 0
+        else:
+            cost_usd = compute_cost_usd(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                search_context=self._search_context_size,
+            )
+            cost_estimated = 1
+
+        if total_tokens > TOKEN_SANITY_CAP:
+            logger.warning(
+                "perplexity_client: token usage %d exceeds sanity cap %d "
+                "(prompt=%d, completion=%d); billing accurately at $%.6f",
+                total_tokens,
+                TOKEN_SANITY_CAP,
+                prompt_tokens,
+                completion_tokens,
+                cost_usd,
+            )
+
+        try:
+            conn = db.connect(self._db_path)
+            try:
+                db.run_migrations(conn)
+                with conn:
+                    conn.execute(
+                        """
+                        INSERT INTO llm_cost_ledger (
+                            provider, model_id, purpose,
+                            prompt_tokens, completion_tokens,
+                            latency_ms, cost_usd, request_id,
+                            cost_estimated
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            "perplexity",
+                            model_id,
+                            purpose,
+                            int(prompt_tokens),
+                            int(completion_tokens),
+                            int(latency_ms),
+                            float(cost_usd),
+                            request_id,
+                            int(cost_estimated),
+                        ),
+                    )
+            finally:
+                conn.close()
+        except sqlite3.Error as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "perplexity_client: failed to log llm_cost_ledger row (%s)",
+                exc,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "perplexity_client: unexpected error writing cost ledger: %r",
+                exc,
+            )
+
 
 # ---------------------------------------------------------------------------
 # Module-level convenience
@@ -726,6 +948,77 @@ def score_candidate(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _get_nested(mapping: Any, *keys: str) -> Any:
+    """Return ``mapping[keys[0]][keys[1]]...`` or ``None`` if absent.
+
+    Used to safely descend into the optional ``usage.cost.total_cost``
+    branch of a Perplexity response without raising on missing keys
+    or non-dict intermediates.
+    """
+    cur: Any = mapping
+    for key in keys:
+        if not isinstance(cur, Mapping):
+            return None
+        cur = cur.get(key)
+    return cur
+
+
+def _coerce_int(value: Any, *, default: int = 0) -> int:
+    """Best-effort int conversion. Returns ``default`` on failure."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        # bool is a subclass of int in Python; we explicitly reject it
+        # so a stray ``True`` from a malformed payload doesn't become 1.
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_float(value: Any) -> Optional[float]:
+    """Return ``float(value)`` when finite, else ``None``."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    if out != out or out in (float("inf"), float("-inf")):  # NaN / inf
+        return None
+    return out
+
+
+def _extract_response_model_id(
+    response_json: Mapping[str, Any], *, default: str
+) -> str:
+    """Return the upstream-echoed ``model`` from a chat-completion response.
+
+    Falls back to ``default`` (the requested model) when the field is
+    missing or not a non-empty string.
+    """
+    if not isinstance(response_json, Mapping):
+        return default
+    candidate = response_json.get("model")
+    if isinstance(candidate, str) and candidate.strip():
+        return candidate
+    return default
+
+
+def _extract_response_request_id(
+    response_json: Mapping[str, Any],
+) -> Optional[str]:
+    """Return the upstream response ``id`` (used as ``request_id`` in the
+    cost ledger) or ``None`` when absent / non-string."""
+    if not isinstance(response_json, Mapping):
+        return None
+    candidate = response_json.get("id")
+    if isinstance(candidate, str) and candidate.strip():
+        return candidate
+    return None
 
 
 def _safe_body_snippet(resp: Any, limit: int = 200) -> str:
