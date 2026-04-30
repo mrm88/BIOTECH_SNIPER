@@ -159,6 +159,15 @@ def _serialize(payload: Mapping[str, Any]) -> str:
 
 _PROTECTED_KEYS: frozenset[str] = frozenset({"ts", "level", "module", "event"})
 
+#: Keys eligible for *fallback* truncation when the main loop has
+#: exhausted every non-protected truncatable string but the line is
+#: still over :data:`MAX_LINE_BYTES`.  ``ts`` / ``level`` / ``module``
+#: remain protected because they are tiny and contractually required
+#: by VAL-M2-033 ({ts, level, event, module}); ``event`` is dropped
+#: from the protected set in this fallback so a pathological
+#: oversized ``event`` payload still respects the strict 4 KB cap.
+_FALLBACK_TRUNCATABLE_KEYS: tuple[str, ...] = ("event", "message")
+
 
 def _find_largest_truncatable_field(
     payload: Mapping[str, Any],
@@ -290,12 +299,9 @@ class TruncatingJSONFormatter(JSONFormatter):
                 payload, frozenset(truncated_keys)
             )
             if key is None:
-                # No more strings to clip; emit best-effort with
-                # the marker so downstream parsers know.
-                payload[_TRUNCATED_MARKER_KEY] = True
-                if original_lengths:
-                    payload[_ORIGINAL_LENGTH_KEY] = original_lengths
-                return _serialize(payload)
+                # No more *non-protected* strings to clip — break
+                # into the fallback / safety-net stages below.
+                break
 
             # Aim a per-field byte budget that comfortably absorbs
             # the excess plus a safety buffer for the marker keys
@@ -321,10 +327,73 @@ class TruncatingJSONFormatter(JSONFormatter):
             encoded = _serialize(payload)
             encoded_bytes = encoded.encode("utf-8")
 
-        # Fallback: the loop hit its bound; return the best-effort
-        # serialisation with the marker set.
-        payload[_TRUNCATED_MARKER_KEY] = True
-        return _serialize(payload)
+        # Fallback pass: the main loop exhausted every non-protected
+        # truncatable field but the line is still oversize.  This
+        # happens when the only large strings live in ``event`` /
+        # ``message`` (both protected by the main loop because the
+        # contract requires ``event``).  Drop ``event`` and
+        # ``message`` from the protected set here — the strict 4 KB
+        # cap (VAL-M2-033) takes precedence over the readability of
+        # the ``event`` payload.  ``ts`` / ``level`` / ``module``
+        # remain protected because they are tiny and contractually
+        # required.
+        for fallback_key in _FALLBACK_TRUNCATABLE_KEYS:
+            excess = len(encoded_bytes) - self.max_bytes
+            if excess <= 0:
+                return encoded
+            value = payload.get(fallback_key)
+            if not isinstance(value, str):
+                continue
+            byte_len = len(value.encode("utf-8"))
+            if byte_len <= 64:
+                # Field is already tiny; nothing to recover here.
+                continue
+            safety = 256
+            target = max(32, byte_len - excess - safety)
+            truncated_value, was_truncated, original_length = truncate_field(
+                value, max_bytes=target
+            )
+            if not was_truncated:
+                continue
+            payload[fallback_key] = truncated_value
+            if original_length is not None:
+                original_lengths[fallback_key] = original_length
+            payload[_TRUNCATED_MARKER_KEY] = True
+            payload[_ORIGINAL_LENGTH_KEY] = original_lengths
+            encoded = _serialize(payload)
+            encoded_bytes = encoded.encode("utf-8")
+
+        if len(encoded_bytes) <= self.max_bytes:
+            return encoded
+
+        # Pathological safety net: even after fallback truncation the
+        # line is still oversize (e.g. an absurdly long ``ts`` /
+        # ``module`` value, or a structured non-string field that we
+        # cannot clip).  Re-emit a minimal skeleton so downstream
+        # tooling (jq, the CLI report) never sees a > 4 KB line.
+        ts_value = payload.get("ts")
+        level_value = payload.get("level")
+        module_value = payload.get("module")
+        skeleton: dict = {
+            "ts": ts_value if isinstance(ts_value, str) else "",
+            "level": level_value if isinstance(level_value, str) else "",
+            "module": module_value if isinstance(module_value, str) else "",
+            "event": "<line_truncated>",
+            _TRUNCATED_MARKER_KEY: True,
+            _ORIGINAL_LENGTH_KEY: len(encoded_bytes),
+        }
+        skeleton_serialized = _serialize(skeleton)
+        skeleton_bytes = skeleton_serialized.encode("utf-8")
+        if len(skeleton_bytes) <= self.max_bytes:
+            return skeleton_serialized
+
+        # Even the skeleton is over budget (would require a multi-KB
+        # ``module`` / ``ts`` / ``level`` value).  Clip those tiny
+        # fields too and emit a degenerate but cap-respecting line.
+        skeleton["ts"] = ""
+        skeleton["level"] = ""
+        skeleton["module"] = ""
+        return _serialize(skeleton)
 
 
 def _resolve_news_log_path(

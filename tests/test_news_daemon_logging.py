@@ -243,6 +243,111 @@ def test_formatter_truncates_oversize_fields_with_marker() -> None:
     assert TRUNCATION_SUFFIX in payload["headline_body"]
 
 
+def test_formatter_strict_4kb_cap_oversize_msg_only() -> None:
+    """``msg='X'*8000`` (no extras) routes into ``event`` and respects the 4 KB cap.
+
+    The original f-m2-08 implementation skipped ``event`` in
+    :func:`_find_largest_truncatable_field` (it was in the protected
+    set), so when the only large string lived in ``event`` the
+    formatter emitted an oversize line — violating VAL-M2-033.
+    """
+
+    formatter = TruncatingJSONFormatter()
+    record = _make_record(msg="X" * 8000)
+    line = formatter.format(record)
+    encoded = line.encode("utf-8")
+    assert len(encoded) <= MAX_LINE_BYTES, (
+        f"line exceeded cap: {len(encoded)} > {MAX_LINE_BYTES}"
+    )
+    payload = json.loads(line)
+    assert payload.get("_truncated") is True
+    assert {"ts", "level", "event", "module"} <= set(payload.keys())
+
+
+def test_formatter_strict_4kb_cap_oversize_event_extra() -> None:
+    """``extra={'event': 'X'*8000}`` is clipped under the strict 4 KB cap."""
+
+    formatter = TruncatingJSONFormatter()
+    record = _make_record(msg="m", extra={"event": "X" * 8000})
+    line = formatter.format(record)
+    encoded = line.encode("utf-8")
+    assert len(encoded) <= MAX_LINE_BYTES, (
+        f"line exceeded cap: {len(encoded)} > {MAX_LINE_BYTES}"
+    )
+    payload = json.loads(line)
+    assert payload.get("_truncated") is True
+
+
+def test_formatter_strict_4kb_cap_oversize_message_field() -> None:
+    """An oversize ``message`` (distinct from ``event``) respects the cap."""
+
+    formatter = TruncatingJSONFormatter()
+    # msg='X'*8000 + extra event='evt' → event='evt', message='X'*8000.
+    record = _make_record(msg="X" * 8000, extra={"event": "small_event"})
+    line = formatter.format(record)
+    encoded = line.encode("utf-8")
+    assert len(encoded) <= MAX_LINE_BYTES, (
+        f"line exceeded cap: {len(encoded)} > {MAX_LINE_BYTES}"
+    )
+    payload = json.loads(line)
+    assert payload["event"] == "small_event"
+    assert payload.get("_truncated") is True
+    # The big string lived in ``message``; confirm it was clipped.
+    assert TRUNCATION_SUFFIX in payload.get("message", "")
+
+
+def test_formatter_strict_4kb_cap_oversize_event_and_message() -> None:
+    """Both ``event`` and ``message`` oversize → still under 4 KB."""
+
+    formatter = TruncatingJSONFormatter()
+    record = _make_record(msg="X" * 5000, extra={"event": "Y" * 5000})
+    line = formatter.format(record)
+    encoded = line.encode("utf-8")
+    assert len(encoded) <= MAX_LINE_BYTES, (
+        f"line exceeded cap: {len(encoded)} > {MAX_LINE_BYTES}"
+    )
+    payload = json.loads(line)
+    assert payload.get("_truncated") is True
+
+
+def test_formatter_strict_4kb_cap_pathological_all_protected_fields() -> None:
+    """All-protected pathological case: only ``event``+``message`` carry payload.
+
+    The main truncation loop has nothing to clip (the only large
+    strings are protected); the fallback pass MUST still bring the
+    line under 4 KB.
+    """
+
+    formatter = TruncatingJSONFormatter()
+    # msg becomes 'message', event-extra becomes 'event'; nothing else.
+    record = _make_record(
+        msg="A" * 9000,
+        extra={"event": "B" * 9000},
+    )
+    line = formatter.format(record)
+    encoded = line.encode("utf-8")
+    assert len(encoded) <= MAX_LINE_BYTES, (
+        f"line exceeded cap: {len(encoded)} > {MAX_LINE_BYTES}"
+    )
+    payload = json.loads(line)
+    # Strict-cap contract preserves the four required keys.
+    assert {"ts", "level", "event", "module"} <= set(payload.keys())
+    assert payload.get("_truncated") is True
+
+
+def test_formatter_under_cap_emits_no_truncation_markers() -> None:
+    """Records that fit under 4 KB carry NO ``_truncated`` / ``_original_length``."""
+
+    formatter = TruncatingJSONFormatter()
+    record = _make_record(extra={"event": "ok", "field": "x" * 200})
+    line = formatter.format(record)
+    encoded = line.encode("utf-8")
+    assert len(encoded) <= MAX_LINE_BYTES
+    payload = json.loads(line)
+    assert "_truncated" not in payload
+    assert "_original_length" not in payload
+
+
 def test_formatter_truncates_largest_field_first() -> None:
     """The largest string field is the first to be clipped."""
 
