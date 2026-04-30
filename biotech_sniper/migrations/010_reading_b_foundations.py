@@ -238,10 +238,18 @@ CREATE TABLE IF NOT EXISTS ensemble_scores_event (
         provider IN ('xai','anthropic','gemini','perplexity')
     ),
     run_id                TEXT    NOT NULL,
-    label                 TEXT,
-    probability           REAL,
-    direction             TEXT,
+    label                 TEXT    CHECK(
+        label IS NULL OR label IN ('material','immaterial','ambiguous')
+    ),
+    probability           REAL    CHECK(
+        probability IS NULL OR (probability >= 0 AND probability <= 1)
+    ),
+    direction             TEXT    CHECK(
+        direction IS NULL OR direction IN ('bullish','bearish')
+    ),
     rationale             TEXT,
+    citations             TEXT,
+    latency_ms            INTEGER,
     cost_usd              REAL,
     called_at             TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     UNIQUE (candidate_event_id, provider, run_id),
