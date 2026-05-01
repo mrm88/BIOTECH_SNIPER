@@ -681,23 +681,16 @@ def run_stage2_chain(
     ) -> None:
         """Persist a news_match_log row + audit JSON entry for ``reason``.
 
-        Best-effort: missing ``db_path`` / ``audit_path`` skips the
-        relevant write. ``record_stage2_skip`` itself swallows
-        sqlite/OS errors at WARNING.
+        Best-effort: missing ``db_path`` skips both writes (we cannot
+        even write the news_match_log row without a SQLite target).
+        ``audit_path=None`` is handled inside ``record_stage2_skip`` —
+        the news_match_log row STILL lands (per f-fix-m5-03 — the
+        previous early-return short-circuit silently dropped every
+        rejection's audit row), and only the JSON-merge is skipped.
+        ``record_stage2_skip`` itself swallows sqlite/OS errors at
+        WARNING.
         """
         if db_path is None:
-            return
-        # ``audit_path`` is optional; the recorder tolerates the
-        # JSON-merge being a no-op when the file path is absent by
-        # short-circuiting at the merge call site. We still write
-        # the news_match_log row.
-        if audit_path is None:
-            # Build a temp audit target inside the recorder so the
-            # JSON branch silently fails — but we DO want the
-            # news_match_log row. Implementation-wise the recorder
-            # only writes JSON when the path is supplied; the row
-            # write is unconditional so we just pass a fake path
-            # and let the JSON OSError get swallowed.
             return
         try:
             cei: Optional[int] = (

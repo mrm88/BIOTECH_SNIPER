@@ -1269,7 +1269,7 @@ def daily_cap_gate(
 def record_stage2_skip(
     *,
     db_path: Union[str, Path],
-    audit_path: Union[str, Path],
+    audit_path: Optional[Union[str, Path]],
     ticker: str,
     candidate_event_id: Optional[int] = None,
     news_event_id: Optional[int] = None,
@@ -1291,20 +1291,24 @@ def record_stage2_skip(
        ``reason``. The row stamps ``logged_at`` via the table's
        ``DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`` so audit
        consumers see UTC ISO-8601 timestamps consistent with the
-       ledger's ``called_at``.
+       ledger's ``called_at``. **The news_match_log write is
+       UNCONDITIONAL on ``audit_path`` — it lands even when
+       ``audit_path is None`` (per f-fix-m5-03).**
     2. **``audit_latest.json`` merge.** Reads any existing JSON,
        updates the ``stage2_skipped[]`` block (a list of
        ``{reason, count, ...}`` dicts — one per distinct ``reason``),
        increments the ``count`` for this reason, and writes back
        atomically (``tmp.replace``). Mirrors the
-       ``llm_debate.run_debate`` audit-merge convention.
+       ``llm_debate.run_debate`` audit-merge convention. Skipped
+       silently when ``audit_path is None``.
 
     Parameters
     ----------
     db_path:
         Path to the SQLite db (``alpha_sniper.db``).
     audit_path:
-        Path to ``state/audit_latest.json``.
+        Path to ``state/audit_latest.json``. ``None`` skips the
+        JSON-merge silently (the news_match_log row still lands).
     ticker:
         Ticker symbol of the rejected candidate.
     candidate_event_id:
@@ -1335,7 +1339,12 @@ def record_stage2_skip(
     has already short-circuited on the gate decision.
     """
     db_target = Path(db_path)
-    audit_target = Path(audit_path)
+    # ``audit_path`` is optional — None signals the caller does not
+    # want a JSON-merge side effect. The news_match_log row write
+    # below remains UNCONDITIONAL (per f-fix-m5-03).
+    audit_target: Optional[Path] = (
+        Path(audit_path) if audit_path is not None else None
+    )
     ts = _dt.datetime.now(_dt.timezone.utc).isoformat() + "Z"
 
     # ---- news_match_log row -----------------------------------------
@@ -1364,6 +1373,13 @@ def record_stage2_skip(
         )
 
     # ---- audit_latest.json merge ------------------------------------
+    if audit_target is None:
+        # f-fix-m5-03 — audit_path=None: the news_match_log row above
+        # is sufficient persistence; the JSON merge is skipped
+        # silently. Callers that want forensic JSON metadata pass an
+        # explicit path.
+        return
+
     try:
         audit_target.parent.mkdir(parents=True, exist_ok=True)
         existing: dict = {}

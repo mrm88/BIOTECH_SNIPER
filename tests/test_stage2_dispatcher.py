@@ -543,3 +543,453 @@ def test_assert_single_leg_for_news_entry_only_applies_to_news_entry():
     }
     # Returns None; does not raise.
     assert assert_single_leg_for_news_entry(daily) is None
+
+
+# ---------------------------------------------------------------------------
+# f-fix-m5-03 — Rejection persistence with audit_path=None
+# ---------------------------------------------------------------------------
+#
+# Pre-fix bug: ``_persist_skip`` short-circuited with ``return`` when
+# ``audit_path is None`` BEFORE invoking ``record_stage2_skip``,
+# producing zero ``news_match_log`` rows for every rejection scenario
+# whose caller omitted the audit path. This violated the f-m5-03
+# expectedBehavior bullet "Each rejection scenario writes
+# news_match_log row with the documented reason" and contradicted the
+# function's own preceding comment ("we still write the news_match_log
+# row").
+#
+# Per VAL-M5-014..027 + f-m5-03's own design, EVERY rejection — both
+# the four cheap-first paths (cooldown_active, armed_file_missing,
+# daily_cap_exceeded) and both post-fanout paths (unanimity_failed,
+# probability_below_threshold) — MUST persist exactly ONE
+# ``news_match_log`` row with ``matched=0`` and the canonical reason,
+# even when ``audit_path=None`` (i.e. the audit-JSON merge is skipped
+# but the SQLite row is mandatory).
+
+
+import datetime as f_fix_m5_03_dt
+import sqlite3 as f_fix_m5_03_sqlite3
+from pathlib import Path as F_FIX_M5_03_Path
+from typing import Any as F_FIX_M5_03_Any
+
+
+def f_fix_m5_03_seed_synthetic_news_event(db_path: F_FIX_M5_03_Path,
+                                          ticker: str) -> int:
+    """Insert one synthetic ``news_events`` row and return its id."""
+    conn = f_fix_m5_03_sqlite3.connect(str(db_path))
+    try:
+        cur = conn.execute(
+            """
+            INSERT INTO news_events (
+                ticker, source, published_at, title, url, raw_payload
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                ticker,
+                "test_rejection_persistence",
+                "2026-04-30T14:00:00.000Z",
+                f"{ticker} phase 3 readout primary endpoint",
+                f"https://example.com/{ticker}-readout",
+                f"{ticker} phase 3 readout primary endpoint",
+            ),
+        )
+        conn.commit()
+        return int(cur.lastrowid or 0)
+    finally:
+        conn.close()
+
+
+def f_fix_m5_03_seed_candidate_event(
+    db_path: F_FIX_M5_03_Path,
+    *,
+    ticker: str,
+    matched_keywords: str = "phase 3 readout",
+) -> dict[str, F_FIX_M5_03_Any]:
+    """Seed a news_events + candidate_events row pair; return candidate row dict."""
+    news_event_id = f_fix_m5_03_seed_synthetic_news_event(db_path, ticker)
+    conn = f_fix_m5_03_sqlite3.connect(str(db_path))
+    conn.row_factory = f_fix_m5_03_sqlite3.Row
+    try:
+        with conn:
+            cur = conn.execute(
+                """
+                INSERT INTO candidate_events (
+                    ticker, source_news_event_id, matched_keywords,
+                    calendar_match, emitted_at, dedup_key
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    ticker,
+                    news_event_id,
+                    matched_keywords,
+                    None,
+                    "2026-04-30T14:00:01.000Z",
+                    f"dedup-{ticker}-{news_event_id}",
+                ),
+            )
+            cand_id = int(cur.lastrowid or 0)
+        row = conn.execute(
+            "SELECT id, ticker, source_news_event_id, matched_keywords, "
+            "calendar_match, emitted_at, dedup_key "
+            "FROM candidate_events WHERE id = ?",
+            (cand_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    return dict(row)
+
+
+def f_fix_m5_03_news_match_log_rows(
+    db_path: F_FIX_M5_03_Path,
+    ticker: str,
+) -> list[dict[str, F_FIX_M5_03_Any]]:
+    conn = f_fix_m5_03_sqlite3.connect(str(db_path))
+    conn.row_factory = f_fix_m5_03_sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT ticker, news_event_id, matched, reason, logged_at "
+            "FROM news_match_log WHERE ticker = ? ORDER BY id ASC",
+            (ticker,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [dict(r) for r in rows]
+
+
+def f_fix_m5_03_make_uniform_providers(
+    *,
+    label: str = "material",
+    direction: str = "bullish",
+    probability: float = 0.85,
+):
+    """Build {provider_name: callable} mapping returning identical payloads.
+
+    Each callable accepts the ``(candidate, name=...)`` signature the
+    ensemble fan-out invokes (per ``_run_one_provider``).
+    """
+    from biotech_sniper.llm.ensemble import ALL_PROVIDERS
+
+    def _factory(provider_name: str):
+        def _stub(_row, *, name: str = provider_name):
+            return {
+                "label": label,
+                "probability": probability,
+                "direction": direction,
+                "rationale": f"{name}-stub",
+                "citations": [],
+                "latency_ms": 10,
+                "cost_usd": 0.001,
+            }
+
+        return _stub
+
+    return {p: _factory(p) for p in ALL_PROVIDERS}
+
+
+def f_fix_m5_03_make_per_provider_providers(per_provider: dict):
+    from biotech_sniper.llm.ensemble import ALL_PROVIDERS
+
+    def _factory(provider_name: str):
+        payload = dict(per_provider[provider_name])
+
+        def _stub(_row, *, name: str = provider_name):
+            return dict(payload)
+
+        return _stub
+
+    return {p: _factory(p) for p in ALL_PROVIDERS}
+
+
+@pytest.fixture
+def f_fix_m5_03_temp_db(tmp_path) -> F_FIX_M5_03_Path:
+    """Fresh sqlite db at v10 (Reading-B foundations)."""
+    from biotech_sniper.migrations.runner import run as _run
+
+    p = tmp_path / "stage2_persist_skip.db"
+    _run(p, target_version=10, take_backup_first=False)
+    return p
+
+
+@pytest.fixture
+def f_fix_m5_03_armed_present(tmp_path) -> F_FIX_M5_03_Path:
+    p = tmp_path / "armed_present" / ".armed"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("")
+    return p
+
+
+@pytest.fixture
+def f_fix_m5_03_armed_missing(tmp_path) -> F_FIX_M5_03_Path:
+    return tmp_path / "armed_missing" / ".armed"
+
+
+@pytest.fixture
+def f_fix_m5_03_audit_path_absent(tmp_path) -> F_FIX_M5_03_Path:
+    """Path to an audit_latest.json that MUST remain absent post-test."""
+    return tmp_path / "state" / "audit_latest.json"
+
+
+class TestRejectionPersistenceWithAuditPathNone:
+    """f-fix-m5-03 — Each rejection writes ONE news_match_log row even when
+    audit_path is None.
+
+    Pre-fix: ``_persist_skip`` returned early when ``audit_path is None``,
+    silently dropping the news_match_log write for every rejection
+    scenario whose caller omitted the audit path. Post-fix: the
+    short-circuit is removed; ``record_stage2_skip`` is invoked
+    unconditionally (db_path permitting); the audit-JSON merge is
+    skipped silently inside the recorder when ``audit_path is None``.
+
+    Each parametrised case asserts:
+    * ``run_stage2_chain(...)`` rejects with the expected canonical reason.
+    * ``news_match_log`` has EXACTLY ONE row for the ticker with
+      ``matched=0`` and ``reason=<canonical>``.
+    * ``state/audit_latest.json`` was NOT created (file is absent).
+    """
+
+    def test_cooldown_rejection_persists_news_match_log_with_audit_path_none(
+        self,
+        f_fix_m5_03_temp_db,
+        f_fix_m5_03_armed_present,
+        f_fix_m5_03_audit_path_absent,
+    ):
+        from biotech_sniper.exec.stage2_dispatcher import run_stage2_chain
+        from biotech_sniper.llm.stage2_gates import (
+            GATE_REASON_COOLDOWN_ACTIVE,
+        )
+
+        ticker = "COOL"
+        candidate = f_fix_m5_03_seed_candidate_event(
+            f_fix_m5_03_temp_db, ticker=ticker
+        )
+
+        # Seed cooldown active 1h ago against 24h window.
+        now = f_fix_m5_03_dt.datetime(
+            2026, 4, 30, 12, 0, 0, tzinfo=f_fix_m5_03_dt.timezone.utc,
+        )
+        one_hour_ago = now - f_fix_m5_03_dt.timedelta(hours=1)
+        last_entry_at = (
+            one_hour_ago.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        )
+        conn = f_fix_m5_03_sqlite3.connect(str(f_fix_m5_03_temp_db))
+        try:
+            with conn:
+                conn.execute(
+                    "INSERT INTO ticker_cooldown "
+                    "(ticker, last_entry_at, last_event_id, cooldown_hours) "
+                    "VALUES (?, ?, NULL, 24)",
+                    (ticker, last_entry_at),
+                )
+        finally:
+            conn.close()
+
+        result = run_stage2_chain(
+            candidate_event_row=candidate,
+            db_path=f_fix_m5_03_temp_db,
+            armed_path=f_fix_m5_03_armed_present,
+            audit_path=None,  # <-- THE bug condition
+            now=now,
+            providers=f_fix_m5_03_make_uniform_providers(),
+        )
+
+        assert result.passed is False
+        assert result.reason == GATE_REASON_COOLDOWN_ACTIVE
+
+        # Exactly ONE row in news_match_log with matched=0 and canonical reason.
+        rows = f_fix_m5_03_news_match_log_rows(f_fix_m5_03_temp_db, ticker)
+        assert len(rows) == 1, rows
+        assert rows[0]["ticker"] == ticker
+        assert rows[0]["matched"] == 0
+        assert rows[0]["reason"] == GATE_REASON_COOLDOWN_ACTIVE
+
+        # ZERO audit_latest.json writes.
+        assert not f_fix_m5_03_audit_path_absent.exists()
+
+    def test_armed_missing_rejection_persists_news_match_log_with_audit_path_none(
+        self,
+        f_fix_m5_03_temp_db,
+        f_fix_m5_03_armed_missing,
+        f_fix_m5_03_audit_path_absent,
+    ):
+        from biotech_sniper.exec.stage2_dispatcher import run_stage2_chain
+        from biotech_sniper.llm.stage2_gates import (
+            GATE_REASON_ARMED_FILE_MISSING,
+        )
+
+        ticker = "ARMD"
+        candidate = f_fix_m5_03_seed_candidate_event(
+            f_fix_m5_03_temp_db, ticker=ticker
+        )
+
+        assert not f_fix_m5_03_armed_missing.exists()
+
+        result = run_stage2_chain(
+            candidate_event_row=candidate,
+            db_path=f_fix_m5_03_temp_db,
+            armed_path=f_fix_m5_03_armed_missing,
+            audit_path=None,  # <-- THE bug condition
+            providers=f_fix_m5_03_make_uniform_providers(),
+        )
+
+        assert result.passed is False
+        assert result.reason == GATE_REASON_ARMED_FILE_MISSING
+
+        rows = f_fix_m5_03_news_match_log_rows(f_fix_m5_03_temp_db, ticker)
+        assert len(rows) == 1, rows
+        assert rows[0]["ticker"] == ticker
+        assert rows[0]["matched"] == 0
+        assert rows[0]["reason"] == GATE_REASON_ARMED_FILE_MISSING
+
+        assert not f_fix_m5_03_audit_path_absent.exists()
+
+    def test_cap_rejection_persists_news_match_log_with_audit_path_none(
+        self,
+        f_fix_m5_03_temp_db,
+        f_fix_m5_03_armed_present,
+        f_fix_m5_03_audit_path_absent,
+    ):
+        from biotech_sniper.exec.stage2_dispatcher import run_stage2_chain
+        from biotech_sniper.llm.stage2_gates import (
+            GATE_REASON_DAILY_CAP_EXCEEDED,
+            STAGE2_LEDGER_PURPOSE,
+        )
+
+        ticker = "CAPP"
+        candidate = f_fix_m5_03_seed_candidate_event(
+            f_fix_m5_03_temp_db, ticker=ticker
+        )
+
+        # Seed today's stage2 ledger to $20 — projection ($0.50) trips cap.
+        conn = f_fix_m5_03_sqlite3.connect(str(f_fix_m5_03_temp_db))
+        try:
+            with conn:
+                conn.execute(
+                    """
+                    INSERT INTO llm_cost_ledger (
+                        provider, model_id, purpose, cost_usd, called_at
+                    ) VALUES (
+                        'perplexity', 'sonar', ?, 20.00,
+                        strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                    )
+                    """,
+                    (STAGE2_LEDGER_PURPOSE,),
+                )
+        finally:
+            conn.close()
+
+        result = run_stage2_chain(
+            candidate_event_row=candidate,
+            db_path=f_fix_m5_03_temp_db,
+            armed_path=f_fix_m5_03_armed_present,
+            audit_path=None,  # <-- THE bug condition
+            providers=f_fix_m5_03_make_uniform_providers(),
+        )
+
+        assert result.passed is False
+        assert result.reason == GATE_REASON_DAILY_CAP_EXCEEDED
+
+        rows = f_fix_m5_03_news_match_log_rows(f_fix_m5_03_temp_db, ticker)
+        assert len(rows) == 1, rows
+        assert rows[0]["ticker"] == ticker
+        assert rows[0]["matched"] == 0
+        assert rows[0]["reason"] == GATE_REASON_DAILY_CAP_EXCEEDED
+
+        assert not f_fix_m5_03_audit_path_absent.exists()
+
+    def test_unanimity_rejection_persists_news_match_log_with_audit_path_none(
+        self,
+        f_fix_m5_03_temp_db,
+        f_fix_m5_03_armed_present,
+        f_fix_m5_03_audit_path_absent,
+    ):
+        from biotech_sniper.exec.stage2_dispatcher import run_stage2_chain
+        from biotech_sniper.llm.stage2_gates import (
+            GATE_REASON_UNANIMITY_FAILED,
+        )
+
+        ticker = "UNAN"
+        candidate = f_fix_m5_03_seed_candidate_event(
+            f_fix_m5_03_temp_db, ticker=ticker
+        )
+
+        # 3 material + 1 non_material → unanimity gate fails.
+        per_provider = {
+            "xai": {"label": "material", "probability": 0.85, "direction": "bullish",
+                    "rationale": "x", "citations": [], "latency_ms": 10, "cost_usd": 0.001},
+            "anthropic": {"label": "material", "probability": 0.85, "direction": "bullish",
+                          "rationale": "a", "citations": [], "latency_ms": 10, "cost_usd": 0.001},
+            "gemini": {"label": "material", "probability": 0.85, "direction": "bullish",
+                       "rationale": "g", "citations": [], "latency_ms": 10, "cost_usd": 0.001},
+            "perplexity": {"label": "non_material", "probability": 0.85,
+                           "direction": "bullish", "rationale": "p", "citations": [],
+                           "latency_ms": 10, "cost_usd": 0.001},
+        }
+
+        result = run_stage2_chain(
+            candidate_event_row=candidate,
+            db_path=f_fix_m5_03_temp_db,
+            armed_path=f_fix_m5_03_armed_present,
+            audit_path=None,  # <-- THE bug condition
+            providers=f_fix_m5_03_make_per_provider_providers(per_provider),
+        )
+
+        assert result.passed is False
+        assert result.reason == GATE_REASON_UNANIMITY_FAILED
+
+        rows = f_fix_m5_03_news_match_log_rows(f_fix_m5_03_temp_db, ticker)
+        assert len(rows) == 1, rows
+        assert rows[0]["ticker"] == ticker
+        assert rows[0]["matched"] == 0
+        assert rows[0]["reason"] == GATE_REASON_UNANIMITY_FAILED
+
+        assert not f_fix_m5_03_audit_path_absent.exists()
+
+    def test_probability_rejection_persists_news_match_log_with_audit_path_none(
+        self,
+        f_fix_m5_03_temp_db,
+        f_fix_m5_03_armed_present,
+        f_fix_m5_03_audit_path_absent,
+    ):
+        from biotech_sniper.exec.stage2_dispatcher import run_stage2_chain
+        from biotech_sniper.llm.stage2_gates import (
+            GATE_REASON_PROBABILITY_BELOW_THRESHOLD,
+        )
+
+        ticker = "PROB"
+        candidate = f_fix_m5_03_seed_candidate_event(
+            f_fix_m5_03_temp_db, ticker=ticker
+        )
+
+        # 4/4 material; mean(0.6, 0.65, 0.7, 0.7) = 0.6625 < 0.75.
+        probs = {"xai": 0.6, "anthropic": 0.65, "gemini": 0.7, "perplexity": 0.7}
+        per_provider = {
+            name: {
+                "label": "material",
+                "probability": probs[name],
+                "direction": "bullish",
+                "rationale": f"{name}",
+                "citations": [],
+                "latency_ms": 10,
+                "cost_usd": 0.001,
+            }
+            for name in probs
+        }
+
+        result = run_stage2_chain(
+            candidate_event_row=candidate,
+            db_path=f_fix_m5_03_temp_db,
+            armed_path=f_fix_m5_03_armed_present,
+            audit_path=None,  # <-- THE bug condition
+            providers=f_fix_m5_03_make_per_provider_providers(per_provider),
+        )
+
+        assert result.passed is False
+        assert result.reason == GATE_REASON_PROBABILITY_BELOW_THRESHOLD
+
+        rows = f_fix_m5_03_news_match_log_rows(f_fix_m5_03_temp_db, ticker)
+        assert len(rows) == 1, rows
+        assert rows[0]["ticker"] == ticker
+        assert rows[0]["matched"] == 0
+        assert rows[0]["reason"] == GATE_REASON_PROBABILITY_BELOW_THRESHOLD
+
+        assert not f_fix_m5_03_audit_path_absent.exists()
