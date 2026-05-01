@@ -332,7 +332,19 @@ def run(
         # Ensure baseline v9 schema is in place before consulting the
         # version. This is idempotent on every db state we may
         # encounter — fresh, v8 (legacy), v9, or v10.
-        db.run_migrations(conn)
+        #
+        # f-misc-06: pin the baseline at ``target_version=9`` so that
+        # bumping :data:`db.CURRENT_VERSION` to 10 (which makes the
+        # default :func:`db.run_migrations` call dispatch all the way
+        # to v10) does NOT collapse the runner's per-version
+        # accounting (``summary['from_version']``, the ``alpha.db.v9.*``
+        # backup name, the ``applied=[10]`` summary). The runner's
+        # own dispatcher loop below remains the canonical path for
+        # applying v10+ migrations under explicit ``run(...)``
+        # invocations; ``db.run_migrations`` (called without an
+        # explicit target) handles auto-bootstrap from any fresh
+        # ``PaperExecutor()`` use site separately.
+        db.run_migrations(conn, target_version=9)
 
         current = db.current_schema_version(conn)
         summary["from_version"] = current

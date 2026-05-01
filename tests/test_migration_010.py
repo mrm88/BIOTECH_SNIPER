@@ -104,14 +104,24 @@ _LEGACY_TABLES_FOR_ROW_COUNT: tuple[str, ...] = (
 
 
 def _build_v9_db(db_path: Path) -> None:
-    """Initialise ``db_path`` as a v9 baseline using schema.sql."""
+    """Initialise ``db_path`` as a v9 baseline using schema.sql.
+
+    f-misc-06: ``db.CURRENT_VERSION`` is now 10 (so that
+    ``PaperExecutor`` auto-bootstraps a fresh sqlite all the way to
+    the Reading-B v10 foundations). To keep this helper a true v9
+    baseline (so the v9 → v10 migration tests below have something
+    to upgrade), we pass ``target_version=9`` explicitly to
+    :func:`db.run_migrations`. The function applies the v9 schema
+    via ``schema.sql`` + the ALTER-TABLE migration list, writes the
+    ``schema_version=9`` row, and stops short of dispatching the
+    v10 migration module.
+    """
     conn = db.connect(db_path)
     try:
-        db.run_migrations(conn)
-        # Double-check we're at v9 (CURRENT_VERSION). The migration
-        # runner writes schema_version=CURRENT_VERSION which is 9
-        # in the prior-mission snapshot.
-        assert db.current_schema_version(conn) == db.CURRENT_VERSION
+        db.run_migrations(conn, target_version=9)
+        # Double-check we're at v9 — the migration runner test
+        # below will bump us to 10.
+        assert db.current_schema_version(conn) == 9
     finally:
         conn.close()
 

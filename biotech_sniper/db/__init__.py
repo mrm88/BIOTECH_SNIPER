@@ -64,7 +64,21 @@ SCHEMA_PATH: Final[Path] = Path(__file__).resolve().parent / "schema.sql"
 #     connect (every CREATE statement uses ``IF NOT EXISTS``), so even
 #     if a db drifts to a stale version row, re-running
 #     :func:`run_migrations` will restore any missing tables.
-CURRENT_VERSION: Final[int] = 9
+#
+# f-misc-06 (Reading-B): bumped from 9 to 10 so callers like
+# :class:`PaperExecutor` whose constructor calls
+# :func:`run_migrations` auto-bootstrap a fresh sqlite db all the way
+# to the v10 Reading-B foundations schema (russell2k_biotech,
+# trial_calendar, candidate_events, ticker_cooldown,
+# ensemble_scores_event, news_match_log, plus the
+# ``llm_cost_ledger.provider`` extension for ``'perplexity'`` and the
+# ``paper_orders.event`` extension for ``'news_event_entry'``)
+# without needing an explicit ``runner.run(db_path, 10)``. The bump
+# is safe because (a) the v10 migration script
+# (``biotech_sniper/migrations/010_reading_b_foundations.py``) is
+# idempotent on a v10 db, and (b) Reading-B M1 has been sealed and
+# v10 is the established schema floor in production.
+CURRENT_VERSION: Final[int] = 10
 
 
 # File mode applied to the on-disk SQLite database after every
@@ -1149,11 +1163,31 @@ def run_migrations(conn: sqlite3.Connection, target_version: int = CURRENT_VERSI
             # don't bother to seed the universe table.
             if pre_migration_version < 9:
                 _cleanup_scoring_cache_chain_gate_violations(conn)
-            conn.execute(
-                "INSERT OR IGNORE INTO schema_version (version, description) "
-                "VALUES (?, ?)",
-                (target_version, f"biotech_sniper schema v{target_version}"),
-            )
+            # f-misc-06: only record the v9 baseline row when the
+            # caller asked for a v9-floor (``target_version <= 9``)
+            # AND we are actually upgrading TO that floor
+            # (``pre_migration_version < target_version``). Two
+            # conditions matter:
+            #
+            # * Higher ``target_version`` (≥ 10) defers the
+            #   ``schema_version`` write to the per-version dispatcher
+            #   below so ``test_run_migrations_writes_schema_version_row``
+            #   continues to see exactly one row at
+            #   ``version == CURRENT_VERSION`` for fresh dbs.
+            # * Skipping the write when the db is already at or above
+            #   ``target_version`` prevents inserting a v9 row into a
+            #   v10 db when the runner calls
+            #   ``db.run_migrations(conn, target_version=9)`` as its
+            #   baseline check on an already-upgraded db. Without this
+            #   guard the v9 row would be inserted AFTER the v10 row
+            #   on the build-then-baseline-check path, breaking
+            #   VAL-CROSS-013's monotonic ``applied_at`` invariant.
+            if target_version <= 9 and pre_migration_version < target_version:
+                conn.execute(
+                    "INSERT OR IGNORE INTO schema_version (version, description) "
+                    "VALUES (?, ?)",
+                    (target_version, f"biotech_sniper schema v{target_version}"),
+                )
             conn.execute("COMMIT")
         except Exception:
             # ROLLBACK is best-effort: if the connection is already
@@ -1164,6 +1198,57 @@ def run_migrations(conn: sqlite3.Connection, target_version: int = CURRENT_VERSI
             except sqlite3.Error:
                 pass
             raise
+
+        # f-misc-06: dispatch v9+ migration modules via the existing
+        # :func:`biotech_sniper.migrations.runner.load_migration`
+        # dispatcher so a fresh ``PaperExecutor`` (which only calls
+        # :func:`run_migrations`) auto-bootstraps the Reading-B v10
+        # foundations without callers having to invoke
+        # ``runner.run(db_path, 10)`` explicitly. The dispatcher is
+        # idempotent: each migration module's ``apply`` short-circuits
+        # when the new tables / CHECK extensions are already present
+        # (VAL-M1-044), so re-running on a v10 db is a no-op.
+        if target_version > 9:
+            current_in_db = current_schema_version(conn)
+            # The schema.sql apply above guarantees the v9 baseline
+            # tables exist on disk even if no schema_version row was
+            # written (fresh-db path), so treat anything below 9 as
+            # implicit v9 for the purpose of the dispatcher loop.
+            start = max(current_in_db, 9)
+            if target_version > start:
+                # Lazy import to avoid a circular module-load cycle:
+                # ``runner`` imports ``biotech_sniper.db`` at module
+                # load. Importing ``runner`` here (after the v9
+                # baseline transaction has committed) is safe.
+                from biotech_sniper.migrations.runner import (  # noqa: PLC0415
+                    load_migration,
+                )
+
+                for version in range(start + 1, target_version + 1):
+                    module = load_migration(version)
+                    if module.FROM_VERSION != version - 1:
+                        raise RuntimeError(
+                            f"Migration v{version} declares FROM_VERSION="
+                            f"{module.FROM_VERSION}, expected {version - 1}"
+                        )
+                    conn.execute("BEGIN IMMEDIATE")
+                    try:
+                        module.apply(conn)
+                        description = getattr(
+                            module, "DESCRIPTION", f"schema v{version}"
+                        )
+                        conn.execute(
+                            "INSERT OR IGNORE INTO schema_version "
+                            "(version, description) VALUES (?, ?)",
+                            (version, description),
+                        )
+                        conn.execute("COMMIT")
+                    except Exception:
+                        try:
+                            conn.execute("ROLLBACK")
+                        except sqlite3.Error:
+                            pass
+                        raise
     finally:
         conn.isolation_level = previous_isolation_level
     return target_version
