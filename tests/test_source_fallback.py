@@ -36,6 +36,7 @@ collection paths pass without duplicating test bodies.
 
 from __future__ import annotations
 
+import datetime
 import json
 import logging
 import sqlite3
@@ -468,6 +469,85 @@ def test_both_sources_404_use_stale_mode(
     # gap since the most recent ``fetched_at``).
     assert isinstance(log.get("stale_seconds"), (int, float))
     assert log["stale_seconds"] >= 0
+
+
+def test_use_stale_emits_stale_warning_true(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+):
+    """VAL-CROSS-036 regression: in ``use_stale`` mode, the WARNING
+    payload MUST carry ``stale_warning=true`` alongside
+    ``action='use_stale'`` and ``stale_seconds=<float>`` so log
+    consumers (watchdog, dashboards, alerting) can filter on the
+    ``stale_warning=true`` flag without re-deriving it from
+    ``action``. Determinism: two consecutive runs in use_stale mode
+    emit byte-identical structured payloads.
+    """
+    db_path = tmp_path / "alpha.db"
+    _seed_russell2k_rows(db_path, count=3)
+
+    _install_dual_source_cassette(
+        monkeypatch,
+        ishares_status=404,
+        edgar_status=404,
+    )
+
+    # Pin ``now`` across both runs so ``stale_seconds`` is identical;
+    # the determinism contract is "same input → same payload" and the
+    # wall-clock between two real runs is the only non-deterministic
+    # input that the orchestrator otherwise consumes.
+    fixed_now = datetime.datetime(2026, 4, 30, 12, 0, 0, tzinfo=datetime.timezone.utc)
+
+    # Run #1.
+    with caplog.at_level(
+        logging.WARNING, logger="biotech_sniper.universe.refresher"
+    ):
+        result1 = refresh_universe(
+            db_path=db_path,
+            fallback_mode=UNIVERSE_FALLBACK_USE_STALE,
+            now=fixed_now,
+        )
+    log1 = _find_log(caplog.records, "universe_sources_unavailable")
+    # Capture the raw JSON message for byte-identity comparison.
+    raw1 = next(
+        rec.getMessage()
+        for rec in caplog.records
+        if "universe_sources_unavailable" in rec.getMessage()
+    )
+
+    # Run #2 — same DB, same cassette, same pinned ``now``.
+    caplog.clear()
+    with caplog.at_level(
+        logging.WARNING, logger="biotech_sniper.universe.refresher"
+    ):
+        result2 = refresh_universe(
+            db_path=db_path,
+            fallback_mode=UNIVERSE_FALLBACK_USE_STALE,
+            now=fixed_now,
+        )
+    log2 = _find_log(caplog.records, "universe_sources_unavailable")
+    raw2 = next(
+        rec.getMessage()
+        for rec in caplog.records
+        if "universe_sources_unavailable" in rec.getMessage()
+    )
+
+    # The dataclass action is unchanged.
+    assert result1.action == result2.action == "use_stale"
+    assert result1.exit_code == result2.exit_code == EXIT_OK
+
+    # Both runs must emit a structured WARNING payload that includes
+    # stale_warning=true, action=use_stale, and a numeric stale_seconds.
+    for log in (log1, log2):
+        assert log is not None
+        assert log["action"] == "use_stale"
+        assert log.get("stale_warning") is True
+        assert isinstance(log.get("stale_seconds"), (int, float))
+        assert log["stale_seconds"] >= 0
+
+    # Determinism: byte-identical structured payloads across re-runs.
+    assert raw1 == raw2
 
 
 def test_both_sources_404_halt_raises_helpful(

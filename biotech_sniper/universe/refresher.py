@@ -551,6 +551,11 @@ def refresh_universe(
             "stale_seconds": (
                 float(stale_seconds) if stale_seconds is not None else 0.0
             ),
+            # VAL-CROSS-036: surface ``stale_warning=true`` so log
+            # consumers (watchdog, dashboards, alerting) can filter
+            # WARNING events on the flag directly without re-deriving
+            # it from ``action``.
+            "stale_warning": True,
         }
         logger.warning(json.dumps(payload))
         return RefresherFallbackResult(
