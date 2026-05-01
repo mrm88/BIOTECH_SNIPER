@@ -152,6 +152,24 @@ class RollUpResult:
 # ``parent_play_card_id``, while entry orders identify their play
 # via their own ``play_card_id``.
 #
+# Parent-row disambiguation (f-fix-m5-05-rollup-double-count):
+# ``paper_orders.play_card_id`` is NOT unique per entry order —
+# multi-strike entries (paper_executor multi-leg dispatch around
+# lines 1810-1850) and rotation retries
+# (rotation_engine.py:391-405) write multiple rows that share the
+# same ``play_card_id`` AND ``purpose='entry'``. A naive
+# ``LEFT JOIN paper_orders parent ON parent.play_card_id =
+# po.parent_play_card_id AND parent.purpose='entry'`` therefore
+# multiplies each exit fill's contribution by the number of entry
+# rows sharing the play_card_id, silently double-counting the
+# exit pnl. The fix collapses parents to exactly one row per
+# (play_card_id, purpose='entry') by selecting MIN(id) — the
+# earliest entry row "owns" the event_path label for the play.
+# Entry rows still carry ``parent_play_card_id IS NULL`` so the
+# LEFT JOIN never fires for them; only exits resolve through the
+# subquery. See VAL-M5-033 (no double-counting partition) and the
+# regression tests in test_performance_ledger_rollup.py.
+#
 # The query restricts to fills whose ``filled_at`` falls on the
 # requested ``as_of_date`` (DATE-truncated for ISO-8601
 # timestamps). The optional ``event_filter`` clause is appended
@@ -172,9 +190,16 @@ SELECT
 FROM execution_fills ef
 JOIN paper_orders po
     ON po.id = ef.paper_order_id
-LEFT JOIN paper_orders parent
+LEFT JOIN (
+    SELECT
+        play_card_id,
+        MIN(id) AS parent_id,
+        event
+    FROM paper_orders
+    WHERE purpose = 'entry'
+    GROUP BY play_card_id
+) parent
     ON parent.play_card_id = po.parent_play_card_id
-   AND parent.purpose = 'entry'
 WHERE substr(ef.filled_at, 1, 10) = :as_of_date
 """
 

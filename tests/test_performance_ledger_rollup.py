@@ -612,3 +612,306 @@ def test_roll_up_day_accepts_existing_connection(db_path: Path) -> None:
     assert result.play_count == 1
     # +0.30 * 1 * 100 = +30.00
     assert result.realized_pnl == pytest.approx(30.00, abs=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# f-fix-m5-05-rollup-double-count — non-unique play_card_id regression tests
+#
+# These tests pin VAL-M5-033 against a class of bugs surfaced by cross-flow
+# scrutiny round 1: ``paper_orders.play_card_id`` is NOT unique per entry
+# order. Multi-strike entries (paper_executor multi-leg path around lines
+# 1810-1850) and rotation retries (rotation_engine.py:391-405) can write
+# multiple rows that share the same ``play_card_id`` AND
+# ``purpose='entry'``. The previous _ROLLUP_SQL_BASE LEFT JOIN
+# (``parent.play_card_id = po.parent_play_card_id AND parent.purpose='entry'``)
+# matched ALL of those rows, multiplying every exit fill's contribution by
+# the number of entry rows sharing the play_card_id — a silent
+# double-count. The fix disambiguates the parent join to exactly one row
+# per (play_card_id, purpose='entry') by selecting MIN(id).
+# ---------------------------------------------------------------------------
+
+
+def test_rollup_no_double_count_with_rejected_retry(db_path: Path) -> None:
+    """Reproduction of the f-fix-m5-05 bug: one filled entry + one
+    rejected retry entry sharing the same ``play_card_id`` + one
+    exit fill must roll up to the naive sum, NOT double-count the
+    exit because two ``purpose='entry'`` rows share the play_card_id.
+
+    Setup:
+      * Entry #1 — purpose='entry', status='filled', fills 1 @ $1.00 → -$100
+      * Entry #2 — purpose='entry', status='rejected' (no fill row),
+        SAME play_card_id (rotation retry pattern from
+        rotation_engine.py:391-405).
+      * Exit    — purpose='exit', parent_play_card_id=PC, sells
+        1 @ $1.50 → +$150
+
+    Naive realized_pnl = -100 + 150 = $50.
+    Pre-fix (buggy) realized_pnl = -100 + 2 * 150 = $200 (the exit
+    fill is matched against BOTH entry rows in the LEFT JOIN).
+
+    Per VAL-M5-033 the partition must be lossless — neither
+    double-counting nor missing fills is acceptable.
+    """
+    as_of_date = "2030-05-15"
+    play_card_id = "PC-NEWS-RETRY-1"
+    symbol = "AAAA260619C00010000"
+
+    # Filled entry.
+    entry_filled_oid = f"po-entry-filled-{play_card_id}"
+    _insert_paper_order(
+        db_path,
+        paper_order_id=entry_filled_oid,
+        play_card_id=play_card_id,
+        parent_play_card_id=None,
+        event="news_event_entry",
+        purpose="entry",
+        side="buy",
+        qty=1,
+        requested_mid_at_submit=1.00,
+        created_at=f"{as_of_date}T15:30:00.000Z",
+        symbol=symbol,
+        client_order_id=f"client-{entry_filled_oid}",
+    )
+    _insert_fill(
+        db_path,
+        paper_order_id=entry_filled_oid,
+        filled_at=f"{as_of_date}T15:30:01.000Z",
+        filled_price=1.00,
+        filled_qty=1,
+        requested_mid_at_submit=1.00,
+    )
+
+    # Rejected retry entry — SAME play_card_id, no fill row.
+    # Mirrors the rotation_engine retry pattern that re-uses the
+    # parent's play_card_id to record the rejection in
+    # paper_orders.
+    entry_rejected_oid = f"po-entry-rejected-{play_card_id}"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            INSERT INTO paper_orders (
+                id, play_card_id, alpaca_order_id, symbol, side, qty,
+                status, reason, event, parent_play_card_id,
+                requested_mid_at_submit, purpose, client_order_id,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                entry_rejected_oid,
+                play_card_id,
+                None,  # rejection — no broker order
+                symbol,
+                "buy",
+                0,  # rejected before sizing
+                "rejected",
+                "ContractTooExpensive (retry)",
+                "news_event_entry",
+                None,
+                None,
+                "entry",
+                f"client-{entry_rejected_oid}",
+                f"{as_of_date}T15:31:00.000Z",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    # Single exit fill against the parent.
+    exit_oid = f"po-exit-{play_card_id}"
+    _insert_paper_order(
+        db_path,
+        paper_order_id=exit_oid,
+        play_card_id=f"{play_card_id}-exit",
+        parent_play_card_id=play_card_id,
+        event="iv_crush_exit",
+        purpose="exit",
+        side="sell",
+        qty=1,
+        requested_mid_at_submit=1.50,
+        created_at=f"{as_of_date}T16:00:00.000Z",
+        symbol=symbol,
+        client_order_id=f"client-{exit_oid}",
+    )
+    _insert_fill(
+        db_path,
+        paper_order_id=exit_oid,
+        filled_at=f"{as_of_date}T16:00:01.000Z",
+        filled_price=1.50,
+        filled_qty=1,
+        requested_mid_at_submit=1.50,
+    )
+
+    news = performance_ledger.roll_up_day(
+        as_of_date, event_filter="news_event_entry", db_path=db_path
+    )
+
+    # Exactly ONE play row, attributed to the parent play_card_id.
+    assert news.play_count == 1
+    assert {p.play_id for p in news.plays} == {play_card_id}
+    assert {p.event_path for p in news.plays} == {"news_event_entry"}
+
+    # Naive arithmetic: -1.00*1*100 + 1.50*1*100 = 50.00.
+    # Pre-fix bug yielded 200.00 (the exit was double-counted).
+    assert news.realized_pnl == pytest.approx(50.00, abs=1e-6)
+
+    # Fill count: 1 entry fill + 1 exit fill = 2. Pre-fix bug
+    # reported 3 because the exit fill was counted twice.
+    assert sum(p.fill_count for p in news.plays) == 2
+
+    # Partition holds — union sum equals the news bucket (this is
+    # the only play seeded today).
+    union = performance_ledger.roll_up_day(
+        as_of_date, event_filter=None, db_path=db_path
+    )
+    assert union.realized_pnl == pytest.approx(50.00, abs=1e-6)
+    assert union.play_count == 1
+
+
+def test_rollup_no_double_count_multi_strike(db_path: Path) -> None:
+    """Multi-strike entry plays write TWO ``paper_orders`` rows with
+    purpose='entry' that share the SAME ``play_card_id`` (one per
+    leg, see paper_executor multi-leg dispatch around lines
+    1810-1850). Each leg has its own exit. The rollup must sum each
+    leg's pnl exactly once; pre-fix it doubled both exits because
+    the parent LEFT JOIN matched both leg rows for each exit.
+
+    Setup (single play_card_id ``PC-MULTI-STRIKE-1``):
+      * Leg A entry — buy 1 @ $1.00 → -$100
+      * Leg B entry — buy 1 @ $2.00 → -$200
+      * Leg A exit  — sell 1 @ $1.50 → +$150
+      * Leg B exit  — sell 1 @ $2.50 → +$250
+
+    Naive realized_pnl = -100 - 200 + 150 + 250 = +$100.
+    Pre-fix (buggy) realized_pnl = -100 - 200 + 2*150 + 2*250 = +$500.
+    """
+    as_of_date = "2030-05-15"
+    play_card_id = "PC-MULTI-STRIKE-1"
+    leg_a_symbol = "ZZZA260619C00010000"
+    leg_b_symbol = "ZZZB260619C00020000"
+
+    # Leg A entry + fill.
+    entry_a_oid = f"po-entry-A-{play_card_id}"
+    _insert_paper_order(
+        db_path,
+        paper_order_id=entry_a_oid,
+        play_card_id=play_card_id,
+        parent_play_card_id=None,
+        event="news_event_entry",
+        purpose="entry",
+        side="buy",
+        qty=1,
+        requested_mid_at_submit=1.00,
+        created_at=f"{as_of_date}T15:30:00.000Z",
+        symbol=leg_a_symbol,
+        client_order_id=f"client-{entry_a_oid}",
+    )
+    _insert_fill(
+        db_path,
+        paper_order_id=entry_a_oid,
+        filled_at=f"{as_of_date}T15:30:01.000Z",
+        filled_price=1.00,
+        filled_qty=1,
+        requested_mid_at_submit=1.00,
+    )
+
+    # Leg B entry + fill — SAME play_card_id, different symbol.
+    entry_b_oid = f"po-entry-B-{play_card_id}"
+    _insert_paper_order(
+        db_path,
+        paper_order_id=entry_b_oid,
+        play_card_id=play_card_id,
+        parent_play_card_id=None,
+        event="news_event_entry",
+        purpose="entry",
+        side="buy",
+        qty=1,
+        requested_mid_at_submit=2.00,
+        created_at=f"{as_of_date}T15:30:02.000Z",
+        symbol=leg_b_symbol,
+        client_order_id=f"client-{entry_b_oid}",
+    )
+    _insert_fill(
+        db_path,
+        paper_order_id=entry_b_oid,
+        filled_at=f"{as_of_date}T15:30:03.000Z",
+        filled_price=2.00,
+        filled_qty=1,
+        requested_mid_at_submit=2.00,
+    )
+
+    # Leg A exit + fill.
+    exit_a_oid = f"po-exit-A-{play_card_id}"
+    _insert_paper_order(
+        db_path,
+        paper_order_id=exit_a_oid,
+        play_card_id=f"{play_card_id}-exit-A",
+        parent_play_card_id=play_card_id,
+        event="iv_crush_exit",
+        purpose="exit",
+        side="sell",
+        qty=1,
+        requested_mid_at_submit=1.50,
+        created_at=f"{as_of_date}T16:00:00.000Z",
+        symbol=leg_a_symbol,
+        client_order_id=f"client-{exit_a_oid}",
+    )
+    _insert_fill(
+        db_path,
+        paper_order_id=exit_a_oid,
+        filled_at=f"{as_of_date}T16:00:01.000Z",
+        filled_price=1.50,
+        filled_qty=1,
+        requested_mid_at_submit=1.50,
+    )
+
+    # Leg B exit + fill.
+    exit_b_oid = f"po-exit-B-{play_card_id}"
+    _insert_paper_order(
+        db_path,
+        paper_order_id=exit_b_oid,
+        play_card_id=f"{play_card_id}-exit-B",
+        parent_play_card_id=play_card_id,
+        event="iv_crush_exit",
+        purpose="exit",
+        side="sell",
+        qty=1,
+        requested_mid_at_submit=2.50,
+        created_at=f"{as_of_date}T16:01:00.000Z",
+        symbol=leg_b_symbol,
+        client_order_id=f"client-{exit_b_oid}",
+    )
+    _insert_fill(
+        db_path,
+        paper_order_id=exit_b_oid,
+        filled_at=f"{as_of_date}T16:01:01.000Z",
+        filled_price=2.50,
+        filled_qty=1,
+        requested_mid_at_submit=2.50,
+    )
+
+    news = performance_ledger.roll_up_day(
+        as_of_date, event_filter="news_event_entry", db_path=db_path
+    )
+
+    # Exactly one play row (the multi-strike legs collapse to one
+    # play_id under the ``COALESCE(parent_play_card_id, play_card_id)``
+    # rule).
+    assert news.play_count == 1
+    assert {p.play_id for p in news.plays} == {play_card_id}
+    assert {p.event_path for p in news.plays} == {"news_event_entry"}
+
+    # Naive sum: -100 - 200 + 150 + 250 = +100.
+    # Pre-fix bug yielded +500 (each exit double-counted).
+    assert news.realized_pnl == pytest.approx(100.00, abs=1e-6)
+
+    # 4 fills total — pre-fix bug reported 6.
+    assert sum(p.fill_count for p in news.plays) == 4
+
+    # Partition stays clean.
+    union = performance_ledger.roll_up_day(
+        as_of_date, event_filter=None, db_path=db_path
+    )
+    assert union.realized_pnl == pytest.approx(100.00, abs=1e-6)
+    assert union.play_count == 1
