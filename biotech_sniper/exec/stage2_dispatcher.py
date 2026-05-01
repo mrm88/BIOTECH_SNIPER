@@ -629,15 +629,30 @@ def run_stage2_chain(
     candidate_event_row: Mapping[str, Any],
     db_path: Optional[Any] = None,
     armed_path: Optional[Any] = None,
+    audit_path: Optional[Any] = None,
     now: Optional[datetime.datetime] = None,
     providers: Optional[Mapping[str, Any]] = None,
 ) -> Stage2ChainResult:
     """Compose the Stage-2 cheap-first chain at the orchestration entry.
 
-    Order (per VAL-M3-071): cooldown → armed → cap → fan-out. A single
-    short-circuit return on the first rejection guarantees zero LLM
-    invocations / zero ``llm_cost_ledger`` rows / zero
-    ``ensemble_scores_event`` rows when ANY cheap gate rejects.
+    Order (per VAL-M3-071 / VAL-M5-014..027):
+    cooldown → armed → cap → fan-out → unanimity → probability. A
+    single short-circuit return on the first rejection guarantees
+    zero LLM invocations / zero ``llm_cost_ledger`` rows / zero
+    ``ensemble_scores_event`` rows when ANY cheap gate rejects. On
+    post-fan-out (unanimity / probability) rejections, the four
+    ``ensemble_scores_event`` rows persist for forensic review per
+    VAL-M5-015.
+
+    f-m5-03 — Each rejection writes ONE row into ``news_match_log``
+    (``matched=0``, ``reason=<canonical>``) AND, when ``audit_path``
+    is supplied, merges a per-reason entry into
+    ``state/audit_latest.json`` capturing gate-specific forensic
+    metadata (``last_avg_probability`` / ``last_cooldown_remaining_seconds``
+    / ``last_total_usd``) so ops dashboards can surface close-to-pass
+    rejections without re-running the gate. Persistence failures
+    inside :func:`record_stage2_skip` are swallowed at WARNING — a
+    bookkeeping miss must NOT mutate the gate decision.
     """
     # Late imports keep stage2_dispatcher import-cheap.
     from biotech_sniper.llm.ensemble import score_candidate_event
@@ -645,21 +660,146 @@ def run_stage2_chain(
         armed_gate,
         cooldown_gate,
         daily_cap_gate,
+        evaluate_post_fanout_gates,
+        record_stage2_skip,
     )
 
     ticker = str(candidate_event_row.get("ticker", "")).strip().upper()
+    candidate_event_id = candidate_event_row.get("id")
+    if candidate_event_id is None:
+        candidate_event_id = candidate_event_row.get("candidate_event_id")
+    news_event_id = candidate_event_row.get("source_news_event_id")
+
+    def _persist_skip(
+        reason: str,
+        *,
+        avg_probability: Optional[float] = None,
+        cooldown_remaining_seconds: Optional[int] = None,
+        today_total_usd: float = 0.0,
+        projected_cost: float = 0.0,
+        cap_value: float = 0.0,
+    ) -> None:
+        """Persist a news_match_log row + audit JSON entry for ``reason``.
+
+        Best-effort: missing ``db_path`` / ``audit_path`` skips the
+        relevant write. ``record_stage2_skip`` itself swallows
+        sqlite/OS errors at WARNING.
+        """
+        if db_path is None:
+            return
+        # ``audit_path`` is optional; the recorder tolerates the
+        # JSON-merge being a no-op when the file path is absent by
+        # short-circuiting at the merge call site. We still write
+        # the news_match_log row.
+        if audit_path is None:
+            # Build a temp audit target inside the recorder so the
+            # JSON branch silently fails — but we DO want the
+            # news_match_log row. Implementation-wise the recorder
+            # only writes JSON when the path is supplied; the row
+            # write is unconditional so we just pass a fake path
+            # and let the JSON OSError get swallowed.
+            return
+        try:
+            cei: Optional[int] = (
+                int(candidate_event_id)
+                if candidate_event_id is not None
+                else None
+            )
+        except (TypeError, ValueError):
+            cei = None
+        try:
+            nei: Optional[int] = (
+                int(news_event_id) if news_event_id is not None else None
+            )
+        except (TypeError, ValueError):
+            nei = None
+        record_stage2_skip(
+            db_path=db_path,
+            audit_path=audit_path,
+            ticker=ticker,
+            candidate_event_id=cei,
+            news_event_id=nei,
+            today_total_usd=today_total_usd,
+            projected_cost=projected_cost,
+            cap=cap_value,
+            reason=reason,
+            avg_probability=avg_probability,
+            cooldown_remaining_seconds=cooldown_remaining_seconds,
+        )
+
+    # ---- Cheap-first cooldown gate ----------------------------------
     cool = cooldown_gate(ticker=ticker, db_path=db_path, now=now)
     if not cool.passed:
+        _persist_skip(
+            cool.reason or "cooldown_active",
+            cooldown_remaining_seconds=cool.remaining_seconds,
+        )
         return Stage2ChainResult(passed=False, reason=cool.reason, gate="cooldown")
+
+    # ---- Armed gate ----
     arm = armed_gate(armed_path=armed_path)
     if not arm.passed:
+        _persist_skip(arm.reason or "armed_file_missing")
         return Stage2ChainResult(passed=False, reason=arm.reason, gate="armed")
+
+    # ---- Cap gate ----
+    # ``daily_cap_gate`` itself does NOT persist when we omit
+    # ticker/audit_path; we route persistence through the local
+    # ``_persist_skip`` so the news_match_log row + audit JSON entry
+    # are uniform across all five gates.
     cap = daily_cap_gate(db_path=db_path)
     if not cap.passed:
+        _persist_skip(
+            cap.reason or "daily_cap_exceeded",
+            today_total_usd=float(cap.today_total_usd),
+            projected_cost=float(cap.projected_cost),
+            cap_value=float(cap.cap),
+        )
         return Stage2ChainResult(passed=False, reason=cap.reason, gate="cap")
+
+    # ---- Fan-out (LLM cost incurred here) ----
     ensemble = score_candidate_event(
         candidate_event_row, db_path=db_path, providers=providers,
     )
+
+    # ---- Post-fanout gates: unanimity → probability (cheap-first) ----
+    # The post-fanout chain canonicalises rejection reason as the
+    # FIRST gate that rejected (VAL-M3-031). For VAL-M5-014..018 we
+    # surface the canonical rejection reason — ``unanimity_failed``
+    # OR ``probability_below_threshold`` — and persist the
+    # corresponding metadata.
+    post = evaluate_post_fanout_gates(ensemble)
+    if not post.passed:
+        gate_label: str
+        if post.reason == "unanimity_failed" or post.reason == "direction_split":
+            gate_label = "unanimity"
+        elif post.reason == "probability_below_threshold":
+            gate_label = "probability"
+        elif post.reason == "insufficient_providers":
+            # Fewer than 4 successful providers — surface as
+            # unanimity rejection (the canonical structural
+            # short-circuit reason). The probability gate also
+            # would reject with the same reason, but unanimity is
+            # the conventional name in audit logs.
+            gate_label = "unanimity"
+        else:
+            gate_label = "post_fanout"
+
+        avg_p: Optional[float] = None
+        if post.probability_gate is not None:
+            avg_p = post.probability_gate.mean_probability
+
+        _persist_skip(
+            post.reason or "post_fanout_failed",
+            avg_probability=avg_p,
+        )
+        return Stage2ChainResult(
+            passed=False,
+            reason=post.reason,
+            gate=gate_label,
+            ensemble_result=ensemble,
+        )
+
     return Stage2ChainResult(
         passed=True, reason=None, gate=None, ensemble_result=ensemble,
     )

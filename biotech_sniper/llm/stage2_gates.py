@@ -1273,10 +1273,12 @@ def record_stage2_skip(
     ticker: str,
     candidate_event_id: Optional[int] = None,
     news_event_id: Optional[int] = None,
-    today_total_usd: float,
-    projected_cost: float,
-    cap: float,
+    today_total_usd: float = 0.0,
+    projected_cost: float = 0.0,
+    cap: float = 0.0,
     reason: str = GATE_REASON_DAILY_CAP_EXCEEDED,
+    avg_probability: Optional[float] = None,
+    cooldown_remaining_seconds: Optional[int] = None,
 ) -> None:
     """Record a Stage-2 cap-hit (or other gate-driven skip) in the
     audit trail.
@@ -1402,6 +1404,23 @@ def record_stage2_skip(
         entry["last_projected_cost"] = float(projected_cost)
         entry["last_cap"] = float(cap)
         entry["last_logged_at"] = ts
+        # f-m5-03 — Stash gate-specific forensic metadata for ops
+        # dashboards. The ``news_match_log`` table schema does not
+        # carry these columns today; persisting them on the audit
+        # JSON entry is the equivalent persistence surface that
+        # VAL-M5-018 / VAL-M5-025 / VAL-M5-027 reference.
+        if avg_probability is not None:
+            try:
+                entry["last_avg_probability"] = float(avg_probability)
+            except (TypeError, ValueError):
+                entry["last_avg_probability"] = None
+        if cooldown_remaining_seconds is not None:
+            try:
+                entry["last_cooldown_remaining_seconds"] = int(
+                    cooldown_remaining_seconds
+                )
+            except (TypeError, ValueError):
+                entry["last_cooldown_remaining_seconds"] = None
 
         existing["stage2_skipped"] = skipped
 
