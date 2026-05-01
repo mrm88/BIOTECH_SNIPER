@@ -55,9 +55,10 @@ by ``pytest -m e2e``.
 from __future__ import annotations
 
 import datetime as _dt
+import json
 import sqlite3
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 import pytest
 
@@ -66,6 +67,7 @@ from biotech_sniper.exec.stage2_dispatcher import (
     Stage2ChainResult,
     run_stage2_chain,
 )
+from biotech_sniper.exec.stage2_paper_executor import submit_news_event_entry
 from biotech_sniper.llm.ensemble import ALL_PROVIDERS
 from biotech_sniper.llm.stage2_gates import (
     GATE_REASON_ARMED_FILE_MISSING,
@@ -77,6 +79,7 @@ from biotech_sniper.llm.stage2_gates import (
 )
 from biotech_sniper.migrations.runner import run as run_migrations_runner
 from biotech_sniper.news_daemon.emit import run_one_poll_cycle
+from biotech_sniper.paper_executor import PaperExecutor
 
 
 pytestmark = pytest.mark.e2e
@@ -105,42 +108,75 @@ N_TRIALS: int = 100
 
 
 class _FakeAlpacaClient:
-    """Duck-typed Alpaca client that AssertionErrors on any submit.
+    """Duck-typed Alpaca client used by both rejection AND positive paths.
 
-    Every Alpaca-surface method increments a counter so the test can
+    Every Alpaca-surface method increments a counter so a test can
     assert the post-loop count delta is exactly ``0`` for the
-    cap-rejection and threshold/unanimity-rejection scenarios.
+    cap-rejection and threshold/unanimity-rejection scenarios. When
+    constructed WITHOUT ``submit_order_result`` / ``get_order_results``
+    (the rejection-path default), :meth:`submit_order` and
+    :meth:`get_order` raise :class:`AssertionError` so any
+    accidental broker contact fails LOUDLY in addition to bumping
+    the call counter.
+
+    When constructed WITH ``submit_order_result`` /
+    ``get_order_results`` (the positive-path / sibling test), the
+    fake walks the broker state-machine deterministically — the
+    submission returns the queued payload and ``get_order`` walks
+    a left-to-right queue (last entry sticks) mirroring the
+    pattern in ``tests/e2e/test_bull_flow.py``. This dual mode lets
+    the same helper (``_run_chain_then_submit``) drive both flavors
+    of test against an identical fake client.
     """
 
-    def __init__(self, *, base_url: str = PAPER_BASE_URL) -> None:
+    def __init__(
+        self,
+        *,
+        base_url: str = PAPER_BASE_URL,
+        submit_order_result: Any = None,
+        get_order_results: Optional[list[Any]] = None,
+        latest_trade_price: float = 25.0,
+        positions: Optional[list[dict[str, Any]]] = None,
+    ) -> None:
         self.base_url = base_url
         self.submit_calls: list[Any] = []
         self.get_order_calls: list[str] = []
         self.get_positions_calls: int = 0
         self.get_latest_trade_calls: list[str] = []
+        self._submit_result = submit_order_result
+        self._get_order_results = list(get_order_results or [])
+        self._latest_trade_price = latest_trade_price
+        self._positions = list(positions or [])
 
     def get_positions(self) -> list[dict[str, Any]]:
         self.get_positions_calls += 1
-        return []
+        return list(self._positions)
 
     def submit_order(self, order_request: Any) -> dict[str, Any]:
         # Record FIRST so a debugging post-mortem can read the call.
         self.submit_calls.append(order_request)
-        raise AssertionError(
-            "_FakeAlpacaClient.submit_order MUST NOT be called on a "
-            "rejection-path test (cheap-first invariant)"
-        )
+        if self._submit_result is None:
+            raise AssertionError(
+                "_FakeAlpacaClient.submit_order MUST NOT be called on a "
+                "rejection-path test (cheap-first invariant)"
+            )
+        return self._submit_result
 
     def get_order(self, order_id: str) -> dict[str, Any]:
         self.get_order_calls.append(order_id)
-        raise AssertionError(
-            "_FakeAlpacaClient.get_order MUST NOT be called on a "
-            "rejection-path test (cheap-first invariant)"
-        )
+        if not self._get_order_results:
+            raise AssertionError(
+                "_FakeAlpacaClient.get_order MUST NOT be called on a "
+                "rejection-path test (cheap-first invariant)"
+            )
+        result = self._get_order_results[0]
+        if len(self._get_order_results) > 1:
+            self._get_order_results.pop(0)
+        return result
 
     def get_latest_trade(self, ticker: str) -> Optional[float]:
         self.get_latest_trade_calls.append(ticker)
-        return 25.0
+        return self._latest_trade_price
 
     def total_call_count(self) -> int:
         """Sum across all four Alpaca-surface methods."""
@@ -347,33 +383,67 @@ def _seed_cap_hit_ledger(db_path: Path) -> None:
         conn.close()
 
 
-def _maybe_submit(
+def _run_chain_then_submit(
     chain_result: Stage2ChainResult,
+    executor_with_fake_client: PaperExecutor,
     *,
-    fake_client: _FakeAlpacaClient,
-) -> None:
-    """No-op stand-in for the post-chain executor invocation.
+    candidate_event: Mapping[str, Any],
+    stock_price: float = 25.0,
+    bid: float = 1.10,
+    ask: float = 1.30,
+    expiry: str = "2026-07-17",
+) -> Optional[str]:
+    """Production-wiring shim: invoke ``submit_news_event_entry`` iff chain passed.
 
-    On the rejection paths the caller MUST NOT contact the broker;
-    the production wiring (``submit_news_event_entry``) is invoked
-    only after :func:`run_stage2_chain` returns ``passed=True``.
-    This helper centralises that contract for the test loops — it
-    raises :class:`AssertionError` if the chain passed (which would
-    mean the rejection seed was lost) AND it asserts the broker was
-    not contacted before-the-fact.
+    The Stage-2 cheap-first contract is a TWO-stage handshake:
+
+    1. :func:`run_stage2_chain` decides pass/fail PURELY on cheap
+       gates and the LLM ensemble — it performs **zero broker
+       I/O** by design.
+    2. The caller, on ``passed=True``, then invokes
+       :func:`submit_news_event_entry` against the
+       :class:`PaperExecutor` to actually contact the broker.
+
+    The earlier ``_maybe_submit`` stand-in re-checked that
+    ``run_stage2_chain`` itself did not touch the fake client and
+    that the chain rejected — but the
+    :class:`_FakeAlpacaClient` was NEVER injected into the
+    production submit path on either branch, which made the
+    "zero broker I/O" assertion trivially true regardless of
+    contract correctness. That gap was surfaced by f-fix-m5-e2e-rigor
+    against VAL-M5-030 / VAL-M5-031 on 2026-05-01.
+
+    This helper closes the loop: it mirrors production wiring (``if
+    chain_result.passed: submit_news_event_entry(executor, ...)``),
+    so the rejection-path loops genuinely exercise the same
+    code path the daemon would run with the same fake client. If
+    the chain rejected, the helper short-circuits and returns
+    ``None`` — preserving the cheap-first invariant that the
+    broker is never contacted on a rejection.
+
+    A sibling positive-path test ``test_passing_chain_reaches_alpaca``
+    drives this helper with a chain configured to pass and asserts
+    ``fake_client.total_call_count() > 0`` — proving the wiring is
+    real (not dead code), so the rejection-path zero-call
+    assertions carry meaning.
     """
-    # The chain MUST have rejected — every scenario in this file is
-    # configured to short-circuit. If we landed here with passed=True,
-    # the test fixture is broken.
-    assert chain_result.passed is False, chain_result
-    # And the fake client MUST NOT have been touched up to this point
-    # — the chain itself does no broker I/O.
-    assert fake_client.submit_calls == []
-    assert fake_client.get_order_calls == []
-    assert fake_client.get_positions_calls == 0
-    # ``get_latest_trade`` is NOT invoked by the chain either (the
-    # underlying probe is the executor's responsibility).
-    assert fake_client.get_latest_trade_calls == []
+    if not chain_result.passed:
+        # Production: the caller skips the executor on a rejection.
+        return None
+
+    ensemble_result = chain_result.ensemble_result
+    assert ensemble_result is not None, (
+        "passed chain must carry an ensemble_result"
+    )
+    return submit_news_event_entry(
+        executor_with_fake_client,
+        candidate_event=candidate_event,
+        ensemble_result=ensemble_result,
+        stock_price=stock_price,
+        bid=bid,
+        ask=ask,
+        expiry=expiry,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -399,6 +469,12 @@ def test_cooldown_active_zero_llm_cost_ledger_over_100_trials(
 
     tracker = _StubProviderTracker()
     providers = tracker.make_uniform_providers()
+    fake_client = _FakeAlpacaClient()
+    executor = PaperExecutor(
+        fake_client,  # type: ignore[arg-type]
+        db_path=db_path,
+        poll_interval_seconds=0.0,
+    )
 
     cost_before = _count(db_path, "SELECT COUNT(*) FROM llm_cost_ledger")
 
@@ -415,6 +491,12 @@ def test_cooldown_active_zero_llm_cost_ledger_over_100_trials(
         assert chain_result.reason == GATE_REASON_COOLDOWN_ACTIVE
         assert chain_result.gate == "cooldown"
         assert chain_result.ensemble_result is None
+        # Production wiring: invoke submit_news_event_entry only on
+        # passed=True. Helper short-circuits on rejection here.
+        submit_result = _run_chain_then_submit(
+            chain_result, executor, candidate_event=candidate,
+        )
+        assert submit_result is None
         rejections += 1
     assert rejections == N_TRIALS
 
@@ -428,6 +510,13 @@ def test_cooldown_active_zero_llm_cost_ledger_over_100_trials(
     # ZERO providers ever invoked across all 100 trials.
     assert all(tracker.call_counts[p] == 0 for p in ALL_PROVIDERS), (
         tracker.call_counts
+    )
+
+    # VAL-M5-028 cheap-first cooldown — zero Alpaca call attempts
+    # via the production wiring helper.
+    assert fake_client.total_call_count() == 0, (
+        f"cooldown-rejection path must NOT touch the fake Alpaca "
+        f"client; total_call_count={fake_client.total_call_count()}"
     )
 
 
@@ -453,6 +542,12 @@ def test_armed_missing_zero_llm_cost_ledger_over_100_trials(
 
     tracker = _StubProviderTracker()
     providers = tracker.make_uniform_providers()
+    fake_client = _FakeAlpacaClient()
+    executor = PaperExecutor(
+        fake_client,  # type: ignore[arg-type]
+        db_path=db_path,
+        poll_interval_seconds=0.0,
+    )
 
     cost_before = _count(db_path, "SELECT COUNT(*) FROM llm_cost_ledger")
 
@@ -468,6 +563,11 @@ def test_armed_missing_zero_llm_cost_ledger_over_100_trials(
         assert chain_result.reason == GATE_REASON_ARMED_FILE_MISSING
         assert chain_result.gate == "armed"
         assert chain_result.ensemble_result is None
+        # Production wiring: rejection short-circuits BEFORE submit.
+        submit_result = _run_chain_then_submit(
+            chain_result, executor, candidate_event=candidate,
+        )
+        assert submit_result is None
 
     cost_after = _count(db_path, "SELECT COUNT(*) FROM llm_cost_ledger")
     assert cost_after - cost_before == 0, (
@@ -479,6 +579,13 @@ def test_armed_missing_zero_llm_cost_ledger_over_100_trials(
     # ZERO providers ever invoked across all 100 trials.
     assert all(tracker.call_counts[p] == 0 for p in ALL_PROVIDERS), (
         tracker.call_counts
+    )
+
+    # VAL-M5-029 cheap-first armed — zero Alpaca call attempts via
+    # the production wiring helper.
+    assert fake_client.total_call_count() == 0, (
+        f"armed-rejection path must NOT touch the fake Alpaca "
+        f"client; total_call_count={fake_client.total_call_count()}"
     )
 
 
@@ -506,6 +613,11 @@ def test_cap_hit_zero_alpaca_calls_over_100_trials(
     tracker = _StubProviderTracker()
     providers = tracker.make_uniform_providers()
     fake_client = _FakeAlpacaClient()
+    executor = PaperExecutor(
+        fake_client,  # type: ignore[arg-type]
+        db_path=db_path,
+        poll_interval_seconds=0.0,
+    )
 
     cost_before = _count(db_path, "SELECT COUNT(*) FROM llm_cost_ledger")
     assert cost_before == 1, "test seed should leave exactly one ledger row"
@@ -522,10 +634,14 @@ def test_cap_hit_zero_alpaca_calls_over_100_trials(
         assert chain_result.reason == GATE_REASON_DAILY_CAP_EXCEEDED
         assert chain_result.gate == "cap"
         assert chain_result.ensemble_result is None
-        # Production wiring would (post-chain) invoke
-        # ``submit_news_event_entry`` only when ``passed=True``;
-        # this helper enforces that contract.
-        _maybe_submit(chain_result, fake_client=fake_client)
+        # Production wiring: invoke submit_news_event_entry only on
+        # passed=True. Helper short-circuits on rejection here so
+        # the fake client genuinely sees zero broker I/O on the
+        # cap-rejection path.
+        submit_result = _run_chain_then_submit(
+            chain_result, executor, candidate_event=candidate,
+        )
+        assert submit_result is None
 
     cost_after = _count(db_path, "SELECT COUNT(*) FROM llm_cost_ledger")
     assert cost_after - cost_before == 0, (
@@ -643,6 +759,11 @@ def test_score_fail_zero_alpaca_calls_over_100_trials(
 
     providers = tracker.make_per_provider_providers(per_provider)
     fake_client = _FakeAlpacaClient()
+    executor = PaperExecutor(
+        fake_client,  # type: ignore[arg-type]
+        db_path=db_path,
+        poll_interval_seconds=0.0,
+    )
 
     for _ in range(N_TRIALS):
         chain_result = run_stage2_chain(
@@ -664,7 +785,13 @@ def test_score_fail_zero_alpaca_calls_over_100_trials(
         # Fan-out completed (this is a post-fanout rejection), so
         # ``ensemble_result`` is present even though ``passed=False``.
         assert chain_result.ensemble_result is not None
-        _maybe_submit(chain_result, fake_client=fake_client)
+        # Production wiring: submit only on passed=True. The helper
+        # short-circuits on rejection so the fake client genuinely
+        # sees zero broker I/O on the score-rejection path.
+        submit_result = _run_chain_then_submit(
+            chain_result, executor, candidate_event=candidate,
+        )
+        assert submit_result is None
 
     # VAL-M5-031 — zero Alpaca call attempts.
     assert fake_client.submit_calls == []
@@ -683,6 +810,141 @@ def test_score_fail_zero_alpaca_calls_over_100_trials(
         assert tracker.call_counts[p] == N_TRIALS, (
             f"provider {p} call_count={tracker.call_counts[p]} != {N_TRIALS}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Test 5 — Positive path: passing chain DOES reach the fake Alpaca client.
+# ---------------------------------------------------------------------------
+
+
+_CASSETTE_DIR = (
+    Path(__file__).resolve().parent.parent / "fixtures" / "cassettes" / "alpaca"
+)
+
+
+def _load_cassette(name: str) -> dict[str, Any]:
+    return json.loads((_CASSETTE_DIR / name).read_text(encoding="utf-8"))
+
+
+def test_passing_chain_reaches_alpaca(
+    db_path: Path,
+    armed_path: Path,
+    audit_path: Path,
+) -> None:
+    """Sibling of the rejection-path tests proving the wiring is real.
+
+    The four rejection-path tests above all assert
+    ``fake_client.total_call_count() == 0`` after invoking
+    :func:`_run_chain_then_submit`. That assertion has meaning only
+    if the same helper, given a CHAIN THAT PASSES, would actually
+    contact the fake client. This test pins exactly that property:
+
+    * Same :class:`_FakeAlpacaClient` and :class:`PaperExecutor`
+      construction the rejection tests use.
+    * Same :func:`_run_chain_then_submit` helper invocation.
+    * No cooldown row, ``.armed`` present, no daily-cap-hit ledger
+      seed, four unanimous-bullish providers at p=0.85 — every
+      cheap gate AND the post-fanout score gates pass.
+    * Cassette-backed broker payloads loaded via
+      ``order_call_roundtrip.json`` so the fake client returns a
+      well-formed Alpaca submit response.
+    * Asserts ``fake_client.total_call_count() > 0`` post-submit
+      AND ``len(fake_client.submit_calls) >= 1`` to disambiguate a
+      real broker contact from incidental ``get_positions`` /
+      ``get_latest_trade`` polling.
+
+    Without this control, the rejection-path zero-call assertions
+    could be vacuously satisfied by dead wiring.
+    """
+    candidate = _emit_candidate(db_path)
+    # No cooldown seed, no cap-hit ledger seed; armed_path fixture
+    # already created the marker — every gate should pass.
+
+    tracker = _StubProviderTracker()
+    providers = tracker.make_uniform_providers(
+        label="material",
+        direction="bullish",
+        probability=0.85,
+    )
+
+    cassette = _load_cassette("order_call_roundtrip.json")
+
+    # Re-stamp cassette timestamps with strictly-increasing
+    # wall-clock instants so the execution_subscriber state-machine
+    # validator (which orders execution_events by event_at DESC)
+    # doesn't reject the cassette-vintage 2025 timestamps as STALE.
+    # This mirrors the pattern in tests/e2e/test_bull_flow.py::_iso.
+    now = _dt.datetime.now(_dt.timezone.utc)
+
+    def _iso(offset_seconds: int) -> str:
+        ts = now + _dt.timedelta(seconds=offset_seconds)
+        return (
+            ts.strftime("%Y-%m-%dT%H:%M:%S.")
+            + f"{ts.microsecond // 1000:03d}Z"
+        )
+
+    submit_payload = dict(cassette["submit"])
+    submit_payload["created_at"] = _iso(0)
+    submit_payload["updated_at"] = _iso(0)
+    submit_payload["submitted_at"] = _iso(0)
+
+    poll_intermediate_payload = dict(cassette["poll_intermediate"])
+    poll_intermediate_payload["updated_at"] = _iso(60)
+    poll_intermediate_payload["submitted_at"] = _iso(0)
+
+    poll_filled_payload = dict(cassette["poll_filled"])
+    poll_filled_payload["updated_at"] = _iso(120)
+    poll_filled_payload["filled_at"] = _iso(120)
+    poll_filled_payload["submitted_at"] = _iso(0)
+
+    fake_client = _FakeAlpacaClient(
+        submit_order_result=submit_payload,
+        get_order_results=[
+            poll_intermediate_payload,
+            poll_filled_payload,
+        ],
+        latest_trade_price=25.0,
+    )
+    executor = PaperExecutor(
+        fake_client,  # type: ignore[arg-type]
+        db_path=db_path,
+        poll_interval_seconds=0.0,
+    )
+
+    pre_total = fake_client.total_call_count()
+
+    chain_result = run_stage2_chain(
+        candidate_event_row=candidate,
+        db_path=db_path,
+        armed_path=armed_path,
+        audit_path=audit_path,
+        providers=providers,
+    )
+    assert chain_result.passed is True, (
+        f"positive-path chain must pass; gate={chain_result.gate} "
+        f"reason={chain_result.reason}"
+    )
+    assert chain_result.ensemble_result is not None
+
+    alpaca_order_id = _run_chain_then_submit(
+        chain_result, executor, candidate_event=candidate,
+    )
+
+    # The helper actually contacted the broker, so an Alpaca order
+    # id flows back AND the fake client recorded ≥1 submit call.
+    assert isinstance(alpaca_order_id, str) and alpaca_order_id, (
+        "passing chain must yield a broker-assigned alpaca_order_id"
+    )
+    assert fake_client.total_call_count() > pre_total, (
+        f"_run_chain_then_submit must contact the fake Alpaca "
+        f"client on a passing chain; "
+        f"total_call_count={fake_client.total_call_count()} "
+        f"pre_total={pre_total}"
+    )
+    assert len(fake_client.submit_calls) >= 1, (
+        "passing chain must result in at least one submit_order call "
+        "(disambiguates real broker contact from incidental polling)"
+    )
 
 
 # ---------------------------------------------------------------------------

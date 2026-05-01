@@ -335,6 +335,14 @@ def test_bull_flow_end_to_end(
     test functions.
     """
 
+    # Capture wall-clock test-start for the VAL-M5-002 emitted_at
+    # freshness assertion further down (the contract requires
+    # ``emitted_at`` parseable as ISO-8601 within 60s of the test
+    # start, not just a trailing-Z sanity check). Uses the
+    # timezone-aware ``datetime.now(timezone.utc)`` per project
+    # hygiene rule in ``tests/test_no_utcnow.py``.
+    _test_started_at = _dt.datetime.now(_dt.timezone.utc)
+
     # ---------- VAL-M5-001 — Stage-1 emits exactly one candidate_events row.
     news_event_id = _seed_synthetic_news_event(db_path)
     assert news_event_id > 0
@@ -389,6 +397,30 @@ def test_bull_flow_end_to_end(
     # assert below.
     assert candidate["calendar_match"] is None
     assert candidate["emitted_at"] and candidate["emitted_at"].endswith("Z")
+    # VAL-M5-002 (freshness): parse emitted_at as ISO-8601 and
+    # assert its age in seconds against ``_test_started_at`` is
+    # within ``[0, 60]``. The trailing-Z check above is necessary
+    # but not sufficient — the contract requires the timestamp to
+    # be fresh wall-clock (within ~60s of test start), not merely
+    # well-formed.
+    _emitted_at_raw = candidate["emitted_at"]
+    # ``datetime.fromisoformat`` only learned to accept the literal
+    # ``Z`` suffix in 3.11; to keep parity with the project's
+    # 3.10-on-VPS floor we strip the trailing ``Z`` and parse,
+    # then attach ``timezone.utc`` so the subtraction below is
+    # tz-aware on both sides (``_test_started_at`` is tz-aware via
+    # ``datetime.now(timezone.utc)``).
+    _emitted_at_parsed = _dt.datetime.fromisoformat(
+        _emitted_at_raw[:-1] if _emitted_at_raw.endswith("Z") else _emitted_at_raw
+    )
+    if _emitted_at_parsed.tzinfo is None:
+        _emitted_at_parsed = _emitted_at_parsed.replace(tzinfo=_dt.timezone.utc)
+    _age_seconds = (_emitted_at_parsed - _test_started_at).total_seconds()
+    assert 0.0 <= _age_seconds <= 60.0, (
+        f"VAL-M5-002: emitted_at must be within 60s of test start; "
+        f"emitted_at={_emitted_at_raw!r} test_started_at={_test_started_at} "
+        f"age_seconds={_age_seconds}"
+    )
 
     # ---------- VAL-M5-003 — Stage-2 ensemble runs all 4 providers.
     tracker = _StubProviderTracker()
@@ -631,6 +663,21 @@ def test_bull_flow_end_to_end(
     pre_llm_cost = _count(
         db_path, "SELECT COUNT(*) FROM llm_cost_ledger"
     )
+    # VAL-M5-007 (cooldown retry execution-side invariants):
+    # snapshot the execution_events / execution_fills row counts
+    # so the post-retry assertion below can prove the cooldown
+    # short-circuit leaves them strictly unchanged. The cooldown
+    # gate fires PRE-LLM and PRE-broker, so neither table should
+    # gain a row on the retry; without these snapshots the prior
+    # version of the test only checked paper_orders /
+    # ensemble_scores_event / llm_cost_ledger and silently lost
+    # coverage of the broker-side side-effect invariant.
+    pre_exec_events = _count(
+        db_path, "SELECT COUNT(*) FROM execution_events"
+    )
+    pre_exec_fills = _count(
+        db_path, "SELECT COUNT(*) FROM execution_fills"
+    )
     pre_call_counts = dict(tracker.call_counts)
     pre_alpaca_calls = len(fake_client.submit_calls)
 
@@ -657,6 +704,23 @@ def test_bull_flow_end_to_end(
         == pre_ensemble_rows
     )
     assert _count(db_path, "SELECT COUNT(*) FROM llm_cost_ledger") == pre_llm_cost
+    # VAL-M5-007 (cooldown retry execution-side invariants): the
+    # cooldown gate fires PRE-broker, so neither execution_events
+    # nor execution_fills may gain a row on the retry.
+    assert (
+        _count(db_path, "SELECT COUNT(*) FROM execution_events")
+        == pre_exec_events
+    ), (
+        "VAL-M5-007: execution_events row count must be unchanged "
+        "across the cooldown-rejected retry"
+    )
+    assert (
+        _count(db_path, "SELECT COUNT(*) FROM execution_fills")
+        == pre_exec_fills
+    ), (
+        "VAL-M5-007: execution_fills row count must be unchanged "
+        "across the cooldown-rejected retry"
+    )
     assert tracker.call_counts == pre_call_counts
     assert len(fake_client.submit_calls) == pre_alpaca_calls
 
