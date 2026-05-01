@@ -279,15 +279,17 @@ def test_run_migrations_purges_pre_v9_chain_gate_violations(
         assert kept == {"AAA", "BBB"}
         # schema_version has been bumped to the current version.
         # f-misc-06: CURRENT_VERSION moved from 9 → 10 so the chained
-        # equality below now anchors at 10 (the v10 dispatcher in
-        # :func:`db.run_migrations` lifts the simulated v8 db all the
-        # way to the Reading-B foundations schema). The chain-gate
-        # cleanup still fires because the pre-migration version (8)
-        # is < 9, which is the gate the cleanup is keyed on.
+        # equality below now anchors at the active CURRENT_VERSION
+        # (the v10/v11 dispatcher in :func:`db.run_migrations` lifts
+        # the simulated v8 db all the way to the Reading-B foundations
+        # schema). The chain-gate cleanup still fires because the
+        # pre-migration version (8) is < 9, which is the gate the
+        # cleanup is keyed on. f-misc-09 bumped CURRENT_VERSION to 11.
         latest = conn.execute(
             "SELECT MAX(version) FROM schema_version"
         ).fetchone()[0]
-        assert latest == _db.CURRENT_VERSION == 10
+        assert latest == _db.CURRENT_VERSION
+        assert _db.CURRENT_VERSION >= 10
     finally:
         conn.close()
 

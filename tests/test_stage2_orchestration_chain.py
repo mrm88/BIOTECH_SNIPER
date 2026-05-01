@@ -63,7 +63,7 @@ def temp_db(tmp_path: Path) -> Path:
     """Fresh SQLite db with the v10 (Reading-B foundations) schema applied."""
 
     db_path = tmp_path / "stage2_chain.db"
-    run_v10(db_path, target_version=10, take_backup_first=False)
+    run_v10(db_path, target_version=11, take_backup_first=False)
     return db_path
 
 

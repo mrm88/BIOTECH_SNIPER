@@ -43,11 +43,12 @@ from biotech_sniper.migrations.runner import (
 )
 
 
-# Reading-B caps the schema at v10. v11 is reserved for a future
-# M3 expansion that did NOT land (the M1 v10 migration provisioned
-# every Stage-2 table). The invariant test therefore asserts
-# ``MAX(version) >= MISSION_MAX_VERSION`` so a future v11 bump
-# does not break the regression.
+# Reading-B's schema floor for the cross-flow invariant tests. The
+# test asserts ``MAX(version) >= MISSION_MAX_VERSION`` so further
+# forward-only bumps (f-misc-09 v11 forensic-column extension,
+# future Reading-B work) do NOT break the regression. The current
+# ``db.CURRENT_VERSION`` is taken as the actual target so each
+# fixture brings the db all the way up to the latest schema.
 MISSION_MAX_VERSION: int = 10
 
 
@@ -65,9 +66,9 @@ def _build_v10_db(tmp_path: Path) -> Path:
     finally:
         conn.close()
     summary = run_migrations_runner(
-        db_path, target_version=10, take_backup_first=False
+        db_path, target_version=db.CURRENT_VERSION, take_backup_first=False
     )
-    assert summary["to_version"] == 10, summary
+    assert summary["to_version"] == db.CURRENT_VERSION, summary
     return db_path
 
 

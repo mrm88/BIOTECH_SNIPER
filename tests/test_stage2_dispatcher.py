@@ -706,7 +706,7 @@ def f_fix_m5_03_temp_db(tmp_path) -> F_FIX_M5_03_Path:
     from biotech_sniper.migrations.runner import run as _run
 
     p = tmp_path / "stage2_persist_skip.db"
-    _run(p, target_version=10, take_backup_first=False)
+    _run(p, target_version=11, take_backup_first=False)
     return p
 
 

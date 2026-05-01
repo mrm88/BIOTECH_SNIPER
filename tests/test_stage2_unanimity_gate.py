@@ -297,7 +297,11 @@ def _build_v10_db_with_candidate(db_path):
         project_db.run_migrations(conn)
     finally:
         conn.close()
-    run_v10(db_path, 10, take_backup_first=False)
+    # Belt-and-suspenders: run the explicit migration runner against
+    # the current floor (CURRENT_VERSION). f-misc-09 bumped this from
+    # 10 → 11; using ``project_db.CURRENT_VERSION`` keeps the helper
+    # forward-compatible across future bumps.
+    run_v10(db_path, project_db.CURRENT_VERSION, take_backup_first=False)
     conn = project_db.connect(db_path)
     try:
         conn.execute(

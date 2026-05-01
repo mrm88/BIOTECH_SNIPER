@@ -71,11 +71,11 @@ def _seed_v10_db(db_path: Path) -> None:
             "--db",
             str(db_path),
             "--target",
-            "10",
+            str(_db.CURRENT_VERSION),
             "--no-backup",
         ]
     )
-    assert rc == 0, f"v10 migration runner returned {rc}"
+    assert rc == 0, f"migration runner returned {rc}"
 
 
 def _insert_news_event(

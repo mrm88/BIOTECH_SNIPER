@@ -243,7 +243,7 @@ def _count(db_path: Path, sql: str, params: tuple = ()) -> int:
 def db_path(tmp_path: Path) -> Path:
     """Bring a fresh sqlite db up to schema v10 (Reading-B foundations)."""
     db = tmp_path / "alpha_sniper_kill_switch.db"
-    run_migrations_runner(db, target_version=10, take_backup_first=False)
+    run_migrations_runner(db, target_version=11, take_backup_first=False)
     return db
 
 

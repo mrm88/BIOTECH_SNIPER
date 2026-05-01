@@ -39,14 +39,16 @@ from biotech_sniper.migrations.runner import run as run_v10
 
 
 def _build_v10_db(db_path):
-    """Create a fresh test DB at v10 with one candidate_events row seeded."""
-    # Build a v9 db, then migrate to v10.
+    """Create a fresh test DB at v10+ with one candidate_events row seeded."""
+    # Build a v9 db, then migrate to CURRENT_VERSION (post-f-misc-09:
+    # v11). Idempotent — the explicit runner call no-ops when
+    # ``project_db.run_migrations`` already advanced the db.
     conn = project_db.connect(db_path)
     try:
         project_db.run_migrations(conn)
     finally:
         conn.close()
-    run_v10(db_path, 10, take_backup_first=False)
+    run_v10(db_path, project_db.CURRENT_VERSION, take_backup_first=False)
 
     conn = project_db.connect(db_path)
     try:

@@ -180,7 +180,7 @@ def temp_db(tmp_path: Path) -> Path:
     from biotech_sniper.migrations.runner import run as run_v10
 
     db_path = tmp_path / "no_secret_leak.db"
-    run_v10(db_path, target_version=10, take_backup_first=False)
+    run_v10(db_path, target_version=11, take_backup_first=False)
     return db_path
 
 

@@ -118,7 +118,9 @@ def _build_v10_db_with_candidate(
         project_db.run_migrations(conn)
     finally:
         conn.close()
-    run_v10(db_path, 10, take_backup_first=False)
+    # f-misc-09: use CURRENT_VERSION so the helper stays
+    # forward-compatible with future schema bumps.
+    run_v10(db_path, project_db.CURRENT_VERSION, take_backup_first=False)
 
     conn = project_db.connect(db_path)
     try:
@@ -235,10 +237,11 @@ def _make_executor(
         db_path=db_path,
         poll_interval_seconds=0.0,
     )
-    # Bring the executor-bootstrapped v9 db up to v10 so the
-    # ``paper_orders.event`` CHECK admits ``'news_event_entry'`` and
-    # ``ticker_cooldown`` exists for the post-success UPSERT.
-    run_v10(db_path, 10, take_backup_first=False)
+    # f-misc-09: track the active CURRENT_VERSION so the helper
+    # stays forward-compatible with future schema bumps. Re-asserts
+    # the v10/v11 floor (idempotent on a db the executor already
+    # bootstrapped via ``db.run_migrations``).
+    run_v10(db_path, project_db.CURRENT_VERSION, take_backup_first=False)
     return executor, fake
 
 

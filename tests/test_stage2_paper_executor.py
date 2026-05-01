@@ -228,17 +228,21 @@ def _apply_v10_migration(db_path: Path) -> None:
     """Bring the executor-bootstrapped v9 db up to v10 (Reading-B foundations).
 
     The ``PaperExecutor`` constructor calls
-    ``db_module.run_migrations(conn)`` which only walks up to
-    :data:`db.CURRENT_VERSION` (currently 9). The ``news_event_entry``
-    enum value lives in the v10 migration (010_reading_b_foundations.py),
-    which is the precondition declared by the f-m1-07 feature.
-    Tests that exercise the wired ``news_event_entry`` path must
-    therefore apply v10 before any submit happens — mirrors the
-    ``test_migration_010`` setup.
+    ``db_module.run_migrations(conn)`` which auto-bootstraps a fresh
+    db all the way to :data:`db.CURRENT_VERSION` (post-f-misc-09
+    that's 11). The ``news_event_entry`` enum value lives in the v10
+    migration (010_reading_b_foundations.py); v11 extends
+    ``news_match_log`` with forensic columns. Both are idempotent on
+    re-apply, so this helper just re-asserts the floor by invoking
+    the runner at ``CURRENT_VERSION`` (a no-op when the executor
+    already brought the db to that version).
     """
     from biotech_sniper.migrations.runner import run as run_migrations_runner
+    from biotech_sniper import db as _db_module
 
-    run_migrations_runner(db_path, 10, take_backup_first=False)
+    run_migrations_runner(
+        db_path, _db_module.CURRENT_VERSION, take_backup_first=False
+    )
 
 
 def _make_executor(

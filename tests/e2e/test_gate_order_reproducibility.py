@@ -140,7 +140,7 @@ class _StubProviderTracker:
 def db_path(tmp_path: Path) -> Path:
     """Bring a fresh sqlite db up to schema v10 (Reading-B foundations)."""
     db = tmp_path / "alpha_sniper_e2e.db"
-    run_migrations_runner(db, target_version=10, take_backup_first=False)
+    run_migrations_runner(db, target_version=11, take_backup_first=False)
     return db
 
 
@@ -556,7 +556,7 @@ def test_all_five_scenarios_each_produce_one_distinct_gate_trace(
         scenario_dir = tmp_path / scenario_id
         scenario_dir.mkdir()
         db = scenario_dir / "alpha_sniper.db"
-        run_migrations_runner(db, target_version=10, take_backup_first=False)
+        run_migrations_runner(db, target_version=11, take_backup_first=False)
         armed = scenario_dir / ".armed"
         armed.write_text("e2e-gate-order-combined", encoding="utf-8")
         audit = scenario_dir / "state" / "audit_latest.json"

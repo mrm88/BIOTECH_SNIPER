@@ -453,7 +453,9 @@ def _build_v10_db(db_path):
         project_db.run_migrations(conn)
     finally:
         conn.close()
-    run_v10(db_path, 10, take_backup_first=False)
+    # f-misc-09: track the active CURRENT_VERSION so the helper
+    # stays forward-compatible with future schema bumps.
+    run_v10(db_path, project_db.CURRENT_VERSION, take_backup_first=False)
 
     conn = project_db.connect(db_path)
     try:

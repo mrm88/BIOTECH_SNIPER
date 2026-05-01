@@ -75,7 +75,7 @@ from biotech_sniper.paper_executor import PaperExecutor
 def temp_db(tmp_path: Path) -> Path:
     """Fresh SQLite DB at schema_version=10 (Reading-B foundations)."""
     db_path = tmp_path / "cooldown_utc.db"
-    run_v10(db_path, target_version=10, take_backup_first=False)
+    run_v10(db_path, target_version=11, take_backup_first=False)
     return db_path
 
 

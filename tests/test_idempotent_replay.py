@@ -107,7 +107,7 @@ def _build_v10_db(tmp_path: Path) -> Path:
         project_db.run_migrations(conn)
     finally:
         conn.close()
-    run_migrations_runner(db_path, target_version=10, take_backup_first=False)
+    run_migrations_runner(db_path, target_version=11, take_backup_first=False)
     return db_path
 
 
@@ -310,11 +310,15 @@ def _make_executor(
         db_path=db_path,
         poll_interval_seconds=0.0,
     )
-    # PaperExecutor's constructor only walks up to db.CURRENT_VERSION
-    # (v9). The Reading-B v10 migration is required for
-    # ``paper_orders.event = 'news_event_entry'`` and
-    # ``ticker_cooldown`` to exist.
-    run_migrations_runner(db_path, 10, take_backup_first=False)
+    # PaperExecutor's constructor walks up to db.CURRENT_VERSION
+    # which post-f-misc-09 is v11 (forensic-column extension on
+    # ``news_match_log``). v10 provided ``paper_orders.event =
+    # 'news_event_entry'`` and ``ticker_cooldown``; v11 extends
+    # ``news_match_log``. Re-asserting via the runner is a no-op
+    # when the executor already brought the db to that version.
+    run_migrations_runner(
+        db_path, project_db.CURRENT_VERSION, take_backup_first=False
+    )
     return executor, fake
 
 

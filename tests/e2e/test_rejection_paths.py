@@ -198,9 +198,11 @@ class _StubProviderTracker:
 
 @pytest.fixture
 def db_path(tmp_path: Path) -> Path:
-    """Bring a fresh sqlite db up to schema v10 (Reading-B foundations)."""
+    """Bring a fresh sqlite db up to schema v11 (Reading-B foundations
+    + f-misc-09 ``news_match_log`` forensic-column extension).
+    """
     db = tmp_path / "alpha_sniper_e2e.db"
-    run_migrations_runner(db, target_version=10, take_backup_first=False)
+    run_migrations_runner(db, target_version=11, take_backup_first=False)
     return db
 
 
@@ -290,11 +292,21 @@ def _emit_candidate(db_path: Path) -> dict[str, Any]:
 def _news_match_log_rows(
     db_path: Path, ticker: str = _TICKER
 ) -> list[dict[str, Any]]:
+    """Return ``news_match_log`` rows for ``ticker``, including v11 forensics.
+
+    f-misc-09 extended the v10 skeleton with five forensic columns
+    (``candidate_event_id``, ``gate_outcome``, ``avg_probability``,
+    ``cooldown_remaining_seconds``, ``today_total_usd``). The
+    rejection-path tests below assert each gate populates the
+    column relevant to its decision.
+    """
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(
-            "SELECT ticker, news_event_id, matched, reason, logged_at "
+            "SELECT ticker, news_event_id, matched, reason, logged_at, "
+            "candidate_event_id, gate_outcome, avg_probability, "
+            "cooldown_remaining_seconds, today_total_usd "
             "FROM news_match_log WHERE ticker = ? ORDER BY id ASC",
             (ticker,),
         ).fetchall()
@@ -420,6 +432,21 @@ def test_unanimity_rejection_writes_audit_no_paper_orders(
     assert nml["ticker"] == _TICKER
     assert nml["matched"] == 0
     assert nml["reason"] == GATE_REASON_UNANIMITY_FAILED
+    # f-misc-09 v11 forensic-columns invariant: every rejection row
+    # carries ``gate_outcome='rejected'`` and the ``candidate_event_id``
+    # that triggered the gate. Unanimity rejection still computes
+    # the post-fanout mean probability (0.85 in this fixture — all
+    # four providers returned probability=0.85 even though one
+    # disagreed on label), so ``avg_probability`` is recorded for
+    # forensic review. ``cooldown_remaining_seconds`` /
+    # ``today_total_usd`` remain NULL because those values aren't
+    # produced by the unanimity gate.
+    assert nml["gate_outcome"] == "rejected"
+    assert str(nml["candidate_event_id"]) == str(candidate["id"])
+    assert nml["avg_probability"] is not None
+    assert abs(float(nml["avg_probability"]) - 0.85) < 1e-6
+    assert nml["cooldown_remaining_seconds"] is None
+    assert nml["today_total_usd"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -516,6 +543,16 @@ def test_probability_rejection_writes_audit_no_paper_orders(
     assert nml["ticker"] == _TICKER
     assert nml["matched"] == 0
     assert nml["reason"] == GATE_REASON_PROBABILITY_BELOW_THRESHOLD
+    # f-misc-09 v11 forensic-columns invariant: probability rejection
+    # populates ``avg_probability`` on the SQL row alongside the
+    # parallel-surface audit JSON entry. avg(0.6, 0.65, 0.7, 0.7) =
+    # 0.6625; allow ±1e-6 for float repr drift.
+    assert nml["gate_outcome"] == "rejected"
+    assert str(nml["candidate_event_id"]) == str(candidate["id"])
+    assert nml["avg_probability"] is not None
+    assert abs(float(nml["avg_probability"]) - 0.6625) < 1e-6
+    assert nml["cooldown_remaining_seconds"] is None
+    assert nml["today_total_usd"] is None
 
     # audit_latest.json records the avg_probability.
     payload = _audit_payload(audit_path)
@@ -597,7 +634,17 @@ def test_armed_rejection_zero_llm_cost_zero_paper_orders(
     # news_match_log row exists with reason='armed_file_missing'.
     nml_rows = _news_match_log_rows(db_path)
     assert len(nml_rows) == 1
-    assert nml_rows[0]["reason"] == GATE_REASON_ARMED_FILE_MISSING
+    nml = nml_rows[0]
+    assert nml["reason"] == GATE_REASON_ARMED_FILE_MISSING
+    # f-misc-09 v11 forensic-columns invariant: armed-file rejection
+    # is cheap-first (pre-fanout) — no avg_probability, no cooldown
+    # value, no cap value to record. Only ``gate_outcome`` and
+    # ``candidate_event_id`` are populated.
+    assert nml["gate_outcome"] == "rejected"
+    assert str(nml["candidate_event_id"]) == str(candidate["id"])
+    assert nml["avg_probability"] is None
+    assert nml["cooldown_remaining_seconds"] is None
+    assert nml["today_total_usd"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -687,7 +734,19 @@ def test_cooldown_rejection_zero_llm_cost_records_remaining_seconds(
     # news_match_log row exists with reason='cooldown_active'.
     nml_rows = _news_match_log_rows(db_path)
     assert len(nml_rows) == 1
-    assert nml_rows[0]["reason"] == GATE_REASON_COOLDOWN_ACTIVE
+    nml = nml_rows[0]
+    assert nml["reason"] == GATE_REASON_COOLDOWN_ACTIVE
+    # f-misc-09 v11 forensic-columns invariant: cooldown rejection
+    # populates ``cooldown_remaining_seconds`` on the SQL row
+    # alongside the parallel audit JSON entry. ~23h remaining of the
+    # 24h window after the seeded 1h cooldown — allow ±1 minute slop.
+    assert nml["gate_outcome"] == "rejected"
+    assert str(nml["candidate_event_id"]) == str(candidate["id"])
+    assert nml["avg_probability"] is None
+    assert nml["cooldown_remaining_seconds"] is not None
+    sql_remaining = float(nml["cooldown_remaining_seconds"])
+    assert sql_remaining >= 23 * 3600 - 60
+    assert nml["today_total_usd"] is None
 
     # audit_latest.json records remaining_seconds.
     payload = _audit_payload(audit_path)
@@ -781,7 +840,17 @@ def test_cap_rejection_zero_llm_cost_records_today_total(
     # news_match_log row exists with reason='daily_cap_exceeded'.
     nml_rows = _news_match_log_rows(db_path)
     assert len(nml_rows) == 1
-    assert nml_rows[0]["reason"] == GATE_REASON_DAILY_CAP_EXCEEDED
+    nml = nml_rows[0]
+    assert nml["reason"] == GATE_REASON_DAILY_CAP_EXCEEDED
+    # f-misc-09 v11 forensic-columns invariant: cap rejection
+    # populates ``today_total_usd`` on the SQL row alongside the
+    # parallel audit JSON entry. Pre-seeded ledger sum is $20.00.
+    assert nml["gate_outcome"] == "rejected"
+    assert str(nml["candidate_event_id"]) == str(candidate["id"])
+    assert nml["avg_probability"] is None
+    assert nml["cooldown_remaining_seconds"] is None
+    assert nml["today_total_usd"] is not None
+    assert float(nml["today_total_usd"]) >= 20.0
 
     # audit_latest.json records today_total_usd.
     payload = _audit_payload(audit_path)

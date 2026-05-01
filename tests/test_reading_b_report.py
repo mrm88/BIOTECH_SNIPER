@@ -46,17 +46,20 @@ def _seed_v10_db(db_path: Path) -> None:
         _db.run_migrations(conn)
     finally:
         conn.close()
-    # Apply v10 directly (idempotent — no-op when already at v10).
+    # Apply CURRENT_VERSION directly (idempotent — no-op when
+    # already at this version). f-misc-09 bumped CURRENT_VERSION
+    # 10 → 11 so the runner CLI must be invoked with the canonical
+    # floor rather than a hard-coded ``10``.
     rc = _migrations_runner.main(
         [
             "--db",
             str(db_path),
             "--target",
-            "10",
+            str(_db.CURRENT_VERSION),
             "--no-backup",
         ]
     )
-    assert rc == 0, f"v10 migration runner returned {rc}"
+    assert rc == 0, f"migration runner returned {rc}"
 
 
 def _insert_news_event(

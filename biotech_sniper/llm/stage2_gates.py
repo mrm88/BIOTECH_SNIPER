@@ -1348,6 +1348,36 @@ def record_stage2_skip(
     ts = _dt.datetime.now(_dt.timezone.utc).isoformat() + "Z"
 
     # ---- news_match_log row -----------------------------------------
+    # f-misc-09 v11 schema extension: persist forensic metadata on the
+    # SQL row in addition to the audit JSON merge below. The extra
+    # columns (candidate_event_id, gate_outcome, avg_probability,
+    # cooldown_remaining_seconds, today_total_usd) were added by
+    # ``biotech_sniper/migrations/011_news_match_log_extension.py``
+    # so contract Evidence SELECTs at VAL-M5-018 / VAL-M5-024 /
+    # VAL-M5-027 can resolve against the SQL surface directly. The
+    # parallel audit JSON path remains for downstream tooling.
+    #
+    # ``today_total_usd`` is only persisted on the SQL row when the
+    # caller passed a non-zero value (the cap-gate path). The
+    # cooldown / armed / probability paths default the kwarg to 0.0
+    # so we coerce 0.0 → NULL to keep the column meaningful for
+    # cap-rejection-only filters. Same logic for
+    # ``cooldown_remaining_seconds`` (None on non-cooldown paths) and
+    # ``avg_probability`` (None on non-probability paths).
+    sql_today_total_usd = (
+        float(today_total_usd) if today_total_usd else None
+    )
+    sql_avg_probability = (
+        float(avg_probability) if avg_probability is not None else None
+    )
+    sql_cooldown_remaining_seconds = (
+        float(cooldown_remaining_seconds)
+        if cooldown_remaining_seconds is not None
+        else None
+    )
+    sql_candidate_event_id = (
+        str(candidate_event_id) if candidate_event_id is not None else None
+    )
     try:
         conn = _db.connect(db_target)
         try:
@@ -1356,10 +1386,22 @@ def record_stage2_skip(
                 conn.execute(
                     """
                     INSERT INTO news_match_log (
-                        ticker, news_event_id, matched, reason
-                    ) VALUES (?, ?, 0, ?)
+                        ticker, news_event_id, matched, reason,
+                        candidate_event_id, gate_outcome,
+                        avg_probability, cooldown_remaining_seconds,
+                        today_total_usd
+                    ) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?)
                     """,
-                    (ticker, news_event_id, reason),
+                    (
+                        ticker,
+                        news_event_id,
+                        reason,
+                        sql_candidate_event_id,
+                        "rejected",
+                        sql_avg_probability,
+                        sql_cooldown_remaining_seconds,
+                        sql_today_total_usd,
+                    ),
                 )
         finally:
             conn.close()

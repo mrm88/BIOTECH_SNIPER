@@ -78,7 +78,19 @@ SCHEMA_PATH: Final[Path] = Path(__file__).resolve().parent / "schema.sql"
 # (``biotech_sniper/migrations/010_reading_b_foundations.py``) is
 # idempotent on a v10 db, and (b) Reading-B M1 has been sealed and
 # v10 is the established schema floor in production.
-CURRENT_VERSION: Final[int] = 10
+#
+# f-misc-09 (Reading-B): bumped from 10 to 11 so a fresh
+# ``db.run_migrations(conn)`` (default target=CURRENT_VERSION)
+# auto-bootstraps the ``news_match_log`` forensic-columns extension
+# (candidate_event_id, gate_outcome, avg_probability,
+# cooldown_remaining_seconds, today_total_usd) added by
+# ``biotech_sniper/migrations/011_news_match_log_extension.py``.
+# Idempotent on a v11 db (each ALTER TABLE ADD COLUMN is guarded by a
+# PRAGMA table_info membership check). The audit JSON
+# (``state/audit_latest.json``) path remains as a parallel/legacy
+# persistence surface for downstream tooling — the v11 columns are an
+# additive query surface, not a replacement.
+CURRENT_VERSION: Final[int] = 11
 
 
 # File mode applied to the on-disk SQLite database after every

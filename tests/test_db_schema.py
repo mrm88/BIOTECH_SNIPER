@@ -102,12 +102,24 @@ def test_run_migrations_creates_all_expected_tables():
 
 
 def test_run_migrations_writes_schema_version_row():
+    """A fresh ``run_migrations(conn)`` writes a row at CURRENT_VERSION.
+
+    f-misc-09 (CURRENT_VERSION 10 → 11): once Reading-B has more than
+    one v10+ migration in the dispatcher chain (v10 + v11), each
+    applied migration legitimately writes its own ``schema_version``
+    row (a standard migration-history pattern). The invariant the
+    test now pins is "exactly ONE row at CURRENT_VERSION exists with
+    a non-empty timestamp" — leaves room for the runner to also
+    record intermediate-version rows (v10) along the way.
+    """
     conn = db.connect(":memory:")
     try:
         v = db.run_migrations(conn)
         assert v == db.CURRENT_VERSION
         rows = conn.execute(
-            "SELECT version, applied_at FROM schema_version"
+            "SELECT version, applied_at FROM schema_version "
+            "WHERE version = ?",
+            (db.CURRENT_VERSION,),
         ).fetchall()
         assert len(rows) == 1
         assert rows[0]["version"] == db.CURRENT_VERSION

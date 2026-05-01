@@ -84,7 +84,7 @@ def _build_v10_db(tmp_path: Path) -> Path:
         db.run_migrations(conn)
     finally:
         conn.close()
-    run_migrations_runner(db_path, target_version=10, take_backup_first=False)
+    run_migrations_runner(db_path, target_version=11, take_backup_first=False)
     return db_path
 
 
