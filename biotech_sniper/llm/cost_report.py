@@ -59,12 +59,16 @@ from pathlib import Path
 from typing import Iterable, Mapping, Optional, Sequence
 
 from biotech_sniper import db
+from biotech_sniper.llm.perplexity_client import (
+    compute_cost_usd as _perplexity_compute_cost_usd,
+)
 from biotech_sniper.paths import DATA_DIR
 
 __all__ = [
     "DEFAULT_TOLERANCE",
     "REQUIRED_FIELDS",
     "MODEL_PRICING",
+    "PERPLEXITY_SEARCH_CONTEXT_SIZE",
     "ProviderRates",
     "PlausibilityResult",
     "daily_totals",
@@ -77,6 +81,15 @@ __all__ = [
     "format_table",
     "main",
 ]
+
+
+#: Search-context-size sent by the Stage-2 Reading-B perplexity client
+#: on every call. Pinned to ``"low"`` because the Stage-2 daily $20
+#: cap forbids ``medium`` / ``high``. The plausibility recompute for
+#: perplexity rows uses this constant so the flat per-call surcharge
+#: ($5 / 1k requests at ``low``) is included alongside the per-token
+#: rates — the per-1k :data:`MODEL_PRICING` table cannot represent it.
+PERPLEXITY_SEARCH_CONTEXT_SIZE: str = "low"
 
 
 # ---------------------------------------------------------------------------
@@ -352,11 +365,36 @@ def plausibility_check(
     pairs the row is reported as ``ok=True`` with
     ``reason='unknown-pricing'`` so a forward-compatible model
     rollout doesn't blanket-fail today's audit.
+
+    Perplexity-specific path
+    ------------------------
+    When ``provider == 'perplexity'`` the recompute reuses
+    :func:`biotech_sniper.llm.perplexity_client.compute_cost_usd`
+    instead of the per-1k :data:`MODEL_PRICING` table. That helper
+    adds the flat ``$5 / 1k requests`` surcharge for
+    ``search_context_size='low'`` (the Stage-2 Reading-B default,
+    pinned in :data:`PERPLEXITY_SEARCH_CONTEXT_SIZE`) on top of the
+    per-token rates. Without this branch, low-token perplexity rows
+    where the surcharge dominates the per-token cost would trip the
+    default 20 % tolerance even when the ledger value is correct
+    (feature ``f-misc-11-perplexity-plausibility-surcharge``).
     """
 
-    expected = expected_cost_usd(
-        provider, model_id, prompt_tokens, completion_tokens
-    )
+    if provider == "perplexity":
+        # Perplexity branch — surcharge-aware recompute. The branch
+        # short-circuits the table-driven path entirely so a future
+        # ``sonar-medium`` rename (not yet in MODEL_PRICING) still
+        # gets a plausibility verdict instead of falling through to
+        # ``unknown-pricing``.
+        expected = _perplexity_compute_cost_usd(
+            prompt_tokens=int(prompt_tokens),
+            completion_tokens=int(completion_tokens),
+            search_context=PERPLEXITY_SEARCH_CONTEXT_SIZE,
+        )
+    else:
+        expected = expected_cost_usd(
+            provider, model_id, prompt_tokens, completion_tokens
+        )
 
     if expected is None:
         # Unknown pricing — we can't evaluate, but we also won't fail.
