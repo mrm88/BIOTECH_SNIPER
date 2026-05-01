@@ -34,6 +34,7 @@ from typing import Any, Iterator
 import pytest
 
 from biotech_sniper import adverse_news, db
+from biotech_sniper import db as project_db
 from biotech_sniper.adverse_news import (
     ADVERSE_NEWS_EVENT,
     NEGATIVE_MATERIAL_LABEL,
@@ -140,7 +141,7 @@ def _build_v10_db(tmp_path: Path) -> Path:
         db.run_migrations(conn)
     finally:
         conn.close()
-    run_migrations_runner(db_path, target_version=11, take_backup_first=False)
+    run_migrations_runner(db_path, target_version=project_db.CURRENT_VERSION, take_backup_first=False)
     return db_path
 
 

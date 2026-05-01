@@ -90,7 +90,23 @@ SCHEMA_PATH: Final[Path] = Path(__file__).resolve().parent / "schema.sql"
 # (``state/audit_latest.json``) path remains as a parallel/legacy
 # persistence surface for downstream tooling — the v11 columns are an
 # additive query surface, not a replacement.
-CURRENT_VERSION: Final[int] = 11
+#
+# f-misc-10 (Reading-B): bumped from 11 to 12 so a fresh
+# ``db.run_migrations(conn)`` (default target=CURRENT_VERSION)
+# auto-bootstraps the ``paper_orders.base_url`` column added by
+# ``biotech_sniper/migrations/012_paper_orders_base_url.py``. The
+# new column carries a literal DEFAULT of
+# ``'https://paper-api.alpaca.markets'`` so SQL audit queries of
+# the form ``WHERE base_url NOT LIKE '%paper-api%'``
+# (referenced in VAL-CROSS-009 evidence text and similar forensic
+# queries) become directly runnable without grepping order
+# journals. The paper-only invariant remains operationally
+# enforced by the ``LIVE_MODE`` two-flag gate plus
+# :class:`PaperExecutor`'s ``client.base_url == PAPER_BASE_URL``
+# constructor check; this column is purely an additive audit
+# surface. Idempotent on a v12 db (the ALTER is guarded by a
+# PRAGMA table_info membership check).
+CURRENT_VERSION: Final[int] = 12
 
 
 # File mode applied to the on-disk SQLite database after every

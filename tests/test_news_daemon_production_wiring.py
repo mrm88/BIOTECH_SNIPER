@@ -55,6 +55,7 @@ from typing import Any, Dict, Iterator, List, Mapping, Sequence
 import pytest
 
 from biotech_sniper import db
+from biotech_sniper import db as project_db
 from biotech_sniper.migrations.runner import run as run_migrations_runner
 from biotech_sniper.news_daemon import adapters, resilience
 from biotech_sniper.news_daemon.adapters import (
@@ -121,7 +122,7 @@ def _build_v10_db(tmp_path: Path) -> Path:
         db.run_migrations(conn)
     finally:
         conn.close()
-    run_migrations_runner(db_path, target_version=11, take_backup_first=False)
+    run_migrations_runner(db_path, target_version=project_db.CURRENT_VERSION, take_backup_first=False)
     return db_path
 
 

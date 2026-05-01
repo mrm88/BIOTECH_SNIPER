@@ -66,6 +66,7 @@ from typing import Any, Optional
 import pytest
 
 from biotech_sniper.alpaca_client import PAPER_BASE_URL
+from biotech_sniper import db as project_db
 from biotech_sniper.exec.stage2_dispatcher import (
     EVENT_NEWS_ENTRY,
     Stage2ChainResult,
@@ -221,7 +222,7 @@ class _StubProviderTracker:
 def db_path(tmp_path: Path) -> Path:
     """Bring a fresh sqlite db up to schema v10 (Reading-B foundations)."""
     db = tmp_path / "alpha_sniper_e2e.db"
-    run_migrations_runner(db, target_version=11, take_backup_first=False)
+    run_migrations_runner(db, target_version=project_db.CURRENT_VERSION, take_backup_first=False)
     return db
 
 

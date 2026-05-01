@@ -296,15 +296,30 @@ def test_v11_migration_apply_called_directly_is_idempotent(tmp_path: Path) -> No
 # ---------------------------------------------------------------------------
 
 
-def test_db_current_version_is_eleven() -> None:
-    """f-misc-09: db.CURRENT_VERSION must be bumped from 10 to 11."""
-    assert db.CURRENT_VERSION == 11
+def test_db_current_version_is_at_least_eleven() -> None:
+    """f-misc-09: ``db.CURRENT_VERSION`` must be ≥ 11.
+
+    Originally this test pinned ``CURRENT_VERSION == 11`` to lock in
+    the f-misc-09 bump. Subsequent migrations (e.g. f-misc-10's v12
+    ``paper_orders.base_url`` extension) advance the constant
+    further; the v11 invariants asserted by sibling tests in this
+    file remain valid as long as the v11 migration ran, which the
+    floor-check below pins. Use the canonical
+    :data:`db.CURRENT_VERSION` reference rather than re-pinning a
+    literal so future bumps don't need to rewrite this file.
+    """
+    assert db.CURRENT_VERSION >= 11
 
 
-def test_paper_executor_default_run_migrations_targets_v11(tmp_path: Path) -> None:
+def test_paper_executor_default_run_migrations_includes_v11(
+    tmp_path: Path,
+) -> None:
     """A fresh ``db.run_migrations(conn)`` (default target=CURRENT_VERSION)
-    auto-bootstraps a fresh db all the way to v11 — preserves the
-    f-misc-06 invariant for downstream callers (``PaperExecutor``).
+    auto-bootstraps a fresh db AT LEAST as far as v11 — preserves
+    the f-misc-06 invariant for downstream callers (``PaperExecutor``).
+
+    The v11 forensic columns must be present after the bootstrap
+    regardless of the eventual ``CURRENT_VERSION`` floor.
     """
     db_path = tmp_path / "alpha.db"
     conn = db.connect(db_path)
@@ -312,7 +327,8 @@ def test_paper_executor_default_run_migrations_targets_v11(tmp_path: Path) -> No
         applied = db.run_migrations(conn)  # default target=CURRENT_VERSION
     finally:
         conn.close()
-    assert applied == 11
+    assert applied >= 11
+    assert applied == db.CURRENT_VERSION
     cols = _column_info(db_path, "news_match_log")
     for col, _ in _FORENSIC_COLUMNS:
         assert col in cols, f"v11 forensic col {col} missing after bootstrap"

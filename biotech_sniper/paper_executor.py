@@ -1014,10 +1014,31 @@ class PaperExecutor:
         strongly encouraged for all new submissions so downstream
         slippage analytics has the data it needs.
 
+        f-misc-10 augmentation: every row carries a snapshot of
+        ``settings.ALPACA_BASE_URL`` (i.e.
+        :func:`biotech_sniper.config.get_alpaca_base_url`) in the
+        ``base_url`` column so SQL audit queries of the form
+        ``WHERE base_url NOT LIKE '%paper-api%'`` are directly
+        runnable. The paper-only invariant is still operationally
+        enforced by the ``LIVE_MODE`` two-flag gate plus the
+        ``client.base_url == PAPER_BASE_URL`` check in :meth:`__init__`
+        and :meth:`execute`; this column is purely an additive audit
+        surface and the constructor/runtime checks remain the
+        authoritative paper-only guardrails.
+
         ``created_at`` is optional; when provided the helper preserves
         it (used by :meth:`_update_order_after_submit` to keep the
         same row's submit-time timestamp through the lifecycle).
         """
+        # f-misc-10: snapshot ``settings.ALPACA_BASE_URL`` at write
+        # time so the row records the configured paper endpoint at
+        # the moment of the insert. Reading from
+        # :func:`config.get_alpaca_base_url` (rather than
+        # ``self.client.base_url``) honours the feature description's
+        # "from settings.ALPACA_BASE_URL" requirement and lets tests
+        # exercise the surface via ``monkeypatch.setenv`` without
+        # having to swap the wrapped client.
+        base_url = _config.get_alpaca_base_url()
         conn = self._connect()
         try:
             conn.execute(
@@ -1026,9 +1047,9 @@ class PaperExecutor:
                     id, play_card_id, alpaca_order_id, symbol, side,
                     qty, status, reason, event, parent_play_card_id,
                     requested_mid_at_submit, purpose, client_order_id,
-                    created_at
+                    base_url, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     order_id,
@@ -1044,6 +1065,7 @@ class PaperExecutor:
                     requested_mid_at_submit,
                     purpose,
                     client_order_id,
+                    base_url,
                     created_at if created_at is not None else _utc_now_iso(),
                 ),
             )

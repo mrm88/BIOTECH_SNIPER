@@ -24,10 +24,11 @@ from pathlib import Path
 import pytest
 
 from biotech_sniper.migrations.runner import run as run_migrations_runner
+from biotech_sniper import db as project_db
 
 
 def _migrate_to_v11(db_path: Path) -> None:
-    run_migrations_runner(db_path, target_version=11, take_backup_first=False)
+    run_migrations_runner(db_path, target_version=project_db.CURRENT_VERSION, take_backup_first=False)
 
 
 def _fetch_row(db_path: Path, ticker: str) -> sqlite3.Row:

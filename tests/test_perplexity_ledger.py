@@ -39,6 +39,7 @@ import pytest
 import requests
 
 from biotech_sniper import db
+from biotech_sniper import db as project_db
 from biotech_sniper.migrations.runner import run as run_migrations_runner
 from biotech_sniper.llm import perplexity_client
 from biotech_sniper.llm.perplexity_client import (
@@ -164,7 +165,7 @@ def temp_db(tmp_path: Path) -> Path:
     uses.
     """
     db_path = tmp_path / "ledger.db"
-    run_migrations_runner(db_path, target_version=11, take_backup_first=False)
+    run_migrations_runner(db_path, target_version=project_db.CURRENT_VERSION, take_backup_first=False)
     return db_path
 
 

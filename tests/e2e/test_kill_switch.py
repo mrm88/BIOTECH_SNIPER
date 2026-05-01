@@ -75,6 +75,7 @@ from typing import Any
 import pytest
 
 from biotech_sniper.migrations.runner import run as run_migrations_runner
+from biotech_sniper import db as project_db
 from biotech_sniper.news_daemon import poll_loop
 from biotech_sniper.news_daemon.poll_loop import (
     DEFAULT_POLL_SECONDS,
@@ -243,7 +244,7 @@ def _count(db_path: Path, sql: str, params: tuple = ()) -> int:
 def db_path(tmp_path: Path) -> Path:
     """Bring a fresh sqlite db up to schema v10 (Reading-B foundations)."""
     db = tmp_path / "alpha_sniper_kill_switch.db"
-    run_migrations_runner(db, target_version=11, take_backup_first=False)
+    run_migrations_runner(db, target_version=project_db.CURRENT_VERSION, take_backup_first=False)
     return db
 
 

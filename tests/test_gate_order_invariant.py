@@ -79,7 +79,7 @@ def temp_db(tmp_path: Path) -> Path:
     """Fresh SQLite database with the v10 (Reading-B) schema applied."""
 
     db_path = tmp_path / "gate_order.db"
-    run_v10(db_path, target_version=11, take_backup_first=False)
+    run_v10(db_path, target_version=project_db.CURRENT_VERSION, take_backup_first=False)
     return db_path
 
 

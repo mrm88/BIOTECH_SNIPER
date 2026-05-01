@@ -44,6 +44,7 @@ from typing import Any, Iterable, Mapping
 import pytest
 
 from biotech_sniper import db
+from biotech_sniper import db as project_db
 from biotech_sniper.llm import cost_report
 from biotech_sniper.llm.cost_report import (
     MODEL_PRICING,
@@ -78,7 +79,7 @@ def _make_db(tmp_path: Path) -> Path:
     """Create a fresh SQLite db with the v10 (Reading-B) schema applied."""
 
     db_path = tmp_path / "ledger.db"
-    run_migrations_runner(db_path, target_version=11, take_backup_first=False)
+    run_migrations_runner(db_path, target_version=project_db.CURRENT_VERSION, take_backup_first=False)
     return db_path
 
 
