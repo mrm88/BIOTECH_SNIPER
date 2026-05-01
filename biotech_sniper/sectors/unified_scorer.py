@@ -672,9 +672,21 @@ def detect_catalyst_type(notes: str, drug_or_topic: str = "", indication: str = 
     pdufa_signals = ["pdufa", "nda filing", "bla filing", "fda decision", "fda action date",
                      "fda approval", "pdufa date", "nda", "bla"]
     # Trial readout signals
-    readout_signals = ["phase 3", "phase 2", "phase 2b", "phase 3a", "data readout", "trial results",
+    # f-misc-05: extended with the canonical READOUT tokens VAL-M3-051
+    # mandates so that ``detect_catalyst_type`` is the single
+    # source-of-truth for readout-catalyst keyword detection. Previously
+    # ``stage2_dispatcher`` carried parallel readout pre-check tuples
+    # which have been retired; all readout tokens live here. The bare
+    # ``p1``/``p2``/``p3`` short forms are included so callers passing
+    # the bare phase shorthand still resolve to ``READOUT`` via this
+    # single helper.
+    readout_signals = ["phase 3", "phase 2", "phase 2b", "phase 3a", "phase 1",
+                       "data readout", "trial results",
                        "primary endpoint", "pivotal trial", "pivotal data", "clinical readout",
-                       "topline", "top-line", "data drop"]
+                       "topline", "top-line", "data drop",
+                       "p3 readout", "p2 readout", "p1 readout",
+                       "first-in-human", "first in human",
+                       "p1", "p2", "p3"]
 
     # Check label extension first (most specific — subset of PDUFA territory)
     if any(sig in combined for sig in label_ext_signals):

@@ -143,29 +143,20 @@ _DIRECTION_TO_UNIFIED: dict[str, str] = {
 # Pre-check tokens for catalyst-type derivation. ADCOM and CONTRACT
 # are handled by ``detect_catalyst_type`` only via the ``sector=``
 # parameter — for matched_keywords-driven derivation we add targeted
-# substring checks here. ``READOUT`` likewise gets a few extra
-# narrow tokens that the canonical detector's ``readout_signals``
-# list omits (``p3 readout`` / ``p2`` / ``phase 1`` /
-# ``first-in-human`` per VAL-M3-051). The bulk of the
+# substring checks here. The bulk of the
 # LABEL_EXT / PDUFA / READOUT / DEFAULT mapping remains delegated to
 # detect_catalyst_type so the canonical keyword vocabulary stays in
 # :mod:`biotech_sniper.sectors.unified_scorer`.
+#
+# f-misc-05: the previous readout-keyword pre-check tuples (a
+# substring set + a whole-word set) have been retired — the canonical
+# READOUT tokens VAL-M3-051 mandates (``p3 readout`` / ``p2 readout`` /
+# ``p1 readout`` / ``phase 1`` / ``first-in-human``) now live directly
+# on :func:`biotech_sniper.sectors.unified_scorer.detect_catalyst_type`'s
+# ``readout_signals`` list. The dispatcher delegates 100% of the
+# readout / pdufa / label_ext / default mapping to that helper.
 _ADCOM_TOKENS: tuple[str, ...] = ("adcom", "advisory committee")
 _CONTRACT_TOKENS: tuple[str, ...] = ("contract award",)
-# Narrow READOUT tokens missing from ``detect_catalyst_type``'s
-# ``readout_signals``. Match modes:
-#   * substring  — multi-character tokens looked up as ``token in combined``
-#   * whole-word — short tokens like ``p3`` looked up as a tokenised
-#                  exact match against the whitespace-split combined string
-_EXTRA_READOUT_SUBSTRINGS: tuple[str, ...] = (
-    "p3 readout",
-    "p2 readout",
-    "p1 readout",
-    "phase 1",
-    "first-in-human",
-    "first in human",
-)
-_EXTRA_READOUT_WHOLE_WORDS: frozenset[str] = frozenset({"p1", "p2", "p3"})
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +251,13 @@ def derive_catalyst_type(
     * partnership / collaboration / license / m&a / acquisition /
       merger / unknown phrase → ``DEFAULT`` (no specialised OTM slot
       exists today; calibration deferred per VAL-M3-051 note).
+
+    f-misc-05: catalyst classification (PDUFA / READOUT / LABEL_EXT /
+    DEFAULT) is delegated 100% to :func:`detect_catalyst_type`. The
+    only pre-checks retained here are for ADCOM / CONTRACT, which the
+    canonical detector surfaces only through its ``sector=`` argument
+    — for matched_keywords-driven derivation they need targeted
+    substring checks at the dispatcher boundary.
     """
 
     combined = _normalize_keywords(matched_keywords)
@@ -274,19 +272,12 @@ def derive_catalyst_type(
     if any(token in combined for token in _CONTRACT_TOKENS):
         return "CONTRACT"
 
-    # Narrow READOUT pre-check for tokens the canonical detector's
-    # ``readout_signals`` list omits (``p3 readout`` / ``p2 readout``
-    # / ``phase 1`` / ``first-in-human`` per VAL-M3-051). Whole-word
-    # matching for the ultra-short ``p1/p2/p3`` so they never collide
-    # with tokens like ``ip2x`` inside a longer keyword.
-    if any(s in combined for s in _EXTRA_READOUT_SUBSTRINGS):
-        return "READOUT"
-    if _EXTRA_READOUT_WHOLE_WORDS.intersection(combined.split()):
-        return "READOUT"
-
     # Delegate LABEL_EXT / PDUFA / READOUT / DEFAULT to the
     # canonical detector. ``detect_catalyst_type`` returns
-    # ``"DEFAULT"`` on miss, so no exception escapes.
+    # ``"DEFAULT"`` on miss, so no exception escapes. Per f-misc-05
+    # the readout-keyword vocabulary lives entirely on
+    # ``detect_catalyst_type.readout_signals``; no parallel pre-check
+    # remains here.
     catalyst_type = detect_catalyst_type(notes=combined)
 
     # Defensive: any unexpected value collapses to DEFAULT so the
