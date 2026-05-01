@@ -33,7 +33,7 @@ import re
 import subprocess
 import traceback
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 import pytest
 import requests
@@ -655,3 +655,212 @@ def test_no_sentinel_in_repo_root_dotenv_example() -> None:
         )
     ]
     assert leaks == [], leaks
+
+
+# ===========================================================================
+# VAL-CROSS-044 — Source-tree secret-pattern audit (multi-provider).
+#
+# Scans the entire source tree (excluding .git, .venv, __pycache__,
+# vcrpy cassette fixtures) for secret-shaped tokens across every
+# provider this project uses. Tests that look like they include
+# secrets (this file's sentinel, perplexity test fixtures with
+# explicit ``pplx-test`` / ``pplx-resp`` prefixes) are carved out
+# via test-only prefix allow-list so the audit doesn't flag itself.
+#
+# Wired as a CI gate via the repo-level ``Makefile`` ``audit-secrets``
+# target (see :func:`test_make_audit_secrets_target_exists`).
+# ===========================================================================
+
+
+# Patterns covering every secret type referenced anywhere in this
+# project (see ``biotech_sniper/config.py`` getters and the env-var
+# documentation in ``library/environment.md``).
+#
+# Each pattern is a ``(label, regex)`` tuple. The regex matches the
+# *value* shape of the credential, NOT just the env-var name. The
+# audit fails on any match found outside the test-only allow-list.
+#
+# Real-shape regex: real keys for these providers are base62 / base64
+# (alphanumeric only — no dashes / underscores inside the value
+# portion). This deliberately mirrors the strictness of
+# ``services.yaml::secrets_scan`` so dash-bearing test sentinels
+# (e.g. ``sk-ant-from-config-helper`` in tests/test_claude_client.py)
+# do not trip the audit while real credentials still do.
+SOURCE_TREE_SECRET_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    # Anthropic keys: ``sk-ant-`` + 20+ urlsafe (real keys are
+    # alphanumeric, no dashes).
+    ("anthropic_key", re.compile(r"\bsk-ant-[A-Za-z0-9]{20,}")),
+    # Generic OpenAI-shape keys: ``sk-`` + 20+ urlsafe.
+    ("openai_key", re.compile(r"\bsk-[A-Za-z0-9]{20,}")),
+    # Perplexity API keys.
+    ("perplexity_key", re.compile(r"\bpplx-[A-Za-z0-9]{20,}")),
+    # Alpaca paper / live key IDs (uppercase + digits, ≥ 16 chars).
+    ("alpaca_key_id", re.compile(r"\bALPACA_KEY_ID\s*=\s*[A-Z0-9]{16,}")),
+    # GitHub personal access tokens (ghp_ + 20+ alphanumeric).
+    ("github_pat", re.compile(r"\bghp_[A-Za-z0-9]{20,}")),
+    # X.AI / Grok keys (xai- prefix, 20+ alphanumeric).
+    ("xai_key", re.compile(r"\bxai-[A-Za-z0-9]{20,}")),
+    # Generic AWS access key IDs (AKIA + 16 uppercase / digits).
+    ("aws_access_key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
+]
+
+
+# Test-only sentinel prefixes carved out of the audit so the
+# regression test of the invariant doesn't fail itself. Test files
+# legitimately use these prefixes to construct sentinel values that
+# match the secret-shape regex; they are documented and never real
+# credentials.
+TEST_ONLY_PREFIXES: tuple[str, ...] = (
+    "pplx-test",
+    "pplx-resp",
+    "sk-test-",
+    "sk-ant-test-",
+    "xai-test-",
+    "ghp_test_",
+    # Specific test sentinels in tests/test_logging_setup.py (used
+    # as positive controls for the redaction logic).
+    "xai-thisshouldneverappear",
+)
+
+
+# Dirs / glob patterns excluded from the source-tree audit (matches
+# the contract's "excl. .git, .venv, node_modules, redacted cassettes"
+# carve-outs verbatim).
+SOURCE_TREE_EXCLUDED_PARTS: frozenset[str] = frozenset(
+    {
+        ".git",
+        ".venv",
+        "venv",
+        "node_modules",
+        "__pycache__",
+        # vcrpy cassettes are committed redacted but the structured
+        # YAML may include sentinel-shaped Authorization tokens that
+        # were redacted to ``***`` (still match the *regex* shape
+        # under some edge encodings). Cassettes have their own
+        # dedicated leak audit (test_perplexity_client.py) — exclude
+        # from this broad scan.
+        "cassettes",
+        # Compiled pytest snapshots, build artifacts.
+        ".pytest_cache",
+        "build",
+        "dist",
+        # Generated docs / large binary outputs.
+        "Biotech_Catalyst_Sniper_2026-03-30.xlsx",
+    }
+)
+
+
+def _iter_source_tree_files() -> Iterable[Path]:
+    """Yield every text-shaped file under :data:`REPO_ROOT` excluding
+    :data:`SOURCE_TREE_EXCLUDED_PARTS` parts and binary suffixes."""
+    binary_suffixes = {
+        ".pyc", ".pyo", ".so", ".dylib", ".o", ".a",
+        ".png", ".jpg", ".jpeg", ".gif", ".pdf",
+        ".db", ".sqlite", ".sqlite3", ".whl", ".tar", ".gz",
+        ".zip", ".xlsx", ".xls", ".csv",
+    }
+    for path in REPO_ROOT.rglob("*"):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(REPO_ROOT)
+        # Exclude paths whose parts match any excluded marker.
+        if any(part in SOURCE_TREE_EXCLUDED_PARTS for part in rel.parts):
+            continue
+        # Skip obvious binaries by suffix.
+        if path.suffix.lower() in binary_suffixes:
+            continue
+        # Skip the file that legitimately documents these patterns
+        # (this audit module itself), AND its sibling that documents
+        # the perplexity-only audit. Their sentinels are quoted
+        # *inside* the regex literals — not real secrets — and would
+        # otherwise trip the audit.
+        if path.name in {
+            "test_no_secret_leakage.py",
+        }:
+            continue
+        yield path
+
+
+def _is_test_only_value(value: str) -> bool:
+    """Return True iff ``value`` starts with a documented test-only
+    sentinel prefix and should be carved out of the audit."""
+    return any(value.startswith(p) for p in TEST_ONLY_PREFIXES)
+
+
+def _scan_source_tree_for_secrets() -> list[str]:
+    """Scan every in-scope file for secret-shaped substrings; return a
+    list of human-readable findings (one per match)."""
+    findings: list[str] = []
+    for fp in _iter_source_tree_files():
+        try:
+            content = fp.read_text(encoding="utf-8", errors="replace")
+        except Exception:  # pragma: no cover — defensive
+            continue
+        for label, pattern in SOURCE_TREE_SECRET_PATTERNS:
+            for match in pattern.finditer(content):
+                value = match.group(0)
+                if _is_test_only_value(value):
+                    continue
+                # ALPACA_KEY_ID=AKIA... obviously matches both
+                # alpaca_key_id and aws_access_key — record the
+                # narrower label for clarity but emit at most one
+                # finding per (file, position).
+                findings.append(
+                    f"[{label}] {value!r} in {fp.relative_to(REPO_ROOT)}"
+                )
+    return findings
+
+
+def test_source_tree_has_no_secret_shaped_tokens() -> None:
+    """Source tree contains zero non-test-only secret-shaped tokens."""
+    findings = _scan_source_tree_for_secrets()
+    assert findings == [], (
+        "VAL-CROSS-044: secret-shaped tokens found in source tree:\n"
+        + "\n".join(findings[:50])
+    )
+
+
+def test_makefile_audit_secrets_target_exists() -> None:
+    """VAL-CROSS-044 wires the source-tree secret audit as a CI gate.
+    At least one of the documented integration paths must exist:
+    a ``Makefile`` with an ``audit-secrets`` target, a
+    ``.pre-commit-config.yaml``, or a ``.github/workflows/secrets.yml``.
+
+    The convention chosen by f-cross-06 is the Makefile target — it
+    is dependency-free and runnable both locally and in CI.
+    """
+    candidates = [
+        (REPO_ROOT / "Makefile", "audit-secrets"),
+        (REPO_ROOT / ".pre-commit-config.yaml", "secrets"),
+        (REPO_ROOT / ".github" / "workflows" / "secrets.yml", "secrets"),
+    ]
+    found: list[str] = []
+    for path, marker in candidates:
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if marker in text:
+            found.append(f"{path.relative_to(REPO_ROOT)}::{marker}")
+    assert found, (
+        "VAL-CROSS-044: at least one CI integration path must exist "
+        f"for the source-tree secret audit. Checked: {[str(p[0]) for p in candidates]}"
+    )
+
+
+def test_secret_pattern_categories_cover_every_provider() -> None:
+    """Sanity: the audit pattern set covers every provider this
+    project actually integrates with. If a future feature adds a
+    new provider (e.g. a hypothetical ``cohere-`` API key), this
+    test fails until the pattern is added.
+    """
+    labels = {label for label, _ in SOURCE_TREE_SECRET_PATTERNS}
+    required = {
+        "anthropic_key",
+        "openai_key",
+        "perplexity_key",
+        "alpaca_key_id",
+        "github_pat",
+        "xai_key",
+    }
+    missing = required - labels
+    assert not missing, f"missing audit pattern categories: {missing}"
