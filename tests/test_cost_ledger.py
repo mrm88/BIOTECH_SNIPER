@@ -515,7 +515,10 @@ def test_pricing_table_matches_claude_constants():
 
 
 def test_pricing_table_covers_each_provider():
-    assert set(MODEL_PRICING) == {"xai", "anthropic", "gemini"}
+    # ``perplexity`` was added in f-cross-03 so the legacy cost_report
+    # recognises the Reading-B Stage-2 provider as first-class rather
+    # than falling through to ``unknown-pricing`` (VAL-CROSS-042).
+    assert set(MODEL_PRICING) == {"xai", "anthropic", "gemini", "perplexity"}
 
 
 # ---------------------------------------------------------------------------

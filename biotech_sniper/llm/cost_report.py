@@ -139,6 +139,25 @@ MODEL_PRICING: dict[str, dict[str, ProviderRates]] = {
         "gemini-2.5-pro": ProviderRates(0.00125, 0.010, label="gemini-2.5-pro"),
         "gemini": ProviderRates(0.00125, 0.010, label="gemini"),
     },
+    # Perplexity sonar list pricing — kept in sync with the per-token
+    # constants in :mod:`biotech_sniper.llm.perplexity_client`
+    # (``INPUT_USD_PER_TOKEN`` / ``OUTPUT_USD_PER_TOKEN``).
+    #
+    # NOTE: sonar carries an additional flat per-call surcharge for
+    # ``search_context_size='low'`` (``$5 / 1k requests``) which is
+    # NOT representable in this per-1k-token table. The Stage-2
+    # Reading-B path always sends search-context=low, so a row with
+    # tiny token counts can legitimately sit above the per-token-only
+    # estimate by up to ``$0.005``. Operators running
+    # ``--check-plausibility`` should keep the default 20 % tolerance
+    # (or pass ``--tolerance`` higher) — the entry exists so the
+    # provider is recognised as first-class rather than falling
+    # through to ``unknown-pricing``.
+    "perplexity": {
+        # sonar — $1 / 1M input, $1 / 1M output.
+        "sonar-pro": ProviderRates(0.001, 0.001, label="sonar-pro"),
+        "sonar": ProviderRates(0.001, 0.001, label="sonar"),
+    },
 }
 
 
