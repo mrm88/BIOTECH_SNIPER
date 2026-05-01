@@ -393,3 +393,277 @@ def test_module_import_does_not_lock_log_destination(
         f"importing execution_subscriber must not create any log file in "
         f"ALPHA_SNIPER_LOG_DIR; got {files_value!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Test 5–9: f-misc-07 — LEGAL_TRANSITIONS hardening for submitted → terminal
+# ---------------------------------------------------------------------------
+#
+# Background: the cron-driven ``ExecutionSubscriber.poll_once()``
+# polls every minute and almost always observes Alpaca paper's
+# intermediate ``accepted`` status before any cancel / expiry. But
+# the broker can in principle skip ``accepted`` entirely (e.g. a
+# very fast manual cancel, broker outage during fill, or a contract
+# being rejected after the local ``submitted`` row landed but before
+# the broker side accepted it). Prior to f-misc-07 the
+# ``LEGAL_TRANSITIONS`` graph mapped ``'submitted' → {'accepted',
+# 'rejected'}`` only — so a broker-emitted ``canceled`` / ``expired``
+# without a prior ``accepted`` event raised
+# :class:`IllegalStateTransition` mid-loop and the terminal row was
+# never written. Tests below pin the hardened behaviour: the
+# subscriber records the terminal event without raising, while the
+# happy-path (submitted → accepted → filled) and the rejection
+# (submitted → rejected) paths continue to work unchanged.
+
+
+class _StaticStatusClient:
+    """Minimal Alpaca duck-type returning a fixed status payload."""
+
+    def __init__(
+        self,
+        alpaca_order_id: str,
+        status: str,
+        *,
+        filled_qty: int | None = None,
+        filled_avg_price: float | None = None,
+        event_at: str = "2026-04-28T15:30:05.000Z",
+    ) -> None:
+        self._oid = alpaca_order_id
+        self._status = status
+        self._filled_qty = filled_qty
+        self._filled_avg_price = filled_avg_price
+        self._event_at = event_at
+
+    def get_order(self, order_id: str) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "id": self._oid,
+            "status": self._status,
+            "updated_at": self._event_at,
+        }
+        if self._filled_qty is not None:
+            payload["filled_qty"] = self._filled_qty
+            payload["filled_at"] = self._event_at
+        if self._filled_avg_price is not None:
+            payload["filled_avg_price"] = self._filled_avg_price
+        return payload
+
+
+class _SequencedStatusClient:
+    """Alpaca duck-type that returns a different status on each call."""
+
+    def __init__(
+        self,
+        alpaca_order_id: str,
+        statuses: list[dict[str, Any]],
+    ) -> None:
+        self._oid = alpaca_order_id
+        self._statuses = statuses
+        self._idx = 0
+
+    def get_order(self, order_id: str) -> dict[str, Any]:
+        idx = min(self._idx, len(self._statuses) - 1)
+        payload = dict(self._statuses[idx])
+        payload.setdefault("id", self._oid)
+        self._idx += 1
+        return payload
+
+
+def _seed_submitted_order(
+    db_path: Path,
+    *,
+    paper_order_id: str = "po-misc07",
+    alpaca_order_id: str = "alp-misc07",
+    client_order_id: str = "client-misc07",
+    submitted_at: str = "2026-04-28T15:30:00.500Z",
+) -> str:
+    """Seed a paper_orders row with a single ``submitted`` execution_event."""
+    _insert_paper_order(
+        db_path,
+        paper_order_id=paper_order_id,
+        alpaca_order_id=alpaca_order_id,
+        client_order_id=client_order_id,
+    )
+    record_execution_event(
+        db_path,
+        paper_order_id=paper_order_id,
+        event_type="submitted",
+        event_at=submitted_at,
+    )
+    return paper_order_id
+
+
+def _last_n_event_types(db_path: Path, paper_order_id: str) -> list[str]:
+    conn = sqlite3.connect(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT event_type FROM execution_events "
+            "WHERE paper_order_id=? ORDER BY id ASC",
+            (paper_order_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [r[0] for r in rows]
+
+
+def test_poll_once_submitted_to_canceled_writes_canceled_row(
+    tmp_path: Path,
+) -> None:
+    """f-misc-07: when the broker reports ``canceled`` for an order
+    whose only prior execution_event is ``submitted`` (no
+    intermediate ``accepted``), :meth:`ExecutionSubscriber.poll_once`
+    MUST write exactly one new ``execution_events`` row with
+    ``event_type='canceled'`` and MUST NOT raise
+    :class:`IllegalStateTransition`.
+    """
+    db_path = _migrated_db(tmp_path)
+    paper_order_id = _seed_submitted_order(db_path)
+
+    subscriber = ExecutionSubscriber(
+        client=_StaticStatusClient("alp-misc07", "canceled"),
+        db_path=db_path,
+    )
+    recorded = subscriber.poll_once()
+
+    assert recorded == 1, (
+        f"f-misc-07: poll_once must write exactly 1 row; got {recorded}"
+    )
+    assert _last_n_event_types(db_path, paper_order_id) == [
+        "submitted",
+        "canceled",
+    ]
+
+
+def test_poll_once_submitted_to_expired_writes_expired_row(
+    tmp_path: Path,
+) -> None:
+    """f-misc-07: same hardening, but for the ``expired`` terminal
+    status. Alpaca paper documents ``expired`` as a legal end-state
+    from any non-terminal status — the subscriber must record it
+    even without a prior ``accepted`` event.
+    """
+    db_path = _migrated_db(tmp_path)
+    paper_order_id = _seed_submitted_order(db_path)
+
+    subscriber = ExecutionSubscriber(
+        client=_StaticStatusClient("alp-misc07", "expired"),
+        db_path=db_path,
+    )
+    recorded = subscriber.poll_once()
+
+    assert recorded == 1
+    assert _last_n_event_types(db_path, paper_order_id) == [
+        "submitted",
+        "expired",
+    ]
+
+
+def test_poll_once_submitted_to_accepted_to_filled_happy_path(
+    tmp_path: Path,
+) -> None:
+    """Regression: the canonical happy path
+    ``submitted → accepted → filled`` continues to work after the
+    f-misc-07 hardening — first poll captures ``accepted``, second
+    poll captures ``filled``.
+    """
+    db_path = _migrated_db(tmp_path)
+    paper_order_id = _seed_submitted_order(db_path)
+
+    client = _SequencedStatusClient(
+        "alp-misc07",
+        [
+            {
+                "status": "accepted",
+                "updated_at": "2026-04-28T15:30:01.000Z",
+            },
+            {
+                "status": "filled",
+                "filled_at": "2026-04-28T15:30:05.000Z",
+                "updated_at": "2026-04-28T15:30:05.000Z",
+                "filled_qty": 2,
+                "filled_avg_price": 1.51,
+            },
+        ],
+    )
+    subscriber = ExecutionSubscriber(client=client, db_path=db_path)
+
+    first = subscriber.poll_once()
+    second = subscriber.poll_once()
+
+    assert first == 1 and second == 1
+    assert _last_n_event_types(db_path, paper_order_id) == [
+        "submitted",
+        "accepted",
+        "filled",
+    ]
+
+
+def test_poll_once_submitted_to_accepted_to_canceled_happy_path(
+    tmp_path: Path,
+) -> None:
+    """Regression: the canonical cancel-after-accept lifecycle still
+    works. The subscriber walks ``submitted → accepted`` on the
+    first poll and ``accepted → canceled`` on the second.
+    """
+    db_path = _migrated_db(tmp_path)
+    paper_order_id = _seed_submitted_order(db_path)
+
+    client = _SequencedStatusClient(
+        "alp-misc07",
+        [
+            {
+                "status": "accepted",
+                "updated_at": "2026-04-28T15:30:01.000Z",
+            },
+            {
+                "status": "canceled",
+                "updated_at": "2026-04-28T15:30:02.000Z",
+            },
+        ],
+    )
+    subscriber = ExecutionSubscriber(client=client, db_path=db_path)
+
+    subscriber.poll_once()
+    subscriber.poll_once()
+
+    assert _last_n_event_types(db_path, paper_order_id) == [
+        "submitted",
+        "accepted",
+        "canceled",
+    ]
+
+
+def test_poll_once_submitted_to_rejected_happy_path(tmp_path: Path) -> None:
+    """Regression: the existing ``submitted → rejected`` short-path
+    (broker explicitly rejects the order after the executor's local
+    ``submitted`` row landed) is unchanged after f-misc-07.
+    """
+    db_path = _migrated_db(tmp_path)
+    paper_order_id = _seed_submitted_order(db_path)
+
+    subscriber = ExecutionSubscriber(
+        client=_StaticStatusClient("alp-misc07", "rejected"),
+        db_path=db_path,
+    )
+    recorded = subscriber.poll_once()
+
+    assert recorded == 1
+    assert _last_n_event_types(db_path, paper_order_id) == [
+        "submitted",
+        "rejected",
+    ]
+
+
+def test_legal_transitions_submitted_includes_canceled_and_expired() -> None:
+    """f-misc-07 source-level invariant: ``LEGAL_TRANSITIONS['submitted']``
+    explicitly admits ``'canceled'`` and ``'expired'`` so the
+    state-machine validator stays honest about the broker's
+    permitted transitions.
+    """
+    from biotech_sniper.execution_subscriber import LEGAL_TRANSITIONS
+
+    allowed = LEGAL_TRANSITIONS["submitted"]
+    for terminal in ("accepted", "rejected", "canceled", "expired"):
+        assert terminal in allowed, (
+            f"LEGAL_TRANSITIONS['submitted'] missing {terminal!r}: "
+            f"{sorted(allowed)}"
+        )

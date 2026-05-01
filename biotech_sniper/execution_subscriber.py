@@ -42,6 +42,8 @@ Legal state-transition graph
                           ─► canceled
                           ─► expired
     submitted ─► rejected
+    submitted ─► canceled        # f-misc-07: broker skips ``accepted``
+    submitted ─► expired         # f-misc-07: broker skips ``accepted``
     (no prior event) ─► rejected   # f-cross-04: pre-submit / broker-side rejections
 
 The graph is encoded in :data:`LEGAL_TRANSITIONS` as a mapping from
@@ -60,6 +62,22 @@ ever recorded for those orders. Without this carve-out, a rejected
 ``paper_orders`` row would be orphaned in ``execution_events`` (no
 telemetry trail), violating the VAL-CROSS-043 traceability
 invariant.
+
+f-misc-07 carve-out
+~~~~~~~~~~~~~~~~~~~
+``'submitted' → {'canceled', 'expired'}`` is permitted so the
+:class:`ExecutionSubscriber` can record terminal events emitted by
+the broker WITHOUT a prior ``accepted`` lifecycle row. The
+cron-driven subscriber polls every minute and almost always
+observes Alpaca paper's ``accepted`` status before any cancel /
+expire, but the broker can in principle skip ``accepted`` entirely
+(fast manual cancel mid-submit, broker outage during fill,
+contract-too-expensive rejection-in-flight, etc.). Alpaca paper
+documents ``canceled`` / ``expired`` as legal end-states from any
+non-terminal status — without this carve-out the subscriber would
+raise :class:`IllegalStateTransition` mid-loop and the terminal row
+would never land, leaving the ``paper_orders`` row stuck in a
+non-terminal state in our local telemetry.
 """
 
 from __future__ import annotations
@@ -135,7 +153,18 @@ LEGAL_TRANSITIONS: dict[str, frozenset[str]] = {
     # (first event must be ``submitted``) caused VAL-CROSS-043
     # orphans in ``execution_events`` for every rejection.
     _INITIAL_STATE: frozenset({"submitted", "rejected"}),
-    "submitted": frozenset({"accepted", "rejected"}),
+    # f-misc-07: ``submitted → {canceled, expired}`` is permitted so the
+    # :class:`ExecutionSubscriber` can record a broker-emitted
+    # terminal status (canceled / expired) without an intermediate
+    # ``accepted`` lifecycle row. The cron poll usually observes
+    # ``accepted`` first, but the broker can skip it (fast manual
+    # cancel, contract-too-expensive in flight, broker outage, etc.)
+    # — without this carve-out poll_once() would raise
+    # IllegalStateTransition and the canceled / expired row would
+    # never land, leaving ``paper_orders`` stuck mid-lifecycle in
+    # local telemetry. Alpaca paper documents these as legal
+    # end-states from any non-terminal status.
+    "submitted": frozenset({"accepted", "rejected", "canceled", "expired"}),
     "accepted": frozenset({"partial_fill", "filled", "canceled", "expired"}),
     "partial_fill": frozenset({"partial_fill", "filled", "canceled", "expired"}),
     # Terminal states — no further transitions allowed.
