@@ -20,6 +20,7 @@ import requests
 import datetime
 from pathlib import Path
 
+from biotech_sniper.intelligence.url_guard import _validate_paper_only
 from biotech_sniper.paths import BASE_DIR as BASE
 REGISTRY_FILE = BASE / "intelligence/nct_registry.json"
 
@@ -91,6 +92,7 @@ def find_ir_url(ticker: str, company_name: str = "") -> str:
         base_domain = domain.replace("www.", "")
         url = pattern.format(domain=base_domain)
         try:
+            _validate_paper_only(url)
             r = requests.get(url, headers=HEADERS, timeout=6, allow_redirects=True)
             if r.status_code == 200 and len(r.text) > 2000:
                 print(f"    IR URL found: {url}")
@@ -117,10 +119,13 @@ def get_sec_cik(ticker: str) -> str:
     url = f"https://efts.sec.gov/LATEST/search-index?q=%22{ticker}%22&dateRange=custom&startdt=2020-01-01&forms=8-K"
     try:
         # Use EDGAR full-text search to find CIK
-        r = requests.get(
-            f"https://efts.sec.gov/LATEST/search-index?q=%22{ticker}%22&forms=8-K&hits.hits._source=period_of_report,entity_name,file_num,period_of_report",
-            headers=SEC_HEADERS, timeout=10
+        edgar_search_url = (
+            f"https://efts.sec.gov/LATEST/search-index?q=%22{ticker}%22"
+            "&forms=8-K&hits.hits._source=period_of_report,entity_name,"
+            "file_num,period_of_report"
         )
+        _validate_paper_only(edgar_search_url)
+        r = requests.get(edgar_search_url, headers=SEC_HEADERS, timeout=10)
         if r.status_code == 200:
             data = r.json()
             hits = data.get("hits", {}).get("hits", [])
@@ -132,10 +137,13 @@ def get_sec_cik(ticker: str) -> str:
 
     # Direct EDGAR ticker lookup (most reliable)
     try:
-        r = requests.get(
-            f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company=&CIK={ticker}&type=8-K&dateb=&owner=include&count=5&search_text=&output=atom",
-            headers=SEC_HEADERS, timeout=10
+        edgar_browse_url = (
+            f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany"
+            f"&company=&CIK={ticker}&type=8-K&dateb=&owner=include"
+            f"&count=5&search_text=&output=atom"
         )
+        _validate_paper_only(edgar_browse_url)
+        r = requests.get(edgar_browse_url, headers=SEC_HEADERS, timeout=10)
         # Extract CIK from response
         match = re.search(r'CIK=(\d+)', r.text)
         if match:
@@ -145,10 +153,12 @@ def get_sec_cik(ticker: str) -> str:
 
     # Try EDGAR company facts API
     try:
-        r = requests.get(
-            "https://efts.sec.gov/LATEST/search-index?q=%22" + ticker + "%22&forms=10-K,10-Q",
-            headers=SEC_HEADERS, timeout=10
+        edgar_facts_url = (
+            "https://efts.sec.gov/LATEST/search-index?q=%22"
+            + ticker + "%22&forms=10-K,10-Q"
         )
+        _validate_paper_only(edgar_facts_url)
+        r = requests.get(edgar_facts_url, headers=SEC_HEADERS, timeout=10)
     except:
         pass
 
@@ -158,9 +168,12 @@ def get_sec_cik(ticker: str) -> str:
 def get_sec_cik_direct(ticker: str) -> str:
     """Get CIK via SEC EDGAR company tickers JSON (most reliable method)."""
     try:
+        edgar_tickers_url = (
+            "https://www.sec.gov/files/company_tickers.json"
+        )
+        _validate_paper_only(edgar_tickers_url)
         r = requests.get(
-            "https://www.sec.gov/files/company_tickers.json",
-            headers=SEC_HEADERS, timeout=15
+            edgar_tickers_url, headers=SEC_HEADERS, timeout=15
         )
         if r.status_code == 200:
             data = r.json()
@@ -290,6 +303,7 @@ def auto_resolve_missing_ir_urls():
         if ir_url and not needs_refresh:
             # Verify it still works
             try:
+                _validate_paper_only(ir_url)
                 r = requests.get(ir_url, headers=HEADERS, timeout=6)
                 if r.status_code == 200 and len(r.text) > 1000:
                     continue  # Still good

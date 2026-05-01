@@ -47,6 +47,7 @@ Threads are used instead of subprocesses for two reasons:
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import threading
 import time
@@ -364,6 +365,246 @@ class TestNewsDaemonDuringDailyRun_VAL_CROSS_029:
 
 
 # ---------------------------------------------------------------------------
+# VAL-CROSS-029 SOAK — 5-minute concurrent stress (gated by RUN_SOAK=1)
+# ---------------------------------------------------------------------------
+
+# ~10k news-side inserts driven by a sustained 5-minute concurrent
+# writer run. The contract surface (zero missed/duplicated rows,
+# zero ``database is locked`` raises) is the SAME as the fast
+# variant above; the soak deliberately runs orders of magnitude
+# more iterations to surface contention bugs that only show up
+# under sustained load (e.g. WAL growth, busy-timeout hairlines,
+# checkpoint-vs-writer starvation).
+SOAK_DURATION_SECONDS: int = 5 * 60  # 5 minutes
+SOAK_NEWS_INSERTS_TARGET: int = 10_000
+# Gating env var. The fast CI run never sets this; the soak job
+# (a separate CI workflow or local invocation) sets ``RUN_SOAK=1``.
+_RUN_SOAK = os.environ.get("RUN_SOAK", "") == "1"
+
+
+@pytest.mark.soak
+@pytest.mark.skipif(
+    not _RUN_SOAK,
+    reason="soak tests are gated behind RUN_SOAK=1; set RUN_SOAK=1 to run",
+)
+def test_news_daemon_during_daily_run_5min_soak(
+    tmp_path: Path,
+) -> None:
+    """5-minute soak — ~10k news inserts under concurrent daily writer.
+
+    Stricter form of VAL-CROSS-029. Runs a sustained concurrent
+    workload for ``SOAK_DURATION_SECONDS`` and asserts:
+
+    * zero ``sqlite3.OperationalError`` "database is locked" raises;
+    * zero unexpected exceptions on either writer thread;
+    * exactly one ``candidate_events`` row per dedup_key actually
+      submitted by the news writer (no duplicates, no missed rows);
+    * post-soak ``PRAGMA integrity_check`` returns ``"ok"``.
+
+    Gated behind ``RUN_SOAK=1`` so normal ``pytest -n 2`` runs skip
+    it and the fast CI stays fast. Run via:
+
+        RUN_SOAK=1 .venv/bin/pytest -q tests/test_concurrent_isolation.py \\
+            -k soak --timeout=400
+    """
+
+    db_path = _build_v10_db(tmp_path)
+
+    # Pre-seed a single news_events row so the candidate FK
+    # resolves. The dedup_key is `(ticker, source_news_event_id,
+    # tuple(matched_keywords))` so we vary the matched_keywords
+    # across iterations to generate distinct dedup_keys per insert.
+    seed_news_id = _seed_news_event(
+        db_path,
+        ticker="VRTX",
+        title="VRTX soak seed",
+        url="https://example.com/vrtx-soak-seed",
+    )
+
+    locked_errors: list[str] = []
+    other_errors: list[BaseException] = []
+    lock = threading.Lock()
+    start_barrier = threading.Barrier(2)
+    stop = threading.Event()
+
+    submitted_dedup_keys: list[str] = []
+
+    def _record_error(exc: BaseException) -> None:
+        with lock:
+            if (
+                isinstance(exc, sqlite3.OperationalError)
+                and "database is locked" in str(exc).lower()
+            ):
+                locked_errors.append(str(exc))
+            else:
+                other_errors.append(exc)
+
+    def _news_daemon_writer() -> None:
+        try:
+            start_barrier.wait(timeout=10.0)
+            i = 0
+            while not stop.is_set() and i < SOAK_NEWS_INSERTS_TARGET:
+                cand = make_candidate(
+                    "VRTX",
+                    seed_news_id,
+                    [f"soak_kw_{i:06d}"],
+                )
+                with lock:
+                    submitted_dedup_keys.append(cand.dedup_key)
+                try:
+                    write_candidate(str(db_path), cand)
+                except BaseException as exc:  # noqa: BLE001
+                    _record_error(exc)
+                i += 1
+        except BaseException as exc:  # noqa: BLE001
+            _record_error(exc)
+
+    def _daily_curated_writer() -> None:
+        try:
+            conn = project_db.connect(db_path)
+            try:
+                _set_busy_timeout(conn)
+                start_barrier.wait(timeout=10.0)
+                i = 0
+                while not stop.is_set():
+                    try:
+                        with conn:
+                            conn.execute(
+                                "INSERT INTO paper_orders ("
+                                "id, play_card_id, alpaca_order_id, "
+                                "symbol, side, qty, status, event, "
+                                "client_order_id"
+                                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                (
+                                    f"soak-daily-{i:06d}",
+                                    f"VRTX-soak-{i:06d}",
+                                    f"alpaca-soak-{i:06d}",
+                                    "VRTX260620C00400000",
+                                    "buy",
+                                    1,
+                                    "accepted",
+                                    "open",
+                                    f"VRTX-open-soak-{i:06d}",
+                                ),
+                            )
+                        i += 1
+                    except BaseException as exc:  # noqa: BLE001
+                        _record_error(exc)
+            finally:
+                conn.close()
+        except BaseException as exc:  # noqa: BLE001
+            _record_error(exc)
+
+    threads = [
+        threading.Thread(target=_news_daemon_writer, name="news-soak"),
+        threading.Thread(target=_daily_curated_writer, name="daily-soak"),
+    ]
+    soak_start = time.monotonic()
+    for t in threads:
+        t.start()
+
+    # Run the soak. The news writer auto-stops after 10k inserts;
+    # the daily writer stops on the ``stop`` event. We arm the
+    # event after SOAK_DURATION_SECONDS so the test caps at ~5 min
+    # regardless of which writer races ahead.
+    stop_deadline = soak_start + SOAK_DURATION_SECONDS
+    while time.monotonic() < stop_deadline:
+        # Stop early if the news writer hit its target — no need
+        # to keep stress-testing past the contract scope.
+        with lock:
+            done_news = len(submitted_dedup_keys) >= SOAK_NEWS_INSERTS_TARGET
+        if done_news:
+            break
+        time.sleep(0.5)
+    stop.set()
+
+    # Generous join window — 30s after stop is plenty for both
+    # writers to drain.
+    join_deadline = time.monotonic() + 30.0
+    for t in threads:
+        remaining = max(0.1, join_deadline - time.monotonic())
+        t.join(timeout=remaining)
+    for t in threads:
+        assert not t.is_alive(), f"soak thread {t.name} did not finish"
+
+    soak_elapsed = time.monotonic() - soak_start
+
+    # No locked errors and no unexpected exceptions.
+    assert locked_errors == [], (
+        f"soak produced {len(locked_errors)} 'database is locked' "
+        f"errors over {soak_elapsed:.1f}s; first={locked_errors[0]!r}"
+    )
+    assert other_errors == [], (
+        f"soak produced unexpected exceptions: "
+        f"{[repr(e) for e in other_errors]}"
+    )
+
+    # We must have exercised at least the contract-scoped 10k inserts.
+    with lock:
+        submitted_keys = list(submitted_dedup_keys)
+    assert len(submitted_keys) >= SOAK_NEWS_INSERTS_TARGET, (
+        f"soak only submitted {len(submitted_keys)} inserts in "
+        f"{soak_elapsed:.1f}s; contract requires "
+        f">= {SOAK_NEWS_INSERTS_TARGET}"
+    )
+
+    # Every submitted dedup_key landed exactly once — no missed
+    # rows, no duplicates.
+    conn = sqlite3.connect(db_path)
+    try:
+        # Use a small batch-IN to avoid the 999-parameter SQLite
+        # default cap when checking 10k+ keys.
+        BATCH = 500
+        distinct_total = 0
+        rows_total = 0
+        unique_keys = list(set(submitted_keys))
+        for offset in range(0, len(unique_keys), BATCH):
+            batch = unique_keys[offset : offset + BATCH]
+            placeholders = ",".join(["?"] * len(batch))
+            distinct_total += int(
+                conn.execute(
+                    f"SELECT COUNT(DISTINCT dedup_key) "
+                    f"FROM candidate_events "
+                    f"WHERE dedup_key IN ({placeholders})",
+                    batch,
+                ).fetchone()[0]
+            )
+            rows_total += int(
+                conn.execute(
+                    f"SELECT COUNT(*) "
+                    f"FROM candidate_events "
+                    f"WHERE dedup_key IN ({placeholders})",
+                    batch,
+                ).fetchone()[0]
+            )
+        any_duplicates = list(
+            conn.execute(
+                "SELECT dedup_key, COUNT(*) c "
+                "FROM candidate_events "
+                "GROUP BY dedup_key HAVING c > 1 LIMIT 1"
+            )
+        )
+        integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+    finally:
+        conn.close()
+
+    assert distinct_total == len(unique_keys), (
+        f"missing dedup_keys: submitted {len(unique_keys)} unique, "
+        f"persisted {distinct_total}"
+    )
+    assert rows_total == len(unique_keys), (
+        f"duplicate rows: submitted {len(unique_keys)} unique, "
+        f"persisted {rows_total} total"
+    )
+    assert any_duplicates == [], (
+        f"candidate_events has duplicate dedup_keys: {any_duplicates}"
+    )
+    assert integrity == "ok", (
+        f"PRAGMA integrity_check failed post-soak: {integrity!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # VAL-CROSS-030 — WAL checkpoint succeeds while both writers active
 # ---------------------------------------------------------------------------
 
@@ -382,10 +623,31 @@ CHECKPOINT_RACE_WRITES: int = 50
 
 
 class TestWalCheckpointDuringLoad_VAL_CROSS_030:
-    """``PRAGMA wal_checkpoint(TRUNCATE)`` succeeds during concurrent writers."""
+    """``PRAGMA wal_checkpoint(TRUNCATE)`` succeeds during concurrent writers.
 
-    def test_wal_checkpoint_during_load(self, v10_db: Path) -> None:
-        """WAL checkpoint races writers, completes, and bounds the WAL file."""
+    The contract is split into two halves per f-fix-cross-tests-rigor
+    sub-fix D so each test asserts a single, narrow invariant rather
+    than blurring contention-tolerance and post-drain truncation
+    into one permissive assertion:
+
+    * :meth:`test_checkpoint_returns_under_contention_no_corruption`
+      runs the checkpoint against *active* concurrent writers and
+      tolerates the race outcome (``busy`` may be 0 or 1, page
+      counts may be -1 if the checkpoint could not run). The
+      assertion is that the PRAGMA returns without raising and the
+      WAL is bounded; it specifically does NOT require the
+      checkpoint to "win" against the writers.
+    * :meth:`test_checkpoint_truncates_after_writers_drain` is the
+      strict half: writers are barrier-joined to completion FIRST,
+      and only then is TRUNCATE issued. The assertion is hard:
+      ``busy=0``, ``checkpointed_pages == log_pages > 0`` (or both
+      zero on no-op), and post-checkpoint WAL <= 4 KiB.
+    """
+
+    def test_checkpoint_returns_under_contention_no_corruption(
+        self, v10_db: Path
+    ) -> None:
+        """WAL checkpoint races active writers, completes, and bounds the WAL file."""
 
         seed_news_id = _seed_news_event(
             v10_db,
@@ -585,6 +847,203 @@ class TestWalCheckpointDuringLoad_VAL_CROSS_030:
         finally:
             conn.close()
         assert integrity == "ok"
+
+    def test_checkpoint_truncates_after_writers_drain(
+        self, v10_db: Path
+    ) -> None:
+        """Strict half of VAL-CROSS-030: barrier-joined writers, then TRUNCATE.
+
+        Unlike :meth:`test_checkpoint_returns_under_contention_no_corruption`
+        which tolerates the race outcome (``busy`` ∈ {0, 1},
+        ``log_pages``/``checkpointed_pages`` may be -1), this test
+        is strict:
+
+        * Two writer threads run concurrently for a fixed window
+          (mirroring the production contention pattern), then are
+          barrier-joined to completion BEFORE the checkpoint is
+          issued.
+        * The TRUNCATE checkpoint then runs against a quiescent
+          writer set and MUST succeed cleanly:
+          - ``busy == 0`` (no readers/writers blocking);
+          - ``checkpointed_pages == log_pages`` AND ``log_pages > 0``
+            (every WAL frame was flushed and the WAL had real
+            content), OR ``log_pages == 0`` (auto-checkpoint pre-
+            emptied the WAL — acceptable, equivalent no-op);
+          - post-checkpoint WAL file size <= 4 KiB.
+
+        This second test is the load-bearing one for VAL-CROSS-030's
+        "WAL file is truncated" clause; the contention test above
+        only proves the call doesn't *raise* under load.
+        """
+
+        seed_news_id = _seed_news_event(
+            v10_db,
+            ticker="VRTX",
+            title="VRTX checkpoint drain seed",
+            url="https://example.com/vrtx-cross30-drain-seed",
+        )
+
+        errors: list[BaseException] = []
+        lock = threading.Lock()
+        # Both writers must hit the barrier together so they
+        # genuinely race for a slice of time before joining.
+        start_barrier = threading.Barrier(2)
+        # Hard cap on writer iterations so the join phase is
+        # bounded regardless of WAL contention.
+        WRITES_PER_THREAD = 200
+
+        def _record(exc: BaseException) -> None:
+            with lock:
+                errors.append(exc)
+
+        def _writer_a() -> None:
+            try:
+                conn = project_db.connect(v10_db)
+                try:
+                    _set_busy_timeout(conn)
+                    start_barrier.wait(timeout=10.0)
+                    for i in range(WRITES_PER_THREAD):
+                        try:
+                            with conn:
+                                conn.execute(
+                                    "INSERT INTO candidate_events ("
+                                    "ticker, source_news_event_id, "
+                                    "matched_keywords, calendar_match, "
+                                    "emitted_at, dedup_key) "
+                                    "VALUES (?, ?, ?, ?, ?, ?)",
+                                    (
+                                        "VRTX",
+                                        seed_news_id,
+                                        "fda approval",
+                                        None,
+                                        "2026-04-30T13:00:00Z",
+                                        f"drain_a_{i:05d}",
+                                    ),
+                                )
+                        except BaseException as exc:  # noqa: BLE001
+                            _record(exc)
+                            return
+                finally:
+                    conn.close()
+            except BaseException as exc:  # noqa: BLE001
+                _record(exc)
+
+        def _writer_b() -> None:
+            try:
+                conn = project_db.connect(v10_db)
+                try:
+                    _set_busy_timeout(conn)
+                    start_barrier.wait(timeout=10.0)
+                    for i in range(WRITES_PER_THREAD):
+                        try:
+                            with conn:
+                                conn.execute(
+                                    "INSERT INTO paper_orders ("
+                                    "id, play_card_id, alpaca_order_id, "
+                                    "symbol, side, qty, status, event, "
+                                    "client_order_id"
+                                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                    (
+                                        f"drain_b_{i:05d}",
+                                        f"VRTX-drain-b-{i:05d}",
+                                        f"alp-drain-b-{i:05d}",
+                                        "VRTX260620C00400000",
+                                        "buy",
+                                        1,
+                                        "accepted",
+                                        "open",
+                                        f"VRTX-drain-b-{i:05d}",
+                                    ),
+                                )
+                        except BaseException as exc:  # noqa: BLE001
+                            _record(exc)
+                            return
+                finally:
+                    conn.close()
+            except BaseException as exc:  # noqa: BLE001
+                _record(exc)
+
+        threads = [
+            threading.Thread(target=_writer_a, name="drain-writer-a"),
+            threading.Thread(target=_writer_b, name="drain-writer-b"),
+        ]
+        for t in threads:
+            t.start()
+
+        # Barrier-join: wait for BOTH writers to fully complete.
+        # The checkpoint runs ONLY after this point — so the
+        # checkpoint races no concurrent writer.
+        deadline = time.monotonic() + 60.0
+        for t in threads:
+            remaining = max(0.1, deadline - time.monotonic())
+            t.join(timeout=remaining)
+        for t in threads:
+            assert not t.is_alive(), (
+                f"drain writer {t.name} did not complete in 60s"
+            )
+
+        assert errors == [], (
+            f"drain writers produced exceptions: "
+            f"{[repr(e) for e in errors]}"
+        )
+
+        # Now — with no writer holding the WAL — issue TRUNCATE.
+        # Both connections are closed in the writer threads' finally
+        # blocks above, so this checkpoint runs against a fully
+        # quiescent writer set.
+        conn = project_db.connect(v10_db)
+        try:
+            row = conn.execute(
+                "PRAGMA wal_checkpoint(TRUNCATE)"
+            ).fetchone()
+        finally:
+            conn.close()
+        assert row is not None, (
+            "PRAGMA wal_checkpoint(TRUNCATE) returned no row"
+        )
+        busy, log_pages, checkpointed_pages = (int(x) for x in row)
+
+        # Strict contract: writers are drained, so busy MUST be 0.
+        assert busy == 0, (
+            f"post-drain checkpoint reported busy={busy}; "
+            "writers were joined before TRUNCATE so the WAL "
+            "should be uncontended"
+        )
+        # Strict contract: every WAL frame must have been flushed.
+        # Either log_pages>0 and checkpointed_pages==log_pages
+        # (real work done), or log_pages==0 and checkpointed_pages==0
+        # (auto-checkpoint pre-emptied the WAL — acceptable no-op).
+        assert log_pages >= 0 and checkpointed_pages >= 0, (
+            f"post-drain checkpoint returned negative page counts: "
+            f"log_pages={log_pages} checkpointed_pages={checkpointed_pages}"
+        )
+        assert checkpointed_pages == log_pages, (
+            f"post-drain checkpoint did not flush all WAL frames: "
+            f"log_pages={log_pages} checkpointed_pages={checkpointed_pages}"
+        )
+
+        # Strict size cap: 4 KiB. SQLite TRUNCATE on a quiescent
+        # WAL leaves either an empty file or zero-byte placeholder.
+        # We use 4 KiB rather than 0 so a single 32-byte WAL header
+        # remnant doesn't fail the test.
+        wal_path = Path(str(v10_db) + "-wal")
+        post_size = wal_path.stat().st_size if wal_path.exists() else 0
+        assert post_size <= 4096, (
+            f"post-drain TRUNCATE did not bound WAL <= 4 KiB: "
+            f"got {post_size} bytes (file={wal_path})"
+        )
+
+        # Final integrity check.
+        conn = sqlite3.connect(v10_db)
+        try:
+            integrity = conn.execute(
+                "PRAGMA integrity_check"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        assert integrity == "ok", (
+            f"PRAGMA integrity_check failed post-drain: {integrity!r}"
+        )
 
     def test_checkpoint_truncates_wal_when_idle(
         self, v10_db: Path

@@ -7,10 +7,21 @@ VAL-M1-051 / VAL-M1-063), this file enforces:
 
 * **VAL-CROSS-043** — every URL-constructing line in
   ``biotech_sniper/`` resolves to a host inside
-  :data:`biotech_sniper.networks.ALLOWED_NETWORK_HOSTS` (or a tightly
-  documented exception set), AND every Reading-B M1 / M3 whitelist
-  entry actually appears in production source (no dead Reading-B
-  whitelist entries).
+  :data:`biotech_sniper.networks.ALLOWED_NETWORK_HOSTS` (or a
+  narrowly-scoped, per-entry-documented exception set with
+  provenance), AND every Reading-B M1 / M3 whitelist entry actually
+  appears in production source (no dead Reading-B whitelist
+  entries). The carve-out file
+  :data:`DOCUMENTED_NON_WHITELIST_EXCEPTIONS` is *subtracted* from the
+  extracted-hostname set (rather than unioned with the accepted
+  set) so the strict assertion form is
+  ``(extracted - DOCUMENTED_NON_WHITELIST_EXCEPTIONS) -
+  ALLOWED_NETWORK_HOSTS == set()`` — see
+  :func:`test_runtime_egress_strictly_in_whitelist`. Each carve-out
+  entry MUST carry a single-line comment immediately above it
+  pointing to the source file or AGENTS.md "Known Pre-Existing
+  Issues" entry that documents *why* the host is exempt — see
+  :func:`test_documented_exceptions_each_have_provenance`.
 
 The static URL-extraction approach (regex over ``*.py`` source) is
 chosen over runtime mitm here because it gives us a stable
@@ -51,6 +62,7 @@ egress pattern is documented in ``library/architecture.md``.
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 from typing import Iterable
@@ -94,18 +106,32 @@ EXCLUDED_DIRS: frozenset[str] = frozenset(
 # Hostnames that appear in source but are NOT live-egress targets:
 # documented blocked URLs, docstring references, dummy/sample data,
 # or pre-existing single-ticker probes outside Reading-B scope.
+#
+# CONTRACT: every entry in this frozenset MUST be preceded by a
+# single-line ``#`` comment naming the source file (a ``.py``
+# pathlet) or AGENTS.md "Known Pre-Existing Issues" entry that
+# documents WHY the host appears in source without being on the
+# whitelist. The provenance discipline is enforced statically by
+# :func:`test_documented_exceptions_each_have_provenance`. New
+# carve-outs added without provenance break the test — that is
+# intentional, the carve-out list is a contract-load-bearing
+# document and silent additions defeat its purpose.
 DOCUMENTED_NON_WHITELIST_EXCEPTIONS: frozenset[str] = frozenset(
     {
-        # Alpaca live host — defined only so _validate_paper_only can
-        # block it. See alpaca_client.py:LIVE_BASE_URL.
+        # alpaca_client.py:LIVE_BASE_URL — defined only so
+        # _validate_paper_only can block it (paper-only invariant).
         "api.alpaca.markets",
-        # Migration 010 docstring link to SQLite ALTER TABLE docs.
+        # biotech_sniper/migrations/010_reading_b_foundations.py
+        # docstring link to SQLite ALTER TABLE docs (never dialed).
         "www.sqlite.org",
-        # audit.py legacy Twitter probe dummy fixture.
+        # biotech_sniper/audit.py legacy Twitter probe dummy
+        # fixture (test scaffold; never dialed).
         "x.com",
-        # audit.py § 8 legacy IR probe (single ticker, pre-existing).
+        # biotech_sniper/audit.py § 8 legacy single-ticker IR probe
+        # — see AGENTS.md "Known Pre-Existing Issues".
         "ir.ideayabio.com",
-        # biotech_sniper_agent.py sample data.
+        # biotech_sniper/biotech_sniper_agent.py sample / playground
+        # data (never dialed in production code paths).
         "www.stocktitan.net",
     }
 )
@@ -302,3 +328,324 @@ def test_allowed_network_hosts_is_frozenset():
     # Every entry is a non-empty plain hostname — no scheme, no path.
     for host in ALLOWED_NETWORK_HOSTS:
         assert host and "/" not in host and "://" not in host, host
+
+
+# ---------------------------------------------------------------------------
+# Stricter rigor (f-fix-cross-tests-rigor sub-fix A)
+# ---------------------------------------------------------------------------
+
+
+def test_runtime_egress_strictly_in_whitelist():
+    """Stricter form of VAL-CROSS-043's "extracted ⊆ whitelist" rule.
+
+    Rather than UNION-ing the carve-out into the accepted set
+    (which paints over the carve-outs and lets a *new* off-list
+    host slip through if it happens to share a name with a future
+    addition), we SUBTRACT the carve-out from the extracted set
+    and assert the residue is fully covered by the whitelist:
+
+    ``(extracted - DOCUMENTED_NON_WHITELIST_EXCEPTIONS) -
+    ALLOWED_NETWORK_HOSTS == set()``
+
+    The two forms are mathematically equivalent today but the
+    subtract-from-extracted form makes the carve-out's role
+    explicit (it is a list of *known absences*, not a list of
+    *additional allowed hosts*) and prevents a class of typo
+    regression where a future contributor mistakes the union form
+    for "the whitelist plus these other allowed hosts".
+    """
+    extracted_hosts = set(_extract_hostnames_from_source().keys())
+    residue = (
+        extracted_hosts
+        - DOCUMENTED_NON_WHITELIST_EXCEPTIONS
+        - ALLOWED_NETWORK_HOSTS
+    )
+    assert residue == set(), (
+        "VAL-CROSS-043 strict: extracted hostnames not on the "
+        "whitelist after subtracting documented exceptions: "
+        f"{sorted(residue)}"
+    )
+
+
+def _exception_provenance_lines() -> list[tuple[str, list[str]]]:
+    """Return ``[(host, comment_lines_immediately_above_entry), ...]``
+    by reading this test module's own source.
+
+    Used by :func:`test_documented_exceptions_each_have_provenance`
+    to enforce the provenance-comment discipline on each carve-out
+    entry.
+    """
+    src_lines = Path(__file__).read_text(encoding="utf-8").splitlines()
+    tree = ast.parse("\n".join(src_lines), filename=__file__)
+    target_set: ast.Set | None = None
+    for node in ast.walk(tree):
+        # Source uses an annotated assignment
+        # (``DOCUMENTED_NON_WHITELIST_EXCEPTIONS: frozenset[str] =
+        # frozenset({...})``) which is an ``ast.AnnAssign``; also
+        # accept plain ``ast.Assign`` for forward compatibility.
+        is_match = False
+        value: ast.AST | None = None
+        if (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "DOCUMENTED_NON_WHITELIST_EXCEPTIONS"
+        ):
+            is_match = True
+            value = node.value
+        elif isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name)
+            and t.id == "DOCUMENTED_NON_WHITELIST_EXCEPTIONS"
+            for t in node.targets
+        ):
+            is_match = True
+            value = node.value
+        if not is_match:
+            continue
+        # The literal is ``frozenset({...})``; the inner ast.Set
+        # holds the host strings. Unwrap the Call wrapper.
+        if isinstance(value, ast.Call) and isinstance(
+            value.func, ast.Name
+        ) and value.func.id == "frozenset":
+            if value.args and isinstance(value.args[0], ast.Set):
+                target_set = value.args[0]
+                break
+    assert target_set is not None, (
+        "could not locate DOCUMENTED_NON_WHITELIST_EXCEPTIONS "
+        "frozenset literal in this test module"
+    )
+
+    out: list[tuple[str, list[str]]] = []
+    for elt in target_set.elts:
+        # Each element is an ``ast.Constant`` with a string value.
+        if not (
+            isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+        ):
+            continue
+        host = elt.value
+        # Walk backwards from the line above the element, collecting
+        # contiguous comment lines (lines whose first non-whitespace
+        # char is ``#``). Stop on the first non-comment, non-blank line.
+        idx = elt.lineno - 2  # 0-based index of the line above
+        comments: list[str] = []
+        while idx >= 0:
+            line = src_lines[idx]
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                comments.append(stripped.lstrip("#").strip())
+                idx -= 1
+                continue
+            if stripped == "":
+                # Blank line breaks contiguity — provenance must be
+                # IMMEDIATELY above the entry, no blank line gap.
+                break
+            break
+        comments.reverse()
+        out.append((host, comments))
+    return out
+
+
+# Tokens that count as a "provenance" reference in a carve-out
+# comment. At least one of these MUST appear in the contiguous
+# comment block immediately above each ``DOCUMENTED_NON_WHITELIST_EXCEPTIONS``
+# entry.
+_PROVENANCE_TOKENS: tuple[str, ...] = (
+    ".py",
+    "AGENTS.md",
+    "VAL-",
+    "f-cross-",
+    "f-m",
+    "f-fix-",
+    "library/",
+    "validation-contract.md",
+)
+
+
+def test_documented_exceptions_each_have_provenance():
+    """Every entry in ``DOCUMENTED_NON_WHITELIST_EXCEPTIONS`` MUST have
+    a contiguous ``#`` comment block immediately above it that
+    references its provenance — a source file (``*.py`` pathlet),
+    AGENTS.md "Known Pre-Existing Issues" entry, validation-contract
+    VAL-ID, or feature-id (``f-cross-``/``f-m``/``f-fix-``).
+
+    This makes the carve-out list contract-load-bearing: silent
+    additions ("just to make the test pass") fail at CI time
+    because the new entry has no provenance marker.
+    """
+    # Sanity: the carve-out set is non-empty (otherwise the
+    # provenance check is vacuous).
+    assert DOCUMENTED_NON_WHITELIST_EXCEPTIONS, (
+        "DOCUMENTED_NON_WHITELIST_EXCEPTIONS is empty — if you really "
+        "intend to remove every carve-out, also remove this test."
+    )
+
+    rows = _exception_provenance_lines()
+    seen_hosts = {row[0] for row in rows}
+    # Each runtime-set member should appear in the AST extraction
+    # so we are confident the extraction picks up every entry.
+    missing_from_ast = (
+        DOCUMENTED_NON_WHITELIST_EXCEPTIONS - seen_hosts
+    )
+    assert not missing_from_ast, (
+        "_exception_provenance_lines() failed to extract these "
+        f"entries from source: {sorted(missing_from_ast)}"
+    )
+
+    offenders: list[tuple[str, list[str]]] = []
+    for host, comments in rows:
+        if not comments:
+            offenders.append((host, []))
+            continue
+        text = " | ".join(comments)
+        if not any(token in text for token in _PROVENANCE_TOKENS):
+            offenders.append((host, comments))
+    assert not offenders, (
+        "VAL-CROSS-043 provenance: each carve-out entry MUST have a "
+        "single-line ``#`` comment immediately above it referencing a "
+        f"source file (.py), AGENTS.md, VAL-ID, or feature-id; "
+        f"offenders={offenders}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Intelligence/ subpackage runtime URL-validator AST check (f-fix-cross-tests-rigor sub-fix B)
+# ---------------------------------------------------------------------------
+
+
+# Names that count as "whitelist gate" calls in the AST sweep below.
+# Both the alpaca_client-style raising gate and the boolean predicate
+# form satisfy the invariant — a resolver may invoke either before
+# egress. Centralised here so a future rename of the gate (or
+# addition of a third equivalent name) is a one-line change.
+_WHITELIST_GATE_FUNC_NAMES: frozenset[str] = frozenset(
+    {
+        "_validate_paper_only",
+        "_url_in_whitelist",
+    }
+)
+
+
+def _resolver_module_paths() -> list[Path]:
+    """Return the intelligence/ resolver module paths to AST-check.
+
+    Limited to ``company_resolver.py`` per the f-fix-cross-tests-rigor
+    sub-fix B contract. Future resolvers (e.g. master_discovery)
+    can be added here once they too route their egress through the
+    runtime gate.
+    """
+    return [PACKAGE_ROOT / "intelligence" / "company_resolver.py"]
+
+
+def _function_def_for_node(
+    tree: ast.AST, target: ast.AST
+) -> ast.FunctionDef | None:
+    """Return the enclosing ``ast.FunctionDef`` for ``target``, or
+    ``None`` if ``target`` is at module level."""
+
+    for parent in ast.walk(tree):
+        for child in ast.iter_child_nodes(parent):
+            child._parent = parent  # type: ignore[attr-defined]
+    cursor: ast.AST | None = target
+    while cursor is not None:
+        cursor = getattr(cursor, "_parent", None)
+        if isinstance(cursor, ast.FunctionDef):
+            return cursor
+    return None
+
+
+def _function_has_gate_before_call(
+    func: ast.FunctionDef, target_call: ast.Call
+) -> bool:
+    """Return True iff ``func`` body contains a call to one of the
+    whitelist-gate functions on a line strictly before
+    ``target_call.lineno``."""
+
+    target_line = target_call.lineno
+    for node in ast.walk(func):
+        if not isinstance(node, ast.Call):
+            continue
+        if node is target_call:
+            continue
+        if node.lineno >= target_line:
+            continue
+        func_node = node.func
+        if isinstance(func_node, ast.Name) and (
+            func_node.id in _WHITELIST_GATE_FUNC_NAMES
+        ):
+            return True
+        if isinstance(func_node, ast.Attribute) and (
+            func_node.attr in _WHITELIST_GATE_FUNC_NAMES
+        ):
+            return True
+    return False
+
+
+def test_intelligence_runtime_url_validators_invoked():
+    """Every ``requests.get(...)`` call inside intelligence/ resolver
+    code MUST be preceded in the same enclosing function by a call to
+    one of :data:`_WHITELIST_GATE_FUNC_NAMES`
+    (``_validate_paper_only`` / ``_url_in_whitelist``).
+
+    The intelligence/ subpackage is excluded from the static
+    URL-extraction sweep above (see :data:`EXCLUDED_DIRS`) because its
+    egress targets are computed at run time from per-company IR
+    domains. This test compensates: a *runtime* negative-whitelist
+    gate at ``biotech_sniper/intelligence/url_guard.py`` rejects any
+    URL that resolves to the live Alpaca host or an off-limits
+    other-tenant token, and every ``requests.get`` call site in the
+    resolver pipeline invokes the gate first. This AST-level check
+    catches a regression — a freshly-added ``requests.get`` site that
+    bypasses the gate — at CI time rather than shipping silently.
+    """
+    offenders: list[str] = []
+    for module_path in _resolver_module_paths():
+        assert module_path.is_file(), module_path
+        source = module_path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(module_path))
+
+        # Pre-compute parent links for the AST so we can walk
+        # upwards from each Call to its enclosing FunctionDef.
+        for parent in ast.walk(tree):
+            for child in ast.iter_child_nodes(parent):
+                child._parent = parent  # type: ignore[attr-defined]
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func_node = node.func
+            # Match only ``requests.get(...)`` (the egress entry
+            # point used by the resolver). Other ``requests.X``
+            # calls are out of scope; if a future resolver uses
+            # ``requests.post`` add it here.
+            if not (
+                isinstance(func_node, ast.Attribute)
+                and func_node.attr == "get"
+                and isinstance(func_node.value, ast.Name)
+                and func_node.value.id == "requests"
+            ):
+                continue
+            # Find enclosing function.
+            cursor: ast.AST | None = getattr(node, "_parent", None)
+            enclosing: ast.FunctionDef | None = None
+            while cursor is not None:
+                if isinstance(cursor, ast.FunctionDef):
+                    enclosing = cursor
+                    break
+                cursor = getattr(cursor, "_parent", None)
+            if enclosing is None:
+                offenders.append(
+                    f"{module_path.name}:L{node.lineno} "
+                    "requests.get at module level (no enclosing function)"
+                )
+                continue
+            if not _function_has_gate_before_call(enclosing, node):
+                offenders.append(
+                    f"{module_path.name}:L{node.lineno} "
+                    f"requests.get inside {enclosing.name}() not "
+                    "preceded by _validate_paper_only / _url_in_whitelist"
+                )
+
+    assert not offenders, (
+        "VAL-CROSS-043 / intelligence-runtime-gate: requests.get "
+        "call sites missing the whitelist-gate invocation:\n  - "
+        + "\n  - ".join(offenders)
+    )
