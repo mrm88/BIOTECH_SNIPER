@@ -42,6 +42,43 @@ This module owns the production logger surface used by the
 * :func:`configure_news_logging` — installs a file handler at
   :data:`DEFAULT_LOG_PATH` (or the env-overridden destination) with
   the truncating formatter.
+
+Structured event taxonomy
+-------------------------
+
+Canonical ``event`` names emitted by the news-daemon package, used
+both by ops-side ``jq`` filters and the M4 watchdog parser:
+
+* ``news_daemon_loop_started`` (INFO) — once per session, at the
+  top of :func:`biotech_sniper.news_daemon.resilience.run_main_loop`.
+* ``news_daemon_loop_drained`` (INFO) — once per session, on
+  graceful shutdown (SIGTERM / SIGINT / max_cycles exhausted).
+* ``news_daemon_poll_cycle_complete`` (INFO, per-cycle) — promoted
+  from DEBUG by f-misc-08 so production ``LOG_LEVEL=INFO`` runs
+  surface one structured progress record per poll cycle.  Fields:
+  ``cycles_completed``, ``candidates_emitted_session``,
+  ``errors_session``, ``duration_ms``, ``polled_ticker_count``,
+  ``news_events_scanned`` (all ``int``; field count kept tight to
+  avoid payload bloat).
+* ``news_daemon_emit_cycle`` (DEBUG) — per-cycle scan/insert
+  bookkeeping kept at DEBUG; aggregate counters surface via
+  ``news_daemon_poll_cycle_complete``.
+* ``news_daemon_rss_source_error`` (WARNING) — single RSS source
+  raised; the loop continues to the next source.
+* ``news_daemon_all_rss_sources_failed`` (ERROR) — every RSS
+  source in the cycle failed; the daemon stays alive.
+* ``news_daemon_poll_cycle_error`` (EXCEPTION) — the poll body
+  itself raised; ``errors_session`` increments and the next
+  cycle proceeds normally.
+* ``news_daemon_heartbeat_write_failed`` (WARNING) — best-effort
+  heartbeat flush failed; the loop survives so the next cycle
+  retries.
+* ``news_daemon_dry_run_exit`` (INFO) — ``--dry-run`` path exited
+  cleanly without touching the DB or the network.
+* ``news_daemon_gate_decision`` (INFO, throttled to once per minute)
+  — disabled-idle kill-switch heartbeat (NEWS_DAEMON_ENABLED=0).
+* ``news_poll_seconds_clamped`` / ``news_poll_seconds_fallback``
+  (WARNING) — env-var override clamp / fallback.
 """
 
 from __future__ import annotations

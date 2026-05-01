@@ -440,11 +440,22 @@ def run_main_loop(
                 },
             )
 
+        # Per-cycle telemetry counters reset at the top of every
+        # cycle so the f-misc-08 ``news_daemon_poll_cycle_complete``
+        # INFO event reports the *current cycle's* polled-ticker set
+        # size and news_events scan count (as opposed to the running
+        # session counters that climb monotonically).
+        cycle_polled_ticker_count = 0
+        cycle_news_events_scanned = 0
+
         # Run the poll body inside a try/except so a transient
         # database/exception in a downstream module cannot halt the
         # daemon (per VAL-M2-037 / VAL-M2-038).
         try:
             polled = resolve_polled_tickers(db_path)
+            cycle_polled_ticker_count = (
+                len(polled) if polled is not None else 0
+            )
             # f-fix-m2-09: pass the polled set THROUGH UNCHANGED.  An
             # earlier ``polled-or-None`` ternary collapsed an empty
             # set to ``None``, which :func:`run_one_poll_cycle` and
@@ -468,6 +479,7 @@ def run_main_loop(
                 db_path,
                 polled_tickers=polled,
             )
+            cycle_news_events_scanned = int(scanned or 0)
             state.candidates_emitted_session += int(inserted or 0)
         except Exception as exc:  # noqa: BLE001 - resilience hook
             state.errors_session += 1
@@ -490,6 +502,42 @@ def run_main_loop(
         )
 
         state.cycles_completed += 1
+
+        # f-misc-08: per-cycle INFO telemetry — promoted from the
+        # DEBUG-level ``news_daemon_emit_cycle`` so production
+        # ``LOG_LEVEL=INFO`` runs surface one structured progress
+        # record per poll cycle (was previously suppressed, leaving
+        # only the once-per-session ``news_daemon_loop_started`` /
+        # ``news_daemon_loop_drained`` INFO lines).  Field count
+        # kept tight (six fields, all int) to avoid payload bloat
+        # under the 4 KB per-line cap and the systemd
+        # ``MemoryMax=200M`` envelope.
+        cycle_duration_ms = int(
+            max(0.0, monotonic() - cycle_started_at) * 1000
+        )
+        log.info(
+            "news_daemon_poll_cycle_complete: cycles=%d candidates=%d "
+            "errors=%d duration_ms=%d polled=%d scanned=%d",
+            state.cycles_completed,
+            state.candidates_emitted_session,
+            state.errors_session,
+            cycle_duration_ms,
+            cycle_polled_ticker_count,
+            cycle_news_events_scanned,
+            extra={
+                "event": "news_daemon_poll_cycle_complete",
+                "src_module": "news_daemon.resilience",
+                "cycles_completed": int(state.cycles_completed),
+                "candidates_emitted_session": int(
+                    state.candidates_emitted_session
+                ),
+                "errors_session": int(state.errors_session),
+                "duration_ms": int(cycle_duration_ms),
+                "polled_ticker_count": int(cycle_polled_ticker_count),
+                "news_events_scanned": int(cycle_news_events_scanned),
+            },
+        )
+
         if max_cycles and state.cycles_completed >= max_cycles:
             break
         if state.shutdown:
