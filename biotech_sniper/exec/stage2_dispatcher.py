@@ -666,7 +666,7 @@ def run_stage2_chain(
         *,
         avg_probability: Optional[float] = None,
         cooldown_remaining_seconds: Optional[int] = None,
-        today_total_usd: float = 0.0,
+        today_total_usd: Optional[float] = None,
         projected_cost: float = 0.0,
         cap_value: float = 0.0,
     ) -> None:

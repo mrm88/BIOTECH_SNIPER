@@ -1273,7 +1273,7 @@ def record_stage2_skip(
     ticker: str,
     candidate_event_id: Optional[int] = None,
     news_event_id: Optional[int] = None,
-    today_total_usd: float = 0.0,
+    today_total_usd: Optional[float] = None,
     projected_cost: float = 0.0,
     cap: float = 0.0,
     reason: str = GATE_REASON_DAILY_CAP_EXCEEDED,
@@ -1357,15 +1357,17 @@ def record_stage2_skip(
     # VAL-M5-027 can resolve against the SQL surface directly. The
     # parallel audit JSON path remains for downstream tooling.
     #
-    # ``today_total_usd`` is only persisted on the SQL row when the
-    # caller passed a non-zero value (the cap-gate path). The
-    # cooldown / armed / probability paths default the kwarg to 0.0
-    # so we coerce 0.0 → NULL to keep the column meaningful for
-    # cap-rejection-only filters. Same logic for
-    # ``cooldown_remaining_seconds`` (None on non-cooldown paths) and
-    # ``avg_probability`` (None on non-probability paths).
+    # ``today_total_usd`` is persisted on the SQL row whenever the
+    # caller passed a non-None value, INCLUDING literal ``0.0``
+    # (cap-gate fires before any spend today — the first rejection of
+    # the day MUST land 0.0, NOT NULL). f-fix-misc-09 replaced the
+    # earlier truthiness coercion (``if today_total_usd``) which
+    # collapsed legitimate zero values to NULL and lost forensic data
+    # exactly when it mattered most. Same ``is not None`` semantics
+    # for ``avg_probability`` (zero-probability rejection lands 0.0)
+    # and ``cooldown_remaining_seconds`` (zero-tick boundary lands 0).
     sql_today_total_usd = (
-        float(today_total_usd) if today_total_usd else None
+        float(today_total_usd) if today_total_usd is not None else None
     )
     sql_avg_probability = (
         float(avg_probability) if avg_probability is not None else None
@@ -1458,7 +1460,13 @@ def record_stage2_skip(
         entry["last_news_event_id"] = (
             int(news_event_id) if news_event_id is not None else None
         )
-        entry["last_total_usd"] = float(today_total_usd)
+        # ``today_total_usd`` is Optional — non-cap-gate paths pass
+        # None so the audit JSON entry omits the cap-state value
+        # (writing 0.0 there would be misleading for armed/cooldown/
+        # probability rejections that didn't compute it).
+        entry["last_total_usd"] = (
+            float(today_total_usd) if today_total_usd is not None else None
+        )
         entry["last_projected_cost"] = float(projected_cost)
         entry["last_cap"] = float(cap)
         entry["last_logged_at"] = ts
