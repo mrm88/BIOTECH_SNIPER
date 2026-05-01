@@ -676,17 +676,22 @@ def detect_catalyst_type(notes: str, drug_or_topic: str = "", indication: str = 
     # mandates so that ``detect_catalyst_type`` is the single
     # source-of-truth for readout-catalyst keyword detection. Previously
     # ``stage2_dispatcher`` carried parallel readout pre-check tuples
-    # which have been retired; all readout tokens live here. The bare
-    # ``p1``/``p2``/``p3`` short forms are included so callers passing
-    # the bare phase shorthand still resolve to ``READOUT`` via this
-    # single helper.
+    # which have been retired; all readout tokens live here.
+    #
+    # f-fix-misc-05-readout-boundary-safety: the bare ``p1``/``p2``/
+    # ``p3`` shorthands are matched separately below via a
+    # boundary-safe regex so that real-world strings containing the
+    # bigram inside a longer alphanumeric/hyphenated token (e.g.,
+    # ``sp2x``, ``type-p3``, ``flap1``, ``protein-p2-binding-domain``,
+    # ``compp1ngraduation``) do NOT misclassify as READOUT. Multi-word
+    # readout phrases retain plain substring matching since spaces and
+    # hyphens give them natural boundaries.
     readout_signals = ["phase 3", "phase 2", "phase 2b", "phase 3a", "phase 1",
                        "data readout", "trial results",
                        "primary endpoint", "pivotal trial", "pivotal data", "clinical readout",
                        "topline", "top-line", "data drop",
                        "p3 readout", "p2 readout", "p1 readout",
-                       "first-in-human", "first in human",
-                       "p1", "p2", "p3"]
+                       "first-in-human", "first in human"]
 
     # Check label extension first (most specific — subset of PDUFA territory)
     if any(sig in combined for sig in label_ext_signals):
@@ -694,6 +699,15 @@ def detect_catalyst_type(notes: str, drug_or_topic: str = "", indication: str = 
     if any(sig in combined for sig in pdufa_signals):
         return "PDUFA"
     if any(sig in combined for sig in readout_signals):
+        return "READOUT"
+    # Boundary-safe matcher for the bare ``p1``/``p2``/``p3`` short
+    # forms. Uses ``re.fullmatch`` against the spec'd word-boundary
+    # regex so that the bare token only resolves to READOUT when the
+    # combined input (after stripping surrounding whitespace) IS the
+    # bare token — not when ``p1``/``p2``/``p3`` appears as a
+    # substring of a longer alphanumeric/hyphenated token or as a
+    # single floating token inside arbitrary surrounding text.
+    if re.fullmatch(r'(?<![A-Za-z0-9_-])(p[123])(?![A-Za-z0-9_-])', combined.strip()):
         return "READOUT"
     return "DEFAULT"
 
