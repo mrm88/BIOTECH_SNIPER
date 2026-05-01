@@ -1,6 +1,10 @@
 """Reading-B M5 regression: daily-curated path byte-identical pre/post Reading B.
 
-Feature: ``f-m5-07-daily-curated-byte-identical-replay``.
+Feature: ``f-m5-07-daily-curated-byte-identical-replay`` — repaired
+by ``f-fix-byte-identical-invariance`` (2026-05-01) after cross-flow
+scrutiny round 1 found the original assertions to be tautological
+self-baselines.
+
 Contract assertions covered: VAL-M5-040, VAL-M5-041, VAL-M5-042,
 VAL-M5-043, VAL-M5-046 (kill-switch invariant) and the cross-mission
 VAL-CROSS-037 regression invariant.
@@ -19,41 +23,48 @@ The hard backward-compatibility invariant of Reading B (laid out in
     ``audit_latest.json`` is an additive top-level ``reading_b`` key
     when ``NEWS_DAEMON_ENABLED=1``.
 
-How this test proves it hermetically
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Why this file proves invariance, not a golden-replay
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Running the real ``master_unified_run`` end-to-end requires live
-network egress (CT.gov, SEC EDGAR, RSS feeds, the Alpaca paper API)
-and would otherwise depend on an enormous cassette set. The
-byte-identical regression invariant, however, is a *property* of
-the code-path topology Reading B introduced — it is provable
-without re-running the full daily cron:
+Byte-identity is enforced as an **invariance proof** rather than a
+**golden-replay proof**, because:
 
-* The Reading-B daemon's *sole* persistence path is the kill switch
-  in :func:`biotech_sniper.news_daemon.poll_loop.is_news_daemon_enabled`
-  / :func:`run_disabled_idle`. With ``NEWS_DAEMON_ENABLED=0``, the
-  daemon enters the disabled-idle loop and writes ZERO rows to any
-  Reading-B table (``candidate_events``, ``ensemble_scores_event``,
-  ``news_match_log``, ``ticker_cooldown``, ``llm_cost_ledger``,
-  ``paper_orders WHERE event='news_event_entry'``).
-* :func:`biotech_sniper.reports.reading_b_audit_summary.write_reading_b_summary`
-  is the *only* writer that mutates ``state/audit_latest.json``
-  with a ``reading_b`` key. It is NEVER called inside
-  :mod:`biotech_sniper.audit` / :mod:`master_unified_run` — the
-  daily-curated path is unmodified.
-* :data:`paper_orders.event` is an additive enum extension (per
-  VAL-M1-042). Daily-curated rows continue to use legacy event
-  values (``'open'``, ``'iv_crush_exit'``, ``'stop_loss'``,
-  ``'adverse_news'``, ``'rotation'``); ``'news_event_entry'`` is
-  carved out into its own bucket and never co-mingles with
-  daily-curated bucket aggregations.
+(i)   the contract's ``tests/fixtures/regression/2026-04-26.sha256``
+      golden artifact and the
+      ``biotech_sniper.testing.regression_replay`` harness referenced
+      by the original VAL-M5-040 evidence command **do not exist**
+      in the repo (verified by triage on 2026-05-01),
+(ii)  the contract's intent — "Reading B does not perturb the daily-
+      curated path" — is fully captured by an invariance proof:
+      seed real bytes, run the real ``run_disabled_idle`` entrypoint
+      for several cycles, re-hash the SAME on-disk bytes / DB rows,
+      assert equality, AND assert ZERO new rows appear in any
+      Reading-B-only table,
+(iii) capturing a true pre-Reading-B golden requires a cassette set
+      (CT.gov + SEC EDGAR + every RSS feed + Alpaca paper) and a
+      ``regression_replay`` harness that is itself a multi-feature
+      scope (orchestrator-tracked as a future follow-up).
 
-The test therefore (1) seeds a synthetic *baseline* state matching
-what the pre-Reading-B daily-curated cron would have written for a
-representative day, (2) snapshots the canonical sha256 hashes, (3)
-exercises the Reading-B code paths under both
-``NEWS_DAEMON_ENABLED=0`` and ``NEWS_DAEMON_ENABLED=1``, and (4)
-asserts every daily-curated artifact's sha256 is unchanged.
+The previous round wrote pre-bytes from a Python literal, hashed
+them, wrote the bytes to disk, hashed the disk file, and asserted
+the two hashes equal. That round-trip is tautological — equality
+is guaranteed by construction and proves nothing about Reading-B's
+runtime behavior. The new shape below explicitly drives the real
+``run_disabled_idle(poll_seconds=15, max_cycles=3, ...)`` between
+the pre-hash and the post-hash, so the assertion can only pass if
+the kill-switch loop genuinely makes ZERO writes.
+
+A one-line provenance anchor at
+``tests/fixtures/regression/2026-04-25.commit`` records the
+baseline commit sha (``47743f082175ce096f10f017b328f4a432888f65``,
+the immediate parent of the first Reading-B M1 commit) so a future
+golden-replay harness can recover the canonical pre-RB bytes
+without forensic git archaeology. (The same anchor is shared by
+``test_daily_curated_byte_identical.py``.)
+
+See ``AGENTS.md`` § "Baseline-Artifact Workflow (byte-identical
+replay)" for the canonical taxonomy of golden / invariance /
+tautological approaches.
 """
 
 from __future__ import annotations
@@ -77,15 +88,22 @@ from biotech_sniper.reports.reading_b_audit_summary import (
 
 
 # ---------------------------------------------------------------------------
-# Constants — the synthetic representative replay day
+# Constants — synthetic seed for the representative replay day.
+#
+# These constants do NOT participate in the byte-identity assertion: they
+# only define what the *seeded* daily-curated baseline looks like on disk.
+# The pre/post sha256 comparisons read from disk / DB on BOTH sides of the
+# `run_disabled_idle` invocation, so the equality is a real invariance
+# proof regardless of what these literals contain.
 # ---------------------------------------------------------------------------
 
 
 # A representative replay day. Mission contract uses 2026-04-26;
-# the hash is computed from the synthetic seed below, not from any
-# external recording, so the precise date does not matter — what
-# matters is that the same seed produces the same sha256 across
-# runs (deterministic).
+# the hash is computed from the seeded files / DB rows AT TEST RUN
+# TIME, so the precise date does not matter — what matters is that
+# the same seed produces the same on-disk bytes across runs
+# (deterministic) AND that ``run_disabled_idle`` does not perturb
+# them.
 REPLAY_DATE: str = "2026-04-26"
 
 # Synthetic baseline ``audit_latest.json`` — what the pre-Reading-B
@@ -165,6 +183,25 @@ _BASELINE_PAPER_ORDERS: list[dict[str, Any]] = [
         "created_at": f"{REPLAY_DATE}T13:13:31Z",
     },
 ]
+
+
+# Reading-B-only tables. Under ``NEWS_DAEMON_ENABLED=0`` the
+# ``run_disabled_idle`` loop MUST add ZERO rows to any of these.
+_READING_B_ONLY_TABLES: tuple[str, ...] = (
+    "candidate_events",
+    "news_match_log",
+    "ensemble_scores_event",
+    "ticker_cooldown",
+)
+
+
+# Provenance anchor: the immediate parent of the first Reading-B
+# M1 commit. Captured under
+# ``tests/fixtures/regression/2026-04-25.commit`` (single line + LF)
+# so future workers can recover the canonical pre-RB bytes without
+# forensic git archaeology if/when a real golden-replay harness is
+# implemented.
+_BASELINE_COMMIT_SHA: str = "47743f082175ce096f10f017b328f4a432888f65"
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +325,13 @@ def _insert_reading_b_additive_rows(db_path: Path) -> None:
     Simulates a successful Reading-B Stage-2 run on the same replay
     day. The test then proves the daily-curated bucket is byte-
     identical even with these additions present.
+
+    NOTE: this helper is used to SIMULATE Reading-B writes, NOT to
+    drive the kill-switch invariance assertion. The kill-switch
+    proof relies on the real ``run_disabled_idle`` entrypoint
+    making ZERO writes; this helper documents the partition by
+    showing that ADDITIVE rows (when they exist) do not perturb the
+    daily-curated bucket sha.
     """
     conn = sqlite3.connect(str(db_path))
     try:
@@ -373,6 +417,54 @@ def _insert_reading_b_additive_rows(db_path: Path) -> None:
         conn.close()
 
 
+def _count_rows(db_path: Path, table: str) -> int:
+    conn = sqlite3.connect(str(db_path))
+    try:
+        return int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+    finally:
+        conn.close()
+
+
+def _count_news_event_entry_orders(db_path: Path) -> int:
+    conn = sqlite3.connect(str(db_path))
+    try:
+        return int(
+            conn.execute(
+                "SELECT COUNT(*) FROM paper_orders WHERE event='news_event_entry'"
+            ).fetchone()[0]
+        )
+    finally:
+        conn.close()
+
+
+def _count_stage2_event_ledger_rows(db_path: Path) -> int:
+    conn = sqlite3.connect(str(db_path))
+    try:
+        return int(
+            conn.execute(
+                "SELECT COUNT(*) FROM llm_cost_ledger WHERE purpose='stage2_event'"
+            ).fetchone()[0]
+        )
+    finally:
+        conn.close()
+
+
+def _drive_disabled_idle(cycles: int = 3) -> list[float]:
+    """Drive ``run_disabled_idle`` for ``cycles`` iterations with stub sleep.
+
+    Returns the list of sleep deltas observed by the stub so callers
+    can pin the cadence contract.
+    """
+    sleeps_called: list[float] = []
+    rc = run_disabled_idle(
+        poll_seconds=15,
+        max_cycles=cycles,
+        sleep_func=lambda s: sleeps_called.append(float(s)),
+    )
+    assert rc == 0
+    return sleeps_called
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -419,104 +511,137 @@ def seeded_db(replay_db: Path) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# VAL-M5-040 / VAL-CROSS-037 — audit_latest.json byte-identical
+# VAL-M5-040 / VAL-CROSS-037 — audit_latest.json invariance
 # ---------------------------------------------------------------------------
 
 
-def test_audit_latest_byte_identical_with_daemon_disabled(
+def test_audit_latest_invariant_through_run_disabled_idle(
     baseline_audit_path: Path,
+    seeded_db: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``NEWS_DAEMON_ENABLED=0`` → ``audit_latest.json`` sha256 matches baseline.
+    """``run_disabled_idle`` does not perturb ``audit_latest.json``.
 
-    Replays the daily-curated path with the kill switch engaged
-    and asserts the on-disk sha256 of ``audit_latest.json`` is
-    byte-identical to the recorded baseline. The Reading-B summary
-    writer (the ONLY mutator that adds a ``reading_b`` top-level
-    key) is NEVER invoked when the daemon is disabled, so the file
-    bytes never change.
+    Invariance proof (NOT a tautological self-baseline):
+
+    1. The ``baseline_audit_path`` fixture writes the seeded
+       JSON to disk; we hash THE FILE (not the source dict) to
+       capture ``pre_audit_sha``.
+    2. We drive the real ``run_disabled_idle(poll_seconds=15,
+       max_cycles=3, ...)`` entrypoint — the only kill-switch
+       loop in the daemon — for several cycles.
+    3. We re-hash THE FILE on disk to capture
+       ``post_audit_sha`` and assert byte-equality.
+    4. We assert the file has no ``reading_b`` top-level key
+       (Reading-B has no writer that touches this file under
+       the disabled-idle loop).
+
+    Because the pre/post hashes both come from the same on-disk
+    bytes — observed BEFORE and AFTER an actual loop run — the
+    equality cannot be true by construction; it can only be true
+    if the loop genuinely makes zero writes.
     """
     monkeypatch.setenv("NEWS_DAEMON_ENABLED", "0")
     assert is_news_daemon_enabled() is False, (
         "kill-switch must report False for NEWS_DAEMON_ENABLED=0"
     )
 
-    expected_sha = _sha256_bytes(_serialize_audit(_BASELINE_AUDIT))
-    actual_sha = _sha256_file(baseline_audit_path)
-    assert actual_sha == expected_sha, (
-        "audit_latest.json must be byte-identical to baseline when "
-        f"NEWS_DAEMON_ENABLED=0; expected {expected_sha} got {actual_sha}"
+    pre_audit_sha = _sha256_file(baseline_audit_path)
+
+    sleeps = _drive_disabled_idle(cycles=3)
+    assert sleeps == [15.0, 15.0]
+
+    post_audit_sha = _sha256_file(baseline_audit_path)
+    assert post_audit_sha == pre_audit_sha, (
+        "audit_latest.json sha256 must be byte-stable across "
+        f"run_disabled_idle (pre={pre_audit_sha} post={post_audit_sha})"
     )
 
-    # Defensive: re-reading the file as JSON shows no 'reading_b'
-    # key (the only allowed additive delta is gated on
-    # NEWS_DAEMON_ENABLED=1).
     payload = json.loads(baseline_audit_path.read_text(encoding="utf-8"))
-    assert "reading_b" not in payload
+    assert "reading_b" not in payload, (
+        "audit_latest.json MUST NOT acquire a 'reading_b' top-level "
+        "key under NEWS_DAEMON_ENABLED=0"
+    )
 
 
 # ---------------------------------------------------------------------------
-# VAL-M5-042 — unified_master_signals.json byte-identical
+# VAL-M5-042 — unified_master_signals.json invariance
 # ---------------------------------------------------------------------------
 
 
-def test_unified_master_signals_byte_identical_with_daemon_disabled(
+def test_unified_master_signals_invariant_through_run_disabled_idle(
     baseline_master_signals_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """``NEWS_DAEMON_ENABLED=0`` → ``unified_master_signals.json`` sha256 matches.
-
-    The master-signals JSON is written by the daily-curated
-    ``master_unified_run.run_unified_scan`` path, which Reading B
-    does NOT touch. With the daemon disabled, the file is
-    byte-identical to the recorded baseline.
-    """
-    monkeypatch.setenv("NEWS_DAEMON_ENABLED", "0")
-    assert is_news_daemon_enabled() is False
-
-    expected_sha = _sha256_bytes(_serialize_master_signals(_BASELINE_MASTER_SIGNALS))
-    actual_sha = _sha256_file(baseline_master_signals_path)
-    assert actual_sha == expected_sha
-
-
-# ---------------------------------------------------------------------------
-# VAL-M5-043 — daily order set sha256 matches pre-Reading-B head
-# ---------------------------------------------------------------------------
-
-
-def test_daily_order_set_byte_identical_with_daemon_disabled(
     seeded_db: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``NEWS_DAEMON_ENABLED=0`` → daily order set sha256 matches baseline.
+    """``run_disabled_idle`` does not perturb ``unified_master_signals.json``.
 
-    Queries ``paper_orders WHERE event != 'news_event_entry' AND
-    DATE(created_at)=<replay>`` (the carve-out filter) and proves
-    the canonicalised CSV sha256 matches the synthetic baseline
-    when the kill switch is engaged.
+    The master-signals JSON is written by the daily-curated
+    ``master_unified_run.run_unified_scan`` path, which Reading B
+    does NOT touch. The disabled-idle loop has no DB / network
+    access at all, so any drift here would be a true regression.
     """
     monkeypatch.setenv("NEWS_DAEMON_ENABLED", "0")
     assert is_news_daemon_enabled() is False
 
-    rows = _query_daily_order_set(seeded_db)
-    assert len(rows) == len(_BASELINE_PAPER_ORDERS), (
-        "daily order set row count must match baseline; got "
-        f"{len(rows)} vs expected {len(_BASELINE_PAPER_ORDERS)}"
+    pre_sha = _sha256_file(baseline_master_signals_path)
+
+    _drive_disabled_idle(cycles=3)
+
+    post_sha = _sha256_file(baseline_master_signals_path)
+    assert post_sha == pre_sha, (
+        "unified_master_signals.json sha256 must be byte-stable across "
+        f"run_disabled_idle (pre={pre_sha} post={post_sha})"
     )
 
-    actual_sha = _sha256_bytes(_serialize_daily_order_set(rows))
 
-    # Build the expected sha from the same rows queried back through
-    # the SQLite engine — round-tripping through the DB normalises
-    # any platform-dependent type coercion (TEXT/INTEGER/REAL).
-    expected_rows = _query_daily_order_set(seeded_db)
-    expected_sha = _sha256_bytes(_serialize_daily_order_set(expected_rows))
-    assert actual_sha == expected_sha
+# ---------------------------------------------------------------------------
+# VAL-M5-043 — daily order set invariance through the disabled-idle loop
+# ---------------------------------------------------------------------------
+
+
+def test_daily_order_set_invariant_through_run_disabled_idle(
+    seeded_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``run_disabled_idle`` does not perturb the daily-curated order set.
+
+    Pre-hash the carve-out-filtered row set queried from the SEEDED
+    DB, drive the disabled-idle loop, re-hash the same query, assert
+    equality. Also assert ZERO new news_event_entry rows landed.
+    """
+    monkeypatch.setenv("NEWS_DAEMON_ENABLED", "0")
+    assert is_news_daemon_enabled() is False
+
+    pre_rows = _query_daily_order_set(seeded_db)
+    assert len(pre_rows) == len(_BASELINE_PAPER_ORDERS), (
+        "daily order set row count must match baseline; got "
+        f"{len(pre_rows)} vs expected {len(_BASELINE_PAPER_ORDERS)}"
+    )
+    pre_sha = _sha256_bytes(_serialize_daily_order_set(pre_rows))
+
+    pre_rb_orders = _count_news_event_entry_orders(seeded_db)
+    assert pre_rb_orders == 0
+
+    _drive_disabled_idle(cycles=3)
+
+    post_rb_orders = _count_news_event_entry_orders(seeded_db)
+    assert post_rb_orders == pre_rb_orders, (
+        "ZERO news_event_entry rows may be added under NEWS_DAEMON_ENABLED=0; "
+        f"pre={pre_rb_orders} post={post_rb_orders}"
+    )
+
+    post_rows = _query_daily_order_set(seeded_db)
+    post_sha = _sha256_bytes(_serialize_daily_order_set(post_rows))
+    assert post_sha == pre_sha, (
+        "daily order set sha256 must be byte-stable across "
+        f"run_disabled_idle (pre={pre_sha} post={post_sha})"
+    )
 
     # Pin: each row carries a legacy daily-curated ``event`` value
     # (NOT 'news_event_entry'); zero rows from the carve-out leak
     # into the daily bucket.
-    for row in rows:
+    for row in post_rows:
         assert row["event"] != "news_event_entry"
 
 
@@ -551,43 +676,30 @@ def test_news_daemon_kill_switch_writes_zero_reading_b_rows(
     pre_daily_rows = _query_daily_order_set(seeded_db)
     pre_daily_sha = _sha256_bytes(_serialize_daily_order_set(pre_daily_rows))
 
-    # Drive the disabled-idle loop for 2 cycles with a stub
-    # ``sleep_func`` so the test executes in milliseconds. The
-    # production main() path enters this loop when the kill
-    # switch is engaged; per the contract NO db writes happen.
-    sleeps_called: list[float] = []
-    rc = run_disabled_idle(
-        poll_seconds=15,
-        max_cycles=3,
-        sleep_func=lambda s: sleeps_called.append(float(s)),
-    )
-    assert rc == 0
-    # ``run_disabled_idle`` sleeps once per cycle EXCEPT the last
-    # one (it returns before the final sleep) — so max_cycles=3
-    # records 2 sleep calls.
-    assert sleeps_called == [15.0, 15.0]
+    pre_counts: dict[str, int] = {
+        table: _count_rows(seeded_db, table) for table in _READING_B_ONLY_TABLES
+    }
+    pre_rb_orders = _count_news_event_entry_orders(seeded_db)
+    pre_stage2_ledger = _count_stage2_event_ledger_rows(seeded_db)
+    pre_total_ledger = _count_rows(seeded_db, "llm_cost_ledger")
+    for table, cnt in pre_counts.items():
+        assert cnt == 0, f"{table} must be empty in seeded baseline; got {cnt}"
+    assert pre_rb_orders == 0
+    assert pre_stage2_ledger == 0
+    assert pre_total_ledger == 0
 
-    conn = sqlite3.connect(str(seeded_db))
-    try:
-        for table in (
-            "candidate_events",
-            "ensemble_scores_event",
-            "news_match_log",
-            "ticker_cooldown",
-        ):
-            cnt = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            assert cnt == 0, f"{table} must be empty under NEWS_DAEMON_ENABLED=0; got {cnt}"
-        rb_orders = conn.execute(
-            "SELECT COUNT(*) FROM paper_orders "
-            "WHERE event = 'news_event_entry'"
-        ).fetchone()[0]
-        assert rb_orders == 0
-        ledger_rows = conn.execute(
-            "SELECT COUNT(*) FROM llm_cost_ledger"
-        ).fetchone()[0]
-        assert ledger_rows == 0
-    finally:
-        conn.close()
+    sleeps = _drive_disabled_idle(cycles=3)
+    assert sleeps == [15.0, 15.0]
+
+    for table, pre_cnt in pre_counts.items():
+        post_cnt = _count_rows(seeded_db, table)
+        assert post_cnt == pre_cnt, (
+            f"{table} row count must be unchanged under "
+            f"NEWS_DAEMON_ENABLED=0; pre={pre_cnt} post={post_cnt}"
+        )
+    assert _count_news_event_entry_orders(seeded_db) == pre_rb_orders
+    assert _count_stage2_event_ledger_rows(seeded_db) == pre_stage2_ledger
+    assert _count_rows(seeded_db, "llm_cost_ledger") == pre_total_ledger
 
     # Daily-curated bucket sha256 unchanged after the disabled-idle
     # cycles (no perturbation of the existing rows).
@@ -659,9 +771,7 @@ def test_audit_latest_additive_delta_with_daemon_enabled(
 
 
 # ---------------------------------------------------------------------------
-# VAL-M5-041 / VAL-M5-043 — daily order set still byte-identical with
-# daemon enabled (additive Reading-B rows MUST NOT perturb the daily
-# bucket).
+# VAL-M5-041 / VAL-M5-043 — daily order set invariance under additive rows
 # ---------------------------------------------------------------------------
 
 
@@ -784,3 +894,41 @@ def test_kill_switch_explicit_zero_disables(
     assert is_news_daemon_enabled() is True
     monkeypatch.setenv("NEWS_DAEMON_ENABLED", "true")
     assert is_news_daemon_enabled() is True
+
+
+# ---------------------------------------------------------------------------
+# Provenance anchor — pre-Reading-B baseline commit
+# ---------------------------------------------------------------------------
+
+
+def test_baseline_commit_anchor_exists() -> None:
+    """``tests/fixtures/regression/2026-04-25.commit`` records the baseline sha.
+
+    The anchor file records the immediate parent of the first
+    Reading-B M1 commit (``47743f082175ce096f10f017b328f4a432888f65``).
+    Future workers implementing a true golden-replay harness can
+    use this sha to recover the canonical pre-RB bytes from a
+    detached worktree without forensic git archaeology.
+
+    The file MUST contain the 40-character sha followed by a single
+    trailing newline (41 bytes total). Any drift here breaks the
+    forensic recovery path.
+    """
+    anchor = (
+        Path(__file__).parent / "fixtures" / "regression" / "2026-04-25.commit"
+    )
+    assert anchor.is_file(), f"baseline-commit anchor file missing: {anchor}"
+
+    raw = anchor.read_bytes()
+    assert raw == (_BASELINE_COMMIT_SHA + "\n").encode("ascii"), (
+        "baseline-commit anchor file must contain exactly the canonical "
+        "baseline sha followed by a single trailing newline; got "
+        f"{raw!r}"
+    )
+
+    text = anchor.read_text(encoding="ascii")
+    assert text == f"{_BASELINE_COMMIT_SHA}\n"
+    sha_only = text.strip()
+    assert len(sha_only) == 40
+    assert all(c in "0123456789abcdef" for c in sha_only)
+    assert sha_only == _BASELINE_COMMIT_SHA
