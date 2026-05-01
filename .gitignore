@@ -49,8 +49,12 @@ i-understand-this-trades-real-money
 # --- Generated reports / models / backups ---------------------------------
 # Anything inside a ``reports/`` directory is treated as build-output and
 # never committed (ignore everything except a placeholder ``.gitkeep``).
+# Exception: ``biotech_sniper/reports/*.py`` (the Reading-B report CLI
+# package introduced in f-m4-08) IS source code and must be tracked.
 **/reports/*
 !**/reports/.gitkeep
+!biotech_sniper/reports/*.py
+!biotech_sniper/reports/__init__.py
 **/reports/*.xlsx
 **/reports/*.pdf
 **/reports/*.html
