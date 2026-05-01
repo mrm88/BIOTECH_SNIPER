@@ -1,0 +1,20 @@
+{
+  "key": "reading_b_pretest_baseline",
+  "description": "Pre-Reading-B pytest baseline captured against `main` HEAD just before Reading-B M1 work began. Validates VAL-CROSS-017 (baseline captured) and anchors VAL-CROSS-018 (post-Reading-B passed >= baseline.passed AND failed=0). Recorded by f-cross-05-pytest-baseline-and-gate-order.",
+  "commit_sha": "47743f082175ce096f10f017b328f4a432888f65",
+  "commit_subject": "docs: refresh README with post-seal misc-cleanup summary",
+  "captured_at_utc": "2026-05-01T00:00:00Z",
+  "captured_via": "git worktree at /Users/milan/biotech_pretest_baseline; .venv/bin/pytest -q --no-header (serial)",
+  "tests_dir_sha256": "9b68d222c06a07711042f95553bc15fbced1f524ab58d64dbc3a49e133ff93d3",
+  "tests_dir_sha256_method": "shasum -a 256 of (sorted tests/**/*.py per-file shasum -a 256)",
+  "passed": 1079,
+  "failed": 0,
+  "skipped": 4,
+  "xfail": 0,
+  "total": 1083,
+  "notes": [
+    "Canonical baseline is the serial pytest run (no -n 2). Under -n 2, tests/test_build_report.py::test_cli_happy_path_writes_workbook is order-dependent and fails when collected with the rest of the suite — this is a pre-existing xdist isolation flake, not a real regression. The post-Reading-B suite has since absorbed enough fixes (notably f-misc-04-config-module-reload-teardown and f-fix-m4-03a-wire-news-logging) that the same test passes cleanly under -n 2 on the current main HEAD.",
+    "VAL-CROSS-017 evidence: this file IS the baseline snapshot. No progress_log.jsonl is maintained for this mission; the snapshot lives in tests/baselines/ per the f-cross-05 feature description (`Pre-Reading-B baseline test snapshot captured (snapshot file exists in tests/baselines/)`).",
+    "VAL-CROSS-018 anchor: the post-Reading-B `pytest -q -n 2` run on the same `main` records 2696 passed, 0 failed, 6 skipped (total 2702). 2696 >= 1079 holds; failed=0 holds."
+  ]
+}
