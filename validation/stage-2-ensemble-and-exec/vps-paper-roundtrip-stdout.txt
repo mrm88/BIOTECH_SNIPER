@@ -1,0 +1,81 @@
+# f-m4-09-stage2-paper-roundtrip-vps-live — DEFERRAL RECORD
+
+Status: DEFERRED (not run) — US equity options market closed
+Recorded by: vps-deploy-worker session 92c9ac64-7b9d-4a15-847c-d33b45947319
+Recorded at: 2026-05-02 06:22 UTC  (Sat 02:22 EDT, Fri 23:22 PDT)
+
+## Why this is NOT a pytest stdout capture
+
+The feature description for f-m4-09 explicitly states:
+
+> "If the test cannot run because market is closed, document this clearly
+>  and reschedule -- do not declare false PASS."
+
+US equity options regular trading hours are Mon–Fri 09:30–16:00 ET. At the
+attempted run time (Sat 02:22 EDT) the options market is closed, and the
+Alpaca paper sandbox can be expected to reject `news_event_entry` option
+order submissions outside RTH (`status=rejected`), which would cause
+`test_full_roundtrip_with_telemetry` to fail on its assertion that the
+`paper_orders` row's status is NOT in `{rejected, canceled}` pre-cancel.
+
+Running the test now would yield a market-hours-induced false negative
+that would not reflect the implementation under test. We are explicitly
+instructed not to declare false PASS.
+
+## All other preconditions VERIFIED satisfied (2026-05-02 06:22 UTC)
+
+- f-m3-11 e2e module on origin/main:
+  `tests/test_stage2_paper_roundtrip.py` present at HEAD = 9dac3ce
+  (post `git pull --ff-only origin main` on VPS).
+- f-m4-05 secrets provisioned in /root/alpha_sniper/.env:
+    PERPLEXITY_API_KEY=PRESENT
+    ALPACA_KEY_ID=PRESENT
+    ALPACA_SECRET_KEY=PRESENT
+    ALPACA_BASE_URL=PRESENT  (paper-api.alpaca.markets — paper-only)
+    LIVE_MODE=PRESENT (=0 expected)
+- f-m4-01 alpha-sniper-news.service:
+    systemctl is-active   → active
+    systemctl is-enabled  → enabled
+- VPS Python venv: 3.10.12 at /root/alpha_sniper/repo/.venv
+- VPS HEAD post-pull: 9dac3ce (f-misc-10-paper-orders-base-url-column)
+
+## Required reschedule window
+
+Mon 2026-05-04 09:30 ET .. Fri 2026-05-08 16:00 ET (any RTH window).
+Recommended: weekday morning during RTH so cancel telemetry can settle.
+
+## Verification command (to run during RTH on VPS)
+
+    ssh root@199.247.25.111 '
+      cd /root/alpha_sniper/repo &&
+      git pull --ff-only origin main &&
+      RUN_E2E=1 .venv/bin/pytest -q -m e2e tests/test_stage2_paper_roundtrip.py
+    ' 2>&1 | tee validation/stage-2-ensemble-and-exec/vps-paper-roundtrip-stdout.txt
+
+## Post-fixture broker-side checks (also during RTH)
+
+    # Open orders for NVAX should be 0
+    ssh root@199.247.25.111 '
+      set -a; . /root/alpha_sniper/.env; set +a;
+      curl -s -H "APCA-API-KEY-ID:$ALPACA_KEY_ID" \
+           -H "APCA-API-SECRET-KEY:$ALPACA_SECRET_KEY" \
+           https://paper-api.alpaca.markets/v2/orders?status=open
+    ' | python3 -c "import sys,json; d=json.load(sys.stdin); assert all(o.get('symbol') != 'NVAX' for o in d), d"
+
+    # Option positions for NVAX should be absent
+    ssh root@199.247.25.111 '
+      set -a; . /root/alpha_sniper/.env; set +a;
+      curl -s -H "APCA-API-KEY-ID:$ALPACA_KEY_ID" \
+           -H "APCA-API-SECRET-KEY:$ALPACA_SECRET_KEY" \
+           https://paper-api.alpaca.markets/v2/positions
+    ' | python3 -c "import sys,json; d=json.load(sys.stdin); assert all(p.get('symbol_root','').upper() != 'NVAX' and 'NVAX' not in p.get('symbol','') for p in d), d"
+
+## Validation contract assertions blocked on this run
+
+- VAL-M3-060 (live ensemble → paper order accepted)
+- VAL-M3-061 (telemetry rows: ensemble_scores_event×4, paper_orders×1, execution_events≥1, ticker_cooldown=1)
+- VAL-M3-062 (cancel telemetry final.event_type='canceled')
+- VAL-M3-094 (E2E fixture isolation pre/post)
+- VAL-M3-068 (idempotent re-run with same run_id) — live env exercise
+
+End of deferral record.
