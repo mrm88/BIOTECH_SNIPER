@@ -642,12 +642,12 @@ def dispatch_after_poll_cycle(
         try:
             if not market_open_check():
                 log_.info(
-                    "stage2_dispatch_market_closed: cycle_id=%s "
+                    "stage2_order_skipped_market_closed: cycle_id=%s "
                     "ticker=%s",
                     cid,
                     ticker,
                     extra={
-                        "event": "stage2_dispatch_market_closed",
+                        "event": "stage2_order_skipped_market_closed",
                         "cycle_id": cid,
                         "ticker": ticker,
                     },

@@ -69,17 +69,22 @@ __all__ = [
 
 
 #: Per-test override of Stage-2 dispatch collaborators (armed_path,
-#: providers, …).  Production code must NEVER set this — it is a
+#: providers, submit_fn, market_open_check, chain_quote_fn,
+#: paper_executor).  Production code must NEVER set this — it is a
 #: monkeypatch seam used by ``tests/integration/
-#: test_news_daemon_stage2_dispatch.py::
-#: test_run_main_loop_invokes_dispatch_after_cycle`` to drive the
-#: connector test against a tmp_path-rooted ``.armed`` file +
-#: deterministic provider stubs without polluting ``os.environ``
-#: across xdist workers.
+#: test_news_daemon_stage2_dispatch.py`` and
+#: ``tests/integration/test_news_daemon_stage2_dispatch_with_submit.py``
+#: to drive the connector tests against a tmp_path-rooted ``.armed``
+#: file + deterministic provider/submit stubs without polluting
+#: ``os.environ`` across xdist workers.
 #:
-#: When set, must be a ``Mapping[str, Any]`` whose keys (when
-#: present) are ``armed_path`` and ``providers``; both are
-#: forwarded into :func:`dispatch_after_poll_cycle`.
+#: When set, the presence of the dict ITSELF means "test mode — do
+#: not attempt production submit-collaborator wiring".  Keys (when
+#: present) are forwarded directly into
+#: :func:`dispatch_after_poll_cycle`; missing keys default to
+#: ``None``.  The supported keys are ``armed_path``, ``providers``,
+#: ``submit_fn``, ``market_open_check``, ``chain_quote_fn``, and
+#: ``paper_executor``.
 _STAGE2_DISPATCH_OVERRIDES_FOR_TESTS: Optional[dict] = None
 
 
@@ -290,6 +295,91 @@ def _flush_heartbeat(
                 "error_repr": repr(exc),
             },
         )
+
+
+def _build_submit_collaborators(
+    log: logging.Logger,
+) -> tuple[
+    Optional[Callable[..., object]],
+    Optional[Callable[[], bool]],
+    Optional[Callable[[object], object]],
+    Optional[object],
+]:
+    """Lazy-resolve the production Stage-2 submit collaborator chain.
+
+    Returns ``(submit_fn, market_open_check, chain_quote_fn,
+    paper_executor)``.  When the underlying ``AlpacaClient`` cannot
+    be constructed (missing credentials, transport error at probe
+    time), the helper returns all four as ``None`` — caller-side
+    logic emits the canonical ``stage2_submit_collaborator_unavailable``
+    WARNING and the dispatcher silently skips submission for that
+    cycle.
+
+    All imports are intentionally local so a module-level
+    ``import biotech_sniper.news_daemon.resilience`` does NOT pull
+    in the (heavy) Alpaca SDK or any Stage-2 scoring module —
+    preserving the news_daemon → Stage-2 import-cleanliness
+    regression pinned by ``test_no_forbidden_substrings_in_source``
+    and ``test_import_pulls_no_llm_modules``.
+
+    The ``chain_quote_fn`` slot is intentionally returned as ``None``
+    in this fix: a follow-up feature (f-live-04) will wire the live
+    options-chain quoter that resolves the OTM strike + bid/ask for
+    each candidate.  Until then the dispatcher's ``if any
+    collaborator None: skip submission`` short-circuit keeps the
+    daemon idempotent — a passing chain still persists ensemble
+    rows (forensic), but no broker call is made.
+    """
+    try:
+        from biotech_sniper.alpaca_client import AlpacaClient
+        from biotech_sniper.exec.stage2_paper_executor import (
+            submit_news_event_entry,
+        )
+        from biotech_sniper.paper_executor import PaperExecutor
+    except Exception as exc:  # noqa: BLE001 - resilience hook
+        log.warning(
+            "stage2_submit_collaborator_unavailable: reason=%r "
+            "stage=imports",
+            exc,
+            extra={
+                "event": "stage2_submit_collaborator_unavailable",
+                "src_module": "news_daemon.resilience",
+                "stage": "imports",
+                "reason": repr(exc),
+            },
+        )
+        return (None, None, None, None)
+
+    try:
+        client = AlpacaClient()
+        executor = PaperExecutor(client)
+    except Exception as exc:  # noqa: BLE001 - resilience hook
+        log.warning(
+            "stage2_submit_collaborator_unavailable: reason=%r "
+            "stage=client_construction",
+            exc,
+            extra={
+                "event": "stage2_submit_collaborator_unavailable",
+                "src_module": "news_daemon.resilience",
+                "stage": "client_construction",
+                "reason": repr(exc),
+            },
+        )
+        return (None, None, None, None)
+
+    def market_open_check() -> bool:
+        trading = getattr(client, "_trading", None)
+        get_clock = getattr(trading, "get_clock", None)
+        if not callable(get_clock):
+            return True
+        try:
+            clock = get_clock()
+        except Exception:  # noqa: BLE001 - permissive on probe failure
+            return True
+        return bool(getattr(clock, "is_open", True))
+
+    chain_quote_fn = None
+    return (submit_news_event_entry, market_open_check, chain_quote_fn, executor)
 
 
 def _interruptible_sleep(
@@ -534,12 +624,53 @@ def run_main_loop(
                 dispatch_after_poll_cycle,
             )
 
-            overrides = _STAGE2_DISPATCH_OVERRIDES_FOR_TESTS or {}
+            test_overrides = _STAGE2_DISPATCH_OVERRIDES_FOR_TESTS
+            if test_overrides is not None:
+                overrides = test_overrides
+                submit_fn = overrides.get("submit_fn")
+                market_open_check = overrides.get("market_open_check")
+                chain_quote_fn = overrides.get("chain_quote_fn")
+                paper_executor_instance = overrides.get("paper_executor")
+            else:
+                overrides = {}
+                (
+                    submit_fn,
+                    market_open_check,
+                    chain_quote_fn,
+                    paper_executor_instance,
+                ) = _build_submit_collaborators(log)
+
+            missing = [
+                name
+                for name, value in (
+                    ("submit_fn", submit_fn),
+                    ("market_open_check", market_open_check),
+                    ("chain_quote_fn", chain_quote_fn),
+                    ("paper_executor", paper_executor_instance),
+                )
+                if value is None
+            ]
+            if missing:
+                log.warning(
+                    "stage2_submit_collaborator_unavailable: missing=%s",
+                    missing,
+                    extra={
+                        "event": "stage2_submit_collaborator_unavailable",
+                        "src_module": "news_daemon.resilience",
+                        "missing": list(missing),
+                        "reason": "collaborator_none",
+                    },
+                )
+
             dispatch_after_poll_cycle(
                 db_path,
                 log=log,
                 armed_path=overrides.get("armed_path"),
                 providers=overrides.get("providers"),
+                submit_fn=submit_fn,
+                market_open_check=market_open_check,
+                chain_quote_fn=chain_quote_fn,
+                paper_executor=paper_executor_instance,
             )
         except Exception as exc:  # noqa: BLE001 - resilience hook
             # A defect in the dispatcher MUST NOT halt the daemon;
