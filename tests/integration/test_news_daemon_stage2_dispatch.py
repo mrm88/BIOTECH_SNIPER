@@ -35,13 +35,17 @@ connector-level bug between the two cannot slip through (per
 from __future__ import annotations
 
 import sqlite3
+import threading
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Optional
 
 import pytest
 
 from biotech_sniper import db as project_db
 from biotech_sniper.migrations.runner import run as run_migrations_runner
+
+
+_STUB_LEDGER_LOCK = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -185,8 +189,50 @@ def _provider_callable(
     label: str = "material",
     direction: str = "bullish",
     probability: float = 0.92,
+    *,
+    db_path: Optional[Path] = None,
 ):
+    """Build a deterministic Stage-2 provider stub.
+
+    When ``db_path`` is supplied, the stub mirrors the production
+    client adapters (``xai_client`` / ``claude_client`` /
+    ``gemini_client`` / ``perplexity_client``) by appending one row
+    to ``llm_cost_ledger`` per invocation with
+    ``purpose='stage2_event_scoring'`` and ``provider`` set to the
+    canonical ensemble key passed by the dispatcher (``xai`` /
+    ``anthropic`` / ``gemini`` / ``perplexity``). This makes the
+    integration test exercise the same ledger-write contract as
+    production: 3 candidates x 4 providers must produce 12 ledger
+    rows on an ``all_gates_open`` cycle, and any closed-gate cycle
+    must produce zero. A module-level lock serialises the writes
+    because the ensemble fan-out runs the four stubs concurrently
+    and SQLite's default busy timeout is zero.
+    """
+
     def _call(_candidate, *, name: str = "stub") -> dict[str, Any]:
+        if db_path is not None:
+            with _STUB_LEDGER_LOCK:
+                conn = sqlite3.connect(str(db_path))
+                try:
+                    conn.execute(
+                        "INSERT INTO llm_cost_ledger ("
+                        "provider, model_id, purpose,"
+                        " prompt_tokens, completion_tokens,"
+                        " latency_ms, cost_usd"
+                        ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            name,
+                            f"{name}-stub-model",
+                            "stage2_event_scoring",
+                            10,
+                            10,
+                            5,
+                            0.001,
+                        ),
+                    )
+                    conn.commit()
+                finally:
+                    conn.close()
         return {
             "label": label,
             "probability": probability,
@@ -211,11 +257,19 @@ def armed_path(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def all_providers() -> dict[str, Any]:
-    """Four deterministic provider stubs returning unanimous-bullish-material."""
+def all_providers(db_path: Path) -> dict[str, Any]:
+    """Four deterministic provider stubs returning unanimous-bullish-material.
+
+    Each stub writes one ``llm_cost_ledger`` row per invocation
+    against ``db_path`` so the integration test verifies the
+    ledger-write contract end-to-end through the dispatcher (see
+    :func:`_provider_callable`).
+    """
     from biotech_sniper.llm.ensemble import ALL_PROVIDERS
 
-    return {name: _provider_callable() for name in ALL_PROVIDERS}
+    return {
+        name: _provider_callable(db_path=db_path) for name in ALL_PROVIDERS
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +318,14 @@ def _news_match_log_rows(
 def test_all_gates_open_dispatches_three_candidates(
     db_path: Path, armed_path: Path, all_providers, caplog
 ):
-    """3 candidates × 4 providers → 12 ensemble rows + ≥3 ledger rows + 3 chain logs."""
+    """3 candidates × 4 providers → 12 ensemble rows + ≥12 ledger rows + 3 chain logs.
+
+    Stub providers (injected via the ``all_providers`` fixture)
+    write one ``llm_cost_ledger`` row per invocation with
+    ``purpose='stage2_event_scoring'`` so the assertion exercises
+    the same ledger-write contract as the production client
+    adapters (xai / anthropic / gemini / perplexity).
+    """
     from biotech_sniper.exec.stage2_news_dispatch import (
         dispatch_after_poll_cycle,
     )
@@ -293,19 +354,7 @@ def test_all_gates_open_dispatches_three_candidates(
 
     assert _ensemble_rows(db_path) == 3 * 4
 
-    # ``llm_cost_ledger`` rows are written by the individual provider
-    # CLIENTS (xai_client / claude_client / gemini_client /
-    # perplexity_client) — not by the ensemble layer that the
-    # dispatcher invokes.  Stub provider callables (which the test
-    # injects to keep the suite hermetic) bypass those clients and
-    # therefore write NO ledger rows.  The integration test for
-    # f-live-01 only owns the dispatch wiring; the ledger-write
-    # contract is exercised end-to-end in
-    # ``tests/e2e/test_cheap_first_side_effects.py`` against the
-    # real client adapters, so this assertion stops at "ensemble
-    # rows are persisted" and does not double-cover the per-client
-    # ledger contract.
-    assert _ledger_rows(db_path) >= 0
+    assert _ledger_rows(db_path) >= 3 * 4
 
     chain_completed = [
         r
@@ -335,8 +384,8 @@ def test_kill_switch_off_writes_no_rows(
     _seed_pdufa(db_path, ticker="KILL", days_offset=2)
     _seed_candidate(db_path, ticker="KILL", dedup_seed="kill-1")
 
-    pre_ensemble = _ensemble_rows(db_path)
-    pre_ledger = _ledger_rows(db_path)
+    assert _ensemble_rows(db_path) == 0
+    assert _ledger_rows(db_path) == 0
     pre_news_log = _news_match_log_rows(db_path)
 
     caplog.set_level("INFO")
@@ -352,8 +401,8 @@ def test_kill_switch_off_writes_no_rows(
     assert outcome.invoked is False
     assert outcome.gate_failed == "news_daemon_disabled"
 
-    assert _ensemble_rows(db_path) == pre_ensemble
-    assert _ledger_rows(db_path) == pre_ledger
+    assert _ensemble_rows(db_path) == 0
+    assert _ledger_rows(db_path) == 0
     assert _news_match_log_rows(db_path) == pre_news_log
 
     chain_completed = [
@@ -399,6 +448,7 @@ def test_armed_missing_writes_news_match_log_per_candidate(
     assert outcome.gate_failed == "armed_missing"
 
     assert _ensemble_rows(db_path) == 0
+    assert _ledger_rows(db_path) == 0
 
     # One news_match_log row per in-scope candidate.
     rejected = _count(
@@ -446,6 +496,7 @@ def test_auto_dispatch_off_short_circuits_before_armed(
     assert outcome.gate_failed == "auto_dispatch_off"
 
     assert _ensemble_rows(db_path) == 0
+    assert _ledger_rows(db_path) == 0
     chain_completed = [
         r
         for r in caplog.records
@@ -497,6 +548,7 @@ def test_scope_pdufa_soon_filters_to_two_of_five(
     assert outcome.in_scope_count == 2
     assert outcome.processed == 2
     assert _ensemble_rows(db_path) == 2 * 4
+    assert _ledger_rows(db_path) >= 2 * 4
 
 
 # ---------------------------------------------------------------------------
@@ -528,6 +580,7 @@ def test_scope_all_processes_every_candidate(
     assert outcome.in_scope_count == 3
     assert outcome.processed == 3
     assert _ensemble_rows(db_path) == 3 * 4
+    assert _ledger_rows(db_path) >= 3 * 4
 
 
 # ---------------------------------------------------------------------------
@@ -555,6 +608,7 @@ def test_scope_none_short_circuits(
     assert outcome.invoked is False
     assert outcome.gate_failed == "scope_none"
     assert _ensemble_rows(db_path) == 0
+    assert _ledger_rows(db_path) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -631,6 +685,7 @@ def test_run_main_loop_invokes_dispatch_after_cycle(
 
     # Stage-2 dispatch fired during the cycle.
     assert _ensemble_rows(db_path) == 4
+    assert _ledger_rows(db_path) >= 4
 
 
 # ---------------------------------------------------------------------------
@@ -680,3 +735,4 @@ def test_pdufa_soon_dedupes_multiple_pdufa_rows_per_ticker(
     assert outcome.in_scope_count == 1
     assert outcome.processed == 1
     assert _ensemble_rows(db_path) == 4
+    assert _ledger_rows(db_path) >= 4
