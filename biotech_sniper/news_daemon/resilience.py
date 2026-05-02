@@ -46,7 +46,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Deque, Optional, Sequence, Union
+from typing import Any, Callable, Deque, Mapping, Optional, Sequence, Tuple, Union
 
 from biotech_sniper.news_daemon.emit import run_one_poll_cycle
 from biotech_sniper.news_daemon.heartbeat import (
@@ -65,6 +65,7 @@ __all__ = [
     "ShutdownState",
     "install_signal_handlers",
     "run_main_loop",
+    "_make_chain_quote_fn",
 ]
 
 
@@ -297,6 +298,199 @@ def _flush_heartbeat(
         )
 
 
+#: Days from today the chain_quote_fn aims at when picking the standard
+#: monthly expiry (3rd Friday of a calendar month).  Three weeks (21
+#: days) is the conventional lower bound for biotech catalyst plays:
+#: it leaves enough theta runway for a 1-2 week catalyst window AND
+#: lands on a liquid standard expiry.  Resolved deterministically from
+#: ``datetime.date.today()`` so the test harness can monkeypatch the
+#: date helper for reproducibility.
+_CHAIN_QUOTE_EXPIRY_LOOKAHEAD_DAYS: int = 21
+
+
+def _resolve_monthly_expiry(today: datetime.date) -> str:
+    """Return the next standard-monthly expiry ISO date (3rd Friday).
+
+    Picks the FIRST 3rd Friday strictly after ``today + N`` where
+    ``N=_CHAIN_QUOTE_EXPIRY_LOOKAHEAD_DAYS``.  Walks forward at most
+    18 calendar months so a freak date (Dec → Jan rollover) cannot
+    livelock the search.  Falls back to a six-month-out date in the
+    impossible case where every monthly miss the cutoff (defensive
+    only — the calendar guarantees at least one 3rd Friday inside
+    any 5-week window).
+    """
+    from biotech_sniper.sectors.unified_scorer import get_third_friday
+
+    target = today + datetime.timedelta(
+        days=_CHAIN_QUOTE_EXPIRY_LOOKAHEAD_DAYS
+    )
+    year, month = target.year, target.month
+    for _ in range(18):
+        tf = get_third_friday(year, month)
+        if tf >= target:
+            return tf.isoformat()
+        month += 1
+        if month > 12:
+            month = 1
+            year += 1
+    fallback = today + datetime.timedelta(days=180)
+    return get_third_friday(fallback.year, fallback.month).isoformat()
+
+
+def _make_chain_quote_fn(
+    client: Any,
+    log: logging.Logger,
+) -> Callable[
+    [Mapping[str, Any]],
+    Optional[Tuple[float, float, str, float]],
+]:
+    """Build a Stage-2 ``chain_quote_fn(candidate_row)`` closure.
+
+    The returned callable resolves the live underlying price + OTM
+    call strike + standard-monthly expiry + chain bid/ask for a
+    Stage-2 candidate.  Production wiring lives in
+    :func:`_build_submit_collaborators`; the helper is split out so
+    tests can drive it with an injected fake client without paying
+    the ``AlpacaClient()`` construction cost (which requires real
+    paper credentials).
+
+    Parameters
+    ----------
+    client:
+        An :class:`biotech_sniper.alpaca_client.AlpacaClient` (or
+        duck-typed substitute) exposing
+        :meth:`get_latest_trade(ticker)` and
+        :meth:`get_options_chain(ticker, expiry)`.
+    log:
+        Structured logger used for the ``stage2_chain_quote_failed``
+        WARNING emitted when ANY sub-call raises.
+
+    Returns
+    -------
+    Callable[[Mapping[str, Any]], Optional[Tuple[float, float, str, float]]]
+        ``chain_quote_fn(candidate_row)`` returning
+        ``(bid, ask, expiry, stock_price)`` on success, ``None`` on
+        any failure (the caller treats ``None`` as "skip this
+        candidate, continue the loop").
+
+    Notes
+    -----
+    * Imports for ``derive_catalyst_type`` /
+      :data:`DEFAULT_OTM_BY_CATALYST` / :func:`calculate_otm_strike`
+      are deferred to call time so a module-level
+      ``import biotech_sniper.news_daemon.resilience`` does NOT pull
+      in the (heavy) Stage-2 dispatcher graph — preserving the
+      news_daemon import-cleanliness regression pinned by
+      ``test_no_forbidden_substrings_in_source`` and
+      ``test_import_pulls_no_llm_modules``.
+    * Strike resolution uses the canonical ``calculate_otm_strike``
+      helper with ``direction='LONG_CALLS'`` and the catalyst-type
+      midpoint of :data:`DEFAULT_OTM_BY_CATALYST` — never a parallel
+      hardcoded literal.  The chain row chosen is the call leg whose
+      ``strike`` is closest (in absolute distance) to the resolved
+      OTM strike.
+    """
+
+    def chain_quote_fn(
+        candidate_row: Mapping[str, Any],
+    ) -> Optional[Tuple[float, float, str, float]]:
+        ticker = ""
+        try:
+            from biotech_sniper.exec.stage2_dispatcher import (
+                derive_catalyst_type,
+            )
+            from biotech_sniper.sectors.unified_scorer import (
+                DEFAULT_OTM_BY_CATALYST,
+                calculate_otm_strike,
+            )
+
+            ticker = str(candidate_row.get("ticker", "")).strip().upper()
+            if not ticker:
+                return None
+
+            stock_price_raw = client.get_latest_trade(ticker)
+            if stock_price_raw is None:
+                return None
+            try:
+                stock_price = float(stock_price_raw)
+            except (TypeError, ValueError):
+                return None
+            if stock_price <= 0:
+                return None
+
+            matched_keywords = candidate_row.get("matched_keywords")
+            catalyst_type = derive_catalyst_type(matched_keywords)
+            otm_range = DEFAULT_OTM_BY_CATALYST.get(
+                catalyst_type, DEFAULT_OTM_BY_CATALYST["DEFAULT"]
+            )
+            otm_pct = (otm_range[0] + otm_range[1]) / 2.0
+            target_strike = float(
+                calculate_otm_strike(
+                    stock_price=stock_price,
+                    direction="LONG_CALLS",
+                    otm_pct=otm_pct,
+                    catalyst_type=catalyst_type,
+                )
+            )
+
+            today = datetime.date.today()
+            expiry_iso = _resolve_monthly_expiry(today)
+
+            chain = client.get_options_chain(ticker, expiry_iso)
+            if not chain:
+                return None
+
+            best_row: Optional[Mapping[str, Any]] = None
+            best_delta = float("inf")
+            for row in chain:
+                if not isinstance(row, Mapping):
+                    continue
+                row_type = row.get("type")
+                if not isinstance(row_type, str) or row_type.lower() != "call":
+                    continue
+                strike_raw = row.get("strike")
+                try:
+                    row_strike = float(strike_raw) if strike_raw is not None else None
+                except (TypeError, ValueError):
+                    continue
+                if row_strike is None or row_strike <= 0:
+                    continue
+                delta = abs(row_strike - target_strike)
+                if delta < best_delta:
+                    best_delta = delta
+                    best_row = row
+
+            if best_row is None:
+                return None
+
+            bid_raw = best_row.get("bid")
+            ask_raw = best_row.get("ask")
+            try:
+                bid_f = float(bid_raw) if bid_raw is not None else None
+                ask_f = float(ask_raw) if ask_raw is not None else None
+            except (TypeError, ValueError):
+                return None
+            if bid_f is None or ask_f is None or bid_f <= 0 or ask_f <= 0:
+                return None
+
+            return (bid_f, ask_f, expiry_iso, stock_price)
+        except Exception as exc:  # noqa: BLE001 - resilience hook
+            log.warning(
+                "stage2_chain_quote_failed: ticker=%s reason=%s",
+                ticker or "?",
+                type(exc).__name__,
+                extra={
+                    "event": "stage2_chain_quote_failed",
+                    "src_module": "news_daemon.resilience",
+                    "ticker": ticker or None,
+                    "reason": type(exc).__name__,
+                },
+            )
+            return None
+
+    return chain_quote_fn
+
+
 def _build_submit_collaborators(
     log: logging.Logger,
 ) -> tuple[
@@ -322,13 +516,13 @@ def _build_submit_collaborators(
     regression pinned by ``test_no_forbidden_substrings_in_source``
     and ``test_import_pulls_no_llm_modules``.
 
-    The ``chain_quote_fn`` slot is intentionally returned as ``None``
-    in this fix: a follow-up feature (f-live-04) will wire the live
-    options-chain quoter that resolves the OTM strike + bid/ask for
-    each candidate.  Until then the dispatcher's ``if any
-    collaborator None: skip submission`` short-circuit keeps the
-    daemon idempotent — a passing chain still persists ensemble
-    rows (forensic), but no broker call is made.
+    The ``chain_quote_fn`` slot is built via
+    :func:`_make_chain_quote_fn` (f-fix-live-05): on every Stage-2
+    pass it resolves the live underlying ``stock_price``, the OTM
+    call strike, the next standard-monthly expiry, and the chain
+    bid/ask off the wired :class:`AlpacaClient`.  Any sub-call
+    failure surfaces as a ``stage2_chain_quote_failed`` WARNING and
+    the dispatcher skips that candidate without halting the daemon.
     """
     try:
         from biotech_sniper.alpaca_client import AlpacaClient
@@ -378,7 +572,7 @@ def _build_submit_collaborators(
             return True
         return bool(getattr(clock, "is_open", True))
 
-    chain_quote_fn = None
+    chain_quote_fn = _make_chain_quote_fn(client, log)
     return (submit_news_event_entry, market_open_check, chain_quote_fn, executor)
 
 
