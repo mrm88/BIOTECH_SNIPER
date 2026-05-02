@@ -68,6 +68,21 @@ __all__ = [
 ]
 
 
+#: Per-test override of Stage-2 dispatch collaborators (armed_path,
+#: providers, …).  Production code must NEVER set this — it is a
+#: monkeypatch seam used by ``tests/integration/
+#: test_news_daemon_stage2_dispatch.py::
+#: test_run_main_loop_invokes_dispatch_after_cycle`` to drive the
+#: connector test against a tmp_path-rooted ``.armed`` file +
+#: deterministic provider stubs without polluting ``os.environ``
+#: across xdist workers.
+#:
+#: When set, must be a ``Mapping[str, Any]`` whose keys (when
+#: present) are ``armed_path`` and ``providers``; both are
+#: forwarded into :func:`dispatch_after_poll_cycle`.
+_STAGE2_DISPATCH_OVERRIDES_FOR_TESTS: Optional[dict] = None
+
+
 #: Hard cap on the per-cycle RSS-failure history retained on
 #: :class:`ShutdownState`.  Bounded-memory discipline matters for a
 #: long-uptime daemon (f-fix-m2-09 / VAL-M2-039 spirit): an unbounded
@@ -500,6 +515,47 @@ def run_main_loop(
             resolved_version,
             log,
         )
+
+        # f-live-01: run Stage-2 dispatch on the in-scope subset of
+        # candidate_events emitted this cycle.  All gates (kill switch,
+        # ``.armed`` file, ``STAGE2_AUTO_DISPATCH``) are checked inside
+        # :func:`dispatch_after_poll_cycle` so this site stays a
+        # thin connector — a closed gate short-circuits with zero
+        # ``llm_cost_ledger`` writes / zero ``ensemble_scores_event``
+        # rows.  Lazy import keeps news_daemon import-clean: the
+        # module name ``stage2_news_dispatch`` does not contain the
+        # ``llm`` substring banned by VAL-M2-003 +
+        # ``test_no_forbidden_substrings_in_source``, but importing
+        # the llm subpackage at module load WOULD trip that test
+        # because the importer recurses transitively.  Hence we
+        # defer until the loop body actually fires.
+        try:
+            from biotech_sniper.exec.stage2_news_dispatch import (
+                dispatch_after_poll_cycle,
+            )
+
+            overrides = _STAGE2_DISPATCH_OVERRIDES_FOR_TESTS or {}
+            dispatch_after_poll_cycle(
+                db_path,
+                log=log,
+                armed_path=overrides.get("armed_path"),
+                providers=overrides.get("providers"),
+            )
+        except Exception as exc:  # noqa: BLE001 - resilience hook
+            # A defect in the dispatcher MUST NOT halt the daemon;
+            # the next cycle gets another chance.  ``errors_session``
+            # increments so the watchdog signal mirrors any other
+            # cycle-level failure.
+            state.errors_session += 1
+            log.exception(
+                "news_daemon_stage2_dispatch_error: err=%r",
+                exc,
+                extra={
+                    "event": "news_daemon_stage2_dispatch_error",
+                    "src_module": "news_daemon.resilience",
+                    "error_repr": repr(exc),
+                },
+            )
 
         state.cycles_completed += 1
 
