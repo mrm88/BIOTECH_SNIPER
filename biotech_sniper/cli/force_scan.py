@@ -484,11 +484,27 @@ def _run_live(
         # ``armed_file_missing`` for ``news_match_log.reason``
         # consumer stability — see grep evidence in the f-fix-live-02
         # handoff).
+        #
+        # f-fix-live-06: resolve the effective path the SAME way
+        # :func:`armed_gate` does — when the caller omitted
+        # ``armed_path`` (the typical operator invocation from the
+        # VPS without ``--armed-path``), fall back to
+        # :data:`biotech_sniper.paths.READING_B_ARMED_FILE` so a
+        # zero-byte canonical file is correctly classified as
+        # ``ARMED_EMPTY_STDERR`` instead of being silently
+        # misreported as missing.
+        from biotech_sniper import paths as _paths
+
+        if armed_path is None:
+            effective_armed_path: Optional[Path] = Path(
+                _paths.READING_B_ARMED_FILE
+            )
+        else:
+            effective_armed_path = Path(armed_path)
         try:
             arm_exists_empty = (
-                armed_path is not None
-                and Path(armed_path).is_file()
-                and Path(armed_path).stat().st_size == 0
+                effective_armed_path.is_file()
+                and effective_armed_path.stat().st_size == 0
             )
         except OSError:
             arm_exists_empty = False

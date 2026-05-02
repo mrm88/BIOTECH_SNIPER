@@ -789,3 +789,58 @@ def test_live_with_empty_armed_file_writes_zero_cost_rows(
         ("armed_file_missing", "rejected"),
     )
     assert rejected >= 1
+
+
+# ---------------------------------------------------------------------------
+# 15 — live_with_canonical_default_empty_armed_prints_empty_stderr
+# (f-fix-live-06)
+# ---------------------------------------------------------------------------
+
+
+def test_live_with_canonical_default_empty_armed_prints_empty_stderr(
+    db_path: Path,
+    tmp_path: Path,
+    all_providers,
+    monkeypatch,
+    capsys,
+):
+    """When ``armed_path`` kwarg is omitted (the typical operator
+    invocation from the VPS) and the canonical
+    :data:`biotech_sniper.paths.READING_B_ARMED_FILE` is a zero-byte
+    file, the CLI MUST print ``ARMED_EMPTY_STDERR`` (containing the
+    ``NON-ZERO SIZE`` signal) — NOT ``ARMED_MISSING_STDERR``.
+
+    Pins f-fix-live-06: the empty-file detection in ``_run_live`` must
+    resolve the effective path the SAME way :func:`armed_gate` does
+    (falling back to ``READING_B_ARMED_FILE`` when the kwarg is None)
+    so the canonical-default case is not silently misclassified as
+    missing.
+    """
+    from biotech_sniper.cli import force_scan as force_scan_module
+    from biotech_sniper import paths as paths_module
+
+    _seed_pdufa(db_path, ticker="CANE", days_offset=2)
+    _seed_candidate(db_path, ticker="CANE", dedup_seed="cane-1")
+
+    canonical = tmp_path / ".armed"
+    canonical.write_bytes(b"")
+    assert canonical.exists() and canonical.stat().st_size == 0
+
+    monkeypatch.setattr(
+        paths_module, "READING_B_ARMED_FILE", canonical, raising=True
+    )
+
+    rc = force_scan_module.main(
+        argv=[
+            "--live",
+            "--scope=pdufa-soon",
+            "--n=5",
+            f"--db={db_path}",
+        ],
+        provider_overrides=all_providers,
+    )
+
+    assert rc != 0
+    captured = capsys.readouterr()
+    assert "NON-ZERO SIZE" in captured.err
+    assert "armed file missing:" not in captured.err
