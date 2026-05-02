@@ -239,6 +239,14 @@ def query_in_scope_candidates(
     conn = sqlite3.connect(str(db_path))
     try:
         if scope == "pdufa-soon":
+            # GROUP BY ce.id collapses the JOIN's row-multiplication
+            # when a ticker has multiple ``pdufa_calendar`` rows in
+            # the 7-day band — without it a single ``candidate_event``
+            # would be dispatched once per matching pdufa row,
+            # invoking ``run_stage2_chain`` repeatedly and doubling
+            # LLM spend. Ordering by MIN(pc.action_date) keeps the
+            # earliest-first deterministic ranking that operators
+            # expect from the ``pdufa-soon`` scope.
             rows = conn.execute(
                 """
                 SELECT ce.id, ce.ticker, ce.source_news_event_id,
@@ -249,7 +257,8 @@ def query_in_scope_candidates(
                 WHERE pc.action_date BETWEEN DATE('now')
                                          AND DATE('now', '+7 days')
                   AND ce.emitted_at >= datetime('now', '-24 hours')
-                ORDER BY pc.action_date ASC, ce.id ASC
+                GROUP BY ce.id
+                ORDER BY MIN(pc.action_date) ASC, ce.id ASC
                 LIMIT ?
                 """,
                 (int(limit),),

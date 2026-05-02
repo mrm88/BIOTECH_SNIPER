@@ -61,12 +61,19 @@ from biotech_sniper.llm.stage2_gates import (
 # ---------------------------------------------------------------------------
 
 
-def _make_tmp_armed(tmp_path: Path, *, contents: bytes = b"") -> Path:
-    """Create a regular readable ``.armed`` file under ``tmp_path``."""
+def _make_tmp_armed(
+    tmp_path: Path, *, contents: bytes = b"armed_at=2026-04-30T00:00:00Z\n"
+) -> Path:
+    """Create a regular readable ``.armed`` file under ``tmp_path``.
+
+    Default contents are NON-EMPTY (matching the f-live-04 / VAL-LIVE-003
+    invariant that ``.armed`` must exist with non-zero size to arm the
+    Stage-2 dispatch path). Tests that need to exercise the zero-byte
+    rejection path must override ``contents=b""`` explicitly and assert
+    rejection.
+    """
     armed = tmp_path / ".armed"
     armed.write_bytes(contents)
-    # Default mode (0o644) is fine; some shells inherit 0o600, both
-    # are readable by the owner.
     return armed
 
 
@@ -104,8 +111,8 @@ def test_armed_default_path_points_to_paths_module(monkeypatch, tmp_path):
     res = armed_gate()
     assert res.passed is False
     assert res.reason == "armed_file_missing"
-    # Now create the file and re-call: should pass.
-    target.write_text("")
+    # Now create the file (non-empty per VAL-LIVE-003) and re-call.
+    target.write_text("armed_at=2026-04-30T00:00:00Z\n")
     res2 = armed_gate()
     assert res2.passed is True
     assert res2.reason is None
@@ -125,14 +132,24 @@ def test_armed_present_allows(tmp_path):
 
 
 def test_armed_present_contents_not_inspected(tmp_path):
-    """Contents are irrelevant — mere existence is the signal (per VAL-M3-033)."""
+    """Contents are irrelevant beyond the non-zero-size invariant.
+
+    Per f-fix-live-02 (VAL-LIVE-003), zero-byte ``.armed`` files
+    REJECT — but any other regular readable contents pass regardless
+    of shape. The structural invariant is "exists with non-zero
+    size", not "exists with structured content".
+    """
     armed = tmp_path / ".armed"
-    # Various contents — all should pass.
-    for payload in (b"", b"1", b"yes\n", b"\x00\x01\x02", b"x" * 4096):
+    for payload in (b"1", b"yes\n", b"\x00\x01\x02", b"x" * 4096):
         armed.write_bytes(payload)
         res = armed_gate(armed_path=armed)
         assert res.passed is True, f"contents={payload!r}"
         assert res.reason is None
+    # Empty file rejects — pinned in tests/test_armed_gate_size.py.
+    armed.write_bytes(b"")
+    res_empty = armed_gate(armed_path=armed)
+    assert res_empty.passed is False
+    assert res_empty.reason == "armed_file_missing"
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +160,7 @@ def test_armed_present_contents_not_inspected(tmp_path):
 def test_armed_symlink_to_real_readable_file_allowed(tmp_path):
     """A symlink whose target is a readable regular file → passes."""
     target = tmp_path / "real_marker"
-    target.write_text("")
+    target.write_text("armed_at=2026-04-30T00:00:00Z\n")
     link = tmp_path / ".armed"
     link.symlink_to(target)
     # Sanity: link is a symlink to a regular file.
@@ -194,7 +211,7 @@ def test_armed_chmod_000_treated_as_absent(tmp_path):
     if sys.platform == "win32":
         pytest.skip("POSIX mode bits don't apply on Windows")
     armed = tmp_path / ".armed"
-    armed.write_bytes(b"")
+    armed.write_bytes(b"armed\n")
     armed.chmod(0o000)
     try:
         res = armed_gate(armed_path=armed)
@@ -215,7 +232,7 @@ def test_armed_chmod_0o400_owner_readable_passes(tmp_path):
     if sys.platform == "win32":
         pytest.skip("POSIX mode bits don't apply on Windows")
     armed = tmp_path / ".armed"
-    armed.write_bytes(b"")
+    armed.write_bytes(b"armed\n")
     armed.chmod(0o400)
     try:
         res = armed_gate(armed_path=armed)
@@ -241,7 +258,7 @@ def test_armed_chmod_0o040_group_read_only_passes(tmp_path):
     if sys.platform == "win32":
         pytest.skip("POSIX mode bits don't apply on Windows")
     armed = tmp_path / ".armed"
-    armed.write_bytes(b"")
+    armed.write_bytes(b"armed\n")
     armed.chmod(0o040)
     try:
         res = armed_gate(armed_path=armed)
@@ -260,7 +277,7 @@ def test_armed_chmod_0o004_other_read_only_passes(tmp_path):
     if sys.platform == "win32":
         pytest.skip("POSIX mode bits don't apply on Windows")
     armed = tmp_path / ".armed"
-    armed.write_bytes(b"")
+    armed.write_bytes(b"armed\n")
     armed.chmod(0o004)
     try:
         res = armed_gate(armed_path=armed)

@@ -699,3 +699,93 @@ def test_requires_exactly_one_mode(
         armed_path=armed_path,
     )
     assert rc != 0
+
+
+# ---------------------------------------------------------------------------
+# 13 — live_with_empty_armed_file_exits_nonzero (f-fix-live-02)
+# ---------------------------------------------------------------------------
+
+
+def test_live_with_empty_armed_file_exits_nonzero(
+    db_path: Path,
+    tmp_path: Path,
+    all_providers,
+    capsys,
+):
+    """A zero-byte ``.armed`` file MUST exit non-zero with a stderr
+    message indicating the file is empty / requires non-zero size.
+
+    Pins VAL-LIVE-003 against the f-fix-live-02 contract: a stray
+    ``touch /root/alpha_sniper/.armed`` on the production VPS would
+    arm Stage-2 under the prior existence-only check; the f-fix-live-02
+    pre-check refuses the arming.
+    """
+    from biotech_sniper.cli.force_scan import main
+
+    _seed_pdufa(db_path, ticker="EMP1", days_offset=2)
+    _seed_candidate(db_path, ticker="EMP1", dedup_seed="emp-1")
+
+    empty = tmp_path / ".armed"
+    empty.write_bytes(b"")
+    assert empty.exists() and empty.stat().st_size == 0
+
+    rc = main(
+        argv=[
+            "--live",
+            "--scope=pdufa-soon",
+            "--n=5",
+            f"--db={db_path}",
+        ],
+        provider_overrides=all_providers,
+        armed_path=empty,
+    )
+    assert rc != 0
+    captured = capsys.readouterr()
+    err_lower = captured.err.lower()
+    assert "empty" in err_lower or "non-zero size" in err_lower
+
+
+# ---------------------------------------------------------------------------
+# 14 — live_with_empty_armed_file_writes_zero_cost_rows (f-fix-live-02)
+# ---------------------------------------------------------------------------
+
+
+def test_live_with_empty_armed_file_writes_zero_cost_rows(
+    db_path: Path,
+    tmp_path: Path,
+    all_providers,
+):
+    """An empty ``.armed`` file MUST short-circuit BEFORE any LLM
+    spend: zero ``llm_cost_ledger`` rows AND zero
+    ``ensemble_scores_event`` rows AND ≥1 ``news_match_log`` row
+    with the canonical rejected reason.
+    """
+    from biotech_sniper.cli.force_scan import main
+
+    for n, t in enumerate(("EMPZ1", "EMPZ2"), start=1):
+        _seed_pdufa(db_path, ticker=t, days_offset=n)
+        _seed_candidate(db_path, ticker=t, dedup_seed=f"empz-{n}")
+
+    empty = tmp_path / ".armed"
+    empty.write_bytes(b"")
+
+    rc = main(
+        argv=[
+            "--live",
+            "--scope=pdufa-soon",
+            "--n=5",
+            f"--db={db_path}",
+        ],
+        provider_overrides=all_providers,
+        armed_path=empty,
+    )
+    assert rc != 0
+    assert _count(db_path, "llm_cost_ledger") == 0
+    assert _count(db_path, "ensemble_scores_event") == 0
+    rejected = _count(
+        db_path,
+        "news_match_log",
+        "reason = ? AND gate_outcome = ?",
+        ("armed_file_missing", "rejected"),
+    )
+    assert rejected >= 1

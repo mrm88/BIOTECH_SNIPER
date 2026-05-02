@@ -75,6 +75,7 @@ __all__ = [
     "VALID_SCOPES",
     "DEFAULT_N",
     "ARMED_MISSING_STDERR",
+    "ARMED_EMPTY_STDERR",
     "CAP_EXCEEDED_STDERR",
     "build_parser",
     "resolve_force_scan_candidates",
@@ -91,6 +92,10 @@ DEFAULT_N: int = 5
 
 ARMED_MISSING_STDERR: str = (
     "armed file missing: .armed must exist with non-zero size before "
+    "--live force_scan"
+)
+ARMED_EMPTY_STDERR: str = (
+    "armed file empty: .armed must exist with NON-ZERO SIZE before "
     "--live force_scan"
 )
 CAP_EXCEEDED_STDERR: str = (
@@ -472,6 +477,21 @@ def _run_live(
     """
     arm = armed_gate(armed_path=armed_path)
     if not arm.passed:
+        # f-fix-live-02: distinguish "exists but empty" from
+        # "missing/unreadable" so the operator stderr signal is
+        # specific. The persistence path is identical (one
+        # ``news_match_log`` row per in-scope candidate, reason
+        # ``armed_file_missing`` for ``news_match_log.reason``
+        # consumer stability — see grep evidence in the f-fix-live-02
+        # handoff).
+        try:
+            arm_exists_empty = (
+                armed_path is not None
+                and Path(armed_path).is_file()
+                and Path(armed_path).stat().st_size == 0
+            )
+        except OSError:
+            arm_exists_empty = False
         for cand in candidates:
             ticker = str(cand.get("ticker", "")).strip().upper()
             cei_raw = cand.get("id")
@@ -496,7 +516,10 @@ def _run_live(
                 news_event_id=nei,
                 reason="armed_file_missing",
             )
-        sys.stderr.write(ARMED_MISSING_STDERR + "\n")
+        if arm_exists_empty:
+            sys.stderr.write(ARMED_EMPTY_STDERR + "\n")
+        else:
+            sys.stderr.write(ARMED_MISSING_STDERR + "\n")
         sys.stderr.flush()
         payload = {
             "mode": "live",

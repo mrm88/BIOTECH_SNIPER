@@ -573,9 +573,9 @@ class TestCheapFirstChainOrderVAL_M3_071:
         )
         assert cooldown_res.passed is True
 
-        # Armed file present (regular readable file) → armed passes.
+        # Armed file present (regular readable non-empty file) → armed passes.
         armed_path = tmp_path / ".armed"
-        armed_path.write_text("")
+        armed_path.write_text("armed_at=2026-04-30T00:00:00Z\n")
         armed_res = armed_gate(armed_path=armed_path)
         assert armed_res.passed is True
 

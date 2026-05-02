@@ -857,7 +857,7 @@ def armed_gate(
     +---------------------------------+--------+----------------------+
     | Resolved target                 | passed | reason               |
     +=================================+========+======================+
-    | Regular readable file           | True   | None                 |
+    | Regular readable file, size>0   | True   | None                 |
     +---------------------------------+--------+----------------------+
     | Symlink → regular readable file | True   | None                 |
     +---------------------------------+--------+----------------------+
@@ -869,6 +869,16 @@ def armed_gate(
     +---------------------------------+--------+----------------------+
     | Regular file with mode 000      | False  | armed_file_missing   |
     +---------------------------------+--------+----------------------+
+    | Regular readable file, size==0  | False  | armed_file_missing   |
+    +---------------------------------+--------+----------------------+
+
+    Per VAL-LIVE-003 (f-fix-live-02), zero-byte armed-marker files
+    are REJECTED — a stray invocation that simply creates an empty
+    file at the canonical path would otherwise arm Stage-2 under
+    existence-only semantics. The canonical reason string
+    ``armed_file_missing`` is preserved across the missing-file and
+    empty-file cases so existing ``news_match_log.reason`` consumers
+    (grep: ``GATE_REASON_ARMED_FILE_MISSING``) remain stable.
 
     Atomicity
     ---------
@@ -966,9 +976,24 @@ def armed_gate(
             armed_path=str(target_path),
         )
 
+    if st.st_size <= 0:
+        logger.info(
+            "stage2_armed_gate: gate_failed %s "
+            "armed_path=%s reason=zero_size size=%d",
+            GATE_REASON_ARMED_FILE_MISSING,
+            target_path,
+            st.st_size,
+        )
+        return ArmedGateResult(
+            passed=False,
+            reason=GATE_REASON_ARMED_FILE_MISSING,
+            armed_path=str(target_path),
+        )
+
     logger.info(
-        "stage2_armed_gate: passed armed_path=%s",
+        "stage2_armed_gate: passed armed_path=%s size=%d",
         target_path,
+        st.st_size,
     )
     return ArmedGateResult(
         passed=True,

@@ -89,7 +89,7 @@ def armed_path_present(tmp_path: Path) -> Path:
 
     p = tmp_path / "armed_present" / ".armed"
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text("")
+    p.write_text("armed_at=2026-04-30T00:00:00Z\n")
     return p
 
 

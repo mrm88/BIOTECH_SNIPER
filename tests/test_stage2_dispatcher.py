@@ -715,7 +715,7 @@ def f_fix_m5_03_temp_db(tmp_path) -> F_FIX_M5_03_Path:
 def f_fix_m5_03_armed_present(tmp_path) -> F_FIX_M5_03_Path:
     p = tmp_path / "armed_present" / ".armed"
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text("")
+    p.write_text("armed_at=2026-04-30T00:00:00Z\n")
     return p
 
 

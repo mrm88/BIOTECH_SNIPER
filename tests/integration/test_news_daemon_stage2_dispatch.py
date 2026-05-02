@@ -631,3 +631,52 @@ def test_run_main_loop_invokes_dispatch_after_cycle(
 
     # Stage-2 dispatch fired during the cycle.
     assert _ensemble_rows(db_path) == 4
+
+
+# ---------------------------------------------------------------------------
+# Test 9 — pdufa-soon scope deduplicates candidates (f-fix-live-02 finding)
+# ---------------------------------------------------------------------------
+
+
+def test_pdufa_soon_dedupes_multiple_pdufa_rows_per_ticker(
+    db_path: Path, armed_path: Path, all_providers
+):
+    """A ticker with multiple ``pdufa_calendar`` rows in the 7-day
+    band MUST be dispatched ONCE, not once-per-pdufa-row.
+
+    Pins the f-fix-live-02 non-blocking finding: the prior pdufa-soon
+    JOIN against ``pdufa_calendar`` could produce duplicate
+    ``candidate_event_id`` rows when a ticker had multiple PDUFA
+    actions queued (e.g., two action_dates within the 7-day window),
+    causing the same chain to be invoked multiple times in one poll
+    cycle and doubling LLM spend. The fix dedupes by candidate id.
+    """
+    from biotech_sniper.exec.stage2_news_dispatch import (
+        dispatch_after_poll_cycle,
+        query_in_scope_candidates,
+    )
+
+    _seed_pdufa(db_path, ticker="DUPE", drug="drugA", days_offset=2)
+    _seed_pdufa(db_path, ticker="DUPE", drug="drugB", days_offset=5)
+    _seed_candidate(db_path, ticker="DUPE", dedup_seed="dupe-1")
+
+    candidates = query_in_scope_candidates(db_path, "pdufa-soon")
+    ids = [c["id"] for c in candidates]
+    assert ids.count(ids[0]) == 1, (
+        f"pdufa-soon scope returned duplicate candidate_event ids: {ids}"
+    )
+    assert len(candidates) == 1
+
+    outcome = dispatch_after_poll_cycle(
+        db_path,
+        armed_path=armed_path,
+        providers=all_providers,
+        enabled_value="1",
+        auto_dispatch_value="1",
+        scope_value="pdufa-soon",
+    )
+
+    assert outcome.invoked is True
+    assert outcome.in_scope_count == 1
+    assert outcome.processed == 1
+    assert _ensemble_rows(db_path) == 4
