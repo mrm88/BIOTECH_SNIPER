@@ -86,14 +86,22 @@ from pathlib import Path
 from typing import Any, Final, Iterable, Mapping, Sequence
 
 from biotech_sniper import db as _db
-from biotech_sniper.config import get_llm_stage2_daily_usd_cap
+from biotech_sniper.config import (
+    get_llm_stage2_daily_usd_cap,
+    get_stage2_probability_threshold,
+)
 from biotech_sniper.paths import DATA_DIR
+from biotech_sniper.sectors.unified_scorer import detect_catalyst_type
 
 __all__ = [
     "DEFAULT_TOP_N",
+    "DEFAULT_TOP_CANDIDATES_N",
     "REQUIRED_KEYS",
+    "TOP_CANDIDATE_ROW_KEYS",
     "build_report",
+    "build_top_candidates_report",
     "format_text_report",
+    "format_top_candidates_text",
     "main",
     "parse_since",
 ]
@@ -482,6 +490,269 @@ def format_text_report(payload: Mapping[str, Any], *, by_source: bool) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Top-candidates mode (f-live-03 / VAL-LIVE-004)
+# ---------------------------------------------------------------------------
+
+
+#: Default ``--n`` size for the ranked top-candidates report.
+DEFAULT_TOP_CANDIDATES_N: Final[int] = 10
+
+
+#: The required JSON keys for each row in ``top_candidates`` per
+#: VAL-LIVE-004.
+TOP_CANDIDATE_ROW_KEYS: Final[tuple[str, ...]] = (
+    "ticker",
+    "candidate_event_id",
+    "mean_probability",
+    "label",
+    "direction",
+    "per_provider",
+    "catalyst_type",
+    "news_headline",
+    "emitted_at",
+    "gate_outcome",
+)
+
+
+_SQL_TOP_CANDIDATES_TPL: Final[str] = (
+    "SELECT "
+    "    ce.id              AS candidate_event_id, "
+    "    ce.ticker          AS ticker, "
+    "    ce.emitted_at      AS emitted_at, "
+    "    ce.source_news_event_id AS source_news_event_id, "
+    "    AVG(es.probability) AS mean_probability, "
+    "    MIN(es.label)       AS label, "
+    "    COUNT(DISTINCT es.direction) AS n_directions, "
+    "    MIN(es.direction)   AS direction_min "
+    "FROM candidate_events ce "
+    "JOIN ensemble_scores_event es ON es.candidate_event_id = ce.id "
+    "WHERE {filter} "
+    "GROUP BY ce.id "
+    "HAVING COUNT(DISTINCT es.provider) = 4 "
+    "   AND COUNT(DISTINCT es.label) = 1 "
+    "   AND MIN(es.label) = 'material' "
+    "   AND AVG(es.probability) >= ? "
+    "ORDER BY mean_probability DESC, ce.id ASC "
+    "LIMIT ?"
+)
+
+
+_SQL_PER_PROVIDER: Final[str] = (
+    "SELECT provider, probability, direction "
+    "FROM ensemble_scores_event "
+    "WHERE candidate_event_id = ? "
+    "ORDER BY provider ASC"
+)
+
+
+_SQL_NEWS_HEADLINE: Final[str] = (
+    "SELECT title FROM news_events WHERE id = ?"
+)
+
+
+_SQL_NEWS_MATCH_LOG_REASON: Final[str] = (
+    "SELECT reason FROM news_match_log "
+    "WHERE news_event_id = ? AND matched = 1 "
+    "ORDER BY id DESC LIMIT 1"
+)
+
+
+_PROVIDER_KEYS: Final[tuple[str, ...]] = (
+    "xai", "anthropic", "gemini", "perplexity",
+)
+
+
+def _resolve_catalyst_from_reason(reason: str | None) -> str | None:
+    """Map a free-form ``news_match_log.reason`` to a canonical catalyst.
+
+    Returns ``None`` when no canonical catalyst can be extracted —
+    the caller should fall back to
+    :func:`unified_scorer.detect_catalyst_type` on the headline.
+    """
+    if not reason:
+        return None
+    upper = reason.upper()
+    for token in ("PDUFA", "READOUT", "LABEL_EXT", "ADCOM", "CONTRACT"):
+        if token in upper:
+            return token
+    return None
+
+
+def build_top_candidates_report(
+    db_path: Path,
+    since: str,
+    *,
+    n: int = DEFAULT_TOP_CANDIDATES_N,
+    threshold: float | None = None,
+    mode: str = "date",
+) -> dict[str, Any]:
+    """Build the ranked top-candidates payload (VAL-LIVE-004).
+
+    Parameters
+    ----------
+    db_path:
+        Path to the SQLite db.
+    since:
+        Either ``YYYY-MM-DD`` (when ``mode='date'``) or an ISO 8601
+        timestamp (when ``mode='datetime'``).
+    n:
+        Maximum number of rows to return.
+    threshold:
+        Mean-probability floor. ``None`` (default) reads
+        :func:`config.get_stage2_probability_threshold` at call time.
+    mode:
+        ``"date"`` (default) → exact-day filter; ``"datetime"`` →
+        lower-bound filter (mirrors :func:`build_report`).
+
+    Returns
+    -------
+    dict
+        ``{"top_candidates": [...], "n_returned": int, "n_requested":
+        int, "as_of": ISO8601}`` — JSON-serialisable, deterministic
+        ordering.
+    """
+    if mode not in ("date", "datetime"):
+        raise ValueError(f"unsupported since mode: {mode!r}")
+    if threshold is None:
+        threshold = float(get_stage2_probability_threshold())
+
+    requested = max(1, int(n))
+    cand_filter = _date_filter(mode, "ce.emitted_at")
+    sql = _SQL_TOP_CANDIDATES_TPL.format(filter=cand_filter)
+
+    conn = _connect_readonly_or_fallback(db_path)
+    try:
+        rows = _safe_query(
+            conn, sql, (since, float(threshold), requested), default=[]
+        )
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            cand_id = int(row["candidate_event_id"])
+            per_provider: dict[str, float | None] = {
+                k: None for k in _PROVIDER_KEYS
+            }
+            directions: list[str] = []
+            prov_rows = _safe_query(
+                conn, _SQL_PER_PROVIDER, (cand_id,), default=[]
+            )
+            for pr in prov_rows:
+                provider = pr["provider"]
+                prob = pr["probability"]
+                if provider in per_provider:
+                    per_provider[provider] = (
+                        float(prob) if prob is not None else None
+                    )
+                if pr["direction"] is not None:
+                    directions.append(pr["direction"])
+
+            unique_dirs = set(directions)
+            if len(unique_dirs) == 1:
+                direction = directions[0]
+            else:
+                direction = None
+
+            news_event_id = int(row["source_news_event_id"])
+            head_rows = _safe_query(
+                conn, _SQL_NEWS_HEADLINE, (news_event_id,), default=[]
+            )
+            news_headline = (
+                head_rows[0]["title"] if head_rows else ""
+            )
+
+            reason_rows = _safe_query(
+                conn, _SQL_NEWS_MATCH_LOG_REASON, (news_event_id,),
+                default=[],
+            )
+            reason = (
+                reason_rows[0]["reason"] if reason_rows else None
+            )
+            catalyst_type = _resolve_catalyst_from_reason(reason)
+            if catalyst_type is None:
+                catalyst_type = detect_catalyst_type(notes=news_headline)
+
+            results.append(
+                {
+                    "ticker": row["ticker"],
+                    "candidate_event_id": cand_id,
+                    "mean_probability": float(row["mean_probability"]),
+                    "label": row["label"],
+                    "direction": direction,
+                    "per_provider": per_provider,
+                    "catalyst_type": catalyst_type,
+                    "news_headline": news_headline,
+                    "emitted_at": row["emitted_at"],
+                    "gate_outcome": "passed",
+                }
+            )
+    finally:
+        conn.close()
+
+    as_of = _to_iso_z(datetime.now(timezone.utc))
+    return {
+        "top_candidates": results,
+        "n_returned": len(results),
+        "n_requested": requested,
+        "as_of": as_of,
+    }
+
+
+_TOP_TABLE_HEADERS: Final[tuple[str, ...]] = (
+    "rank", "ticker", "p_win", "label", "direction",
+    "catalyst", "headline", "emitted_at",
+)
+
+
+def _truncate_headline(headline: str, *, limit: int = 60) -> str:
+    if not headline:
+        return ""
+    if len(headline) <= limit:
+        return headline
+    return headline[:limit]
+
+
+def format_top_candidates_text(payload: Mapping[str, Any]) -> str:
+    """Render the top-candidates payload as a fixed-width table."""
+    rows = payload.get("top_candidates", []) or []
+    if not rows:
+        return (
+            f"# Reading-B top-candidates — as_of={payload.get('as_of', '')}\n"
+            f"(no top candidates — n_requested="
+            f"{int(payload.get('n_requested', 0))})"
+        )
+
+    table: list[list[str]] = [list(_TOP_TABLE_HEADERS)]
+    for idx, row in enumerate(rows, start=1):
+        prob = float(row["mean_probability"])
+        table.append(
+            [
+                str(idx),
+                str(row["ticker"]),
+                f"{prob:.4f}",
+                str(row["label"] or ""),
+                str(row["direction"] or ""),
+                str(row["catalyst_type"] or ""),
+                _truncate_headline(str(row["news_headline"] or "")),
+                str(row["emitted_at"] or ""),
+            ]
+        )
+    widths = [max(len(r[i]) for r in table) for i in range(len(table[0]))]
+    sep = "  ".join("-" * w for w in widths)
+    rendered = [
+        "  ".join(c.ljust(widths[i]) for i, c in enumerate(r))
+        for r in table
+    ]
+    out = [
+        f"# Reading-B top-candidates — as_of={payload.get('as_of', '')} "
+        f"n_returned={int(payload['n_returned'])}/"
+        f"{int(payload['n_requested'])}",
+        rendered[0],
+        sep,
+        *rendered[1:],
+    ]
+    return "\n".join(out)
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -594,6 +865,28 @@ def _build_parser() -> argparse.ArgumentParser:
             "includes per_source_emit_counts."
         ),
     )
+    parser.add_argument(
+        "--mode",
+        choices=("date", "top-candidates"),
+        default="date",
+        help=(
+            "Report mode. 'date' (default) preserves the existing "
+            "Reading-B daily observability output. 'top-candidates' "
+            "produces a ranked list (highest mean ensemble "
+            "probability first) of candidate_events whose 4-provider "
+            "ensemble unanimously labelled them 'material' with mean "
+            "probability >= STAGE2_PROBABILITY_THRESHOLD."
+        ),
+    )
+    parser.add_argument(
+        "--n",
+        type=int,
+        default=DEFAULT_TOP_CANDIDATES_N,
+        help=(
+            "Maximum number of rows in --mode=top-candidates "
+            f"(default {DEFAULT_TOP_CANDIDATES_N})."
+        ),
+    )
     return parser
 
 
@@ -619,17 +912,35 @@ def main(argv: Iterable[str] | None = None) -> int:
     # ``--since`` is the parser default (today UTC YYYY-MM-DD) we
     # also use day-equal mode.
     if args.date is not None:
-        mode, since_iso = ("date", args.date)
+        since_mode, since_iso = ("date", args.date)
     else:
         try:
-            mode, since_iso = parse_since(args.since)
+            since_mode, since_iso = parse_since(args.since)
         except ValueError as exc:  # pragma: no cover - argparse pre-validates
             sys.stderr.write(f"{exc}\n")
             return 2
 
+    if args.mode == "top-candidates":
+        try:
+            payload = build_top_candidates_report(
+                db_path,
+                since_iso,
+                n=max(1, int(args.n)),
+                mode=since_mode,
+            )
+        except sqlite3.OperationalError as exc:
+            sys.stderr.write(f"ERROR: SQLite read failed: {exc}\n")
+            return 3
+
+        if args.json:
+            sys.stdout.write(json.dumps(payload, sort_keys=True) + "\n")
+        else:
+            sys.stdout.write(format_top_candidates_text(payload) + "\n")
+        return 0
+
     try:
         payload = build_report(
-            db_path, since_iso, top_n=top_n, mode=mode
+            db_path, since_iso, top_n=top_n, mode=since_mode
         )
     except sqlite3.OperationalError as exc:
         sys.stderr.write(f"ERROR: SQLite read failed: {exc}\n")
